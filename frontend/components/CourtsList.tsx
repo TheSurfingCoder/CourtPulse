@@ -27,8 +27,8 @@ export default function CourtsList() {
   const fetchCourts = async () => {
     try {
       setLoading(true);
-      // Assuming your backend is running on port 3001
-      const response = await fetch('http://localhost:3003/api/courts');
+      // Backend API endpoint
+      const response = await fetch('http://localhost:5000/api/courts');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

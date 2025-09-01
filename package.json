@@ -1,7 +1,7 @@
 {
   "name": "courtpulse",
   "version": "1.0.0",
-  "description": "CourtPulse - Legal case management system",
+  "description": "CourtPulse - similar to Surfline.com but for all sports",
   "private": true,
   "workspaces": [
     "frontend",
