@@ -1,20 +1,21 @@
-// backend/src/config/database.ts
+// backend/config/database.ts
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
-import developmentConfig from './environments/development.js';
-import productionConfig from './environments/production.js';
 
 dotenv.config();
 
-const env = process.env.NODE_ENV || 'development';
-
-// Select configuration based on environment
-const config = env === 'production' ? productionConfig : developmentConfig;
-const pool = new Pool(config.database);
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  database: process.env.DB_NAME || 'courtpulse',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'password',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
 // Test the connection
 pool.on('connect', () => {
-  console.log(`Connected to ${env} database`);
+  console.log(`Connected to ${process.env.NODE_ENV || 'development'} database`);
 });
 
 pool.on('error', (err) => {
