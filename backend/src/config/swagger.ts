@@ -1,3 +1,4 @@
+// @ts-ignore
 import swaggerJsdoc from 'swagger-jsdoc';
 
 const options = {

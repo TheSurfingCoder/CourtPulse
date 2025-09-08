@@ -15,11 +15,25 @@ const pool = new Pool({
 
 // Test the connection
 pool.on('connect', () => {
-  console.log(`Connected to ${process.env.NODE_ENV || 'development'} database`);
+  console.log(JSON.stringify({
+    level: 'info',
+    message: 'Database connection established',
+    environment: process.env.NODE_ENV || 'development',
+    database: process.env.DB_NAME || 'courtpulse',
+    timestamp: new Date().toISOString()
+  }));
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+  console.error(JSON.stringify({
+    level: 'error',
+    message: 'Unexpected error on idle database client',
+    error: {
+      message: err.message,
+      stack: err.stack
+    },
+    timestamp: new Date().toISOString()
+  }));
   process.exit(-1);
 });
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { CourtModel } from '../models/Court.js';
+import { CourtModel } from '../models/Court';
 
 const router = express.Router();
 
@@ -7,13 +7,37 @@ const router = express.Router();
 router.get('/', async (req: express.Request, res: express.Response) => {
   try {
     const courts = await CourtModel.findAll();
+    
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Successfully fetched courts',
+      count: courts.length,
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+    
     return res.json({
       success: true,
       count: courts.length,
       data: courts
     });
   } catch (error) {
-    console.error('Error fetching courts:', error);
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Failed to fetch courts',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch courts',
@@ -98,12 +122,37 @@ router.post('/', async (req: express.Request, res: express.Response) => {
       is_public: is_public ?? true
     });
 
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Successfully created court',
+      courtId: court.id,
+      courtName: court.name,
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+
     return res.status(201).json({
       success: true,
       data: court
     });
   } catch (error) {
-    console.error('Error creating court:', error);
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Failed to create court',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      request: {
+        method: req.method,
+        url: req.url,
+        body: req.body
+      },
+      timestamp: new Date().toISOString()
+    }));
     return res.status(500).json({
       success: false,
       message: 'Failed to create court',
