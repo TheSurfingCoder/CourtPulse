@@ -1,16 +1,7 @@
 import request from 'supertest';
 import express from 'express';
 import courtRoutes from '../../src/routes/courts';
-
-// Mock the database
-jest.mock('../../config/database', () => ({
-  __esModule: true,
-  default: {
-    query: jest.fn(),
-    connect: jest.fn(),
-    end: jest.fn()
-  }
-}));
+import { setupTestDatabase, teardownTestDatabase, clearTestData, testPool } from '../helpers/database';
 
 // Create a test app
 const app = express();
@@ -18,31 +9,29 @@ app.use(express.json());
 app.use('/api/courts', courtRoutes);
 
 describe('Courts API Integration Tests', () => {
-  let mockPool: any;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockPool = require('../../config/database').default;
+  // Set up test database before all tests
+  beforeAll(async () => {
+    await setupTestDatabase();
   });
+
+  // Clean up after all tests
+  afterAll(async () => {
+    await teardownTestDatabase();
+  });
+
+  // Clear test data before each test
+  beforeEach(async () => {
+    await clearTestData();
+  });
+
 
   describe('GET /api/courts', () => {
     it('should return all courts', async () => {
-      const mockCourts = [
-        {
-          id: 1,
-          name: 'Test Court',
-          type: 'basketball',
-          lat: 40.7589,
-          lng: -73.9851,
-          address: 'Test Address',
-          surface: 'asphalt',
-          is_public: true,
-          created_at: new Date(),
-          updated_at: new Date()
-        }
-      ];
-
-      mockPool.query.mockResolvedValue({ rows: mockCourts });
+      // Insert test data directly into the database using PostGIS
+      await testPool.query(`
+        INSERT INTO courts (name, type, location, address, surface, is_public)
+        VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
+      `, ['Test Court', 'basketball', -73.9851, 40.7589, 'Test Address', 'asphalt', true]);
 
       const response = await request(app)
         .get('/api/courts')
@@ -51,6 +40,8 @@ describe('Courts API Integration Tests', () => {
       expect(response.body).toHaveProperty('success', true);
       expect(response.body).toHaveProperty('data');
       expect(response.body).toHaveProperty('count');
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].name).toBe('Test Court');
     });
   });
 
@@ -93,21 +84,6 @@ describe('Courts API Integration Tests', () => {
     });
 
     it('should create court with valid data', async () => {
-      const mockCourt = {
-        id: 1,
-        name: 'New Court',
-        type: 'basketball',
-        lat: 40.7589,
-        lng: -73.9851,
-        address: 'Test Address',
-        surface: 'asphalt',
-        is_public: true,
-        created_at: new Date(),
-        updated_at: new Date()
-      };
-
-      mockPool.query.mockResolvedValue({ rows: [mockCourt] });
-
       const response = await request(app)
         .post('/api/courts')
         .send({
@@ -121,6 +97,13 @@ describe('Courts API Integration Tests', () => {
 
       expect(response.body).toHaveProperty('success', true);
       expect(response.body).toHaveProperty('data');
+      expect(response.body.data.name).toBe('New Court');
+      expect(response.body.data.type).toBe('basketball');
+
+      // Verify the court was actually saved to the database
+      const dbResult = await testPool.query('SELECT * FROM courts WHERE name = $1', ['New Court']);
+      expect(dbResult.rows).toHaveLength(1);
+      expect(dbResult.rows[0].name).toBe('New Court');
     });
   });
 
