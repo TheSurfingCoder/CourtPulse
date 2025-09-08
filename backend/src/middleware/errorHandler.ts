@@ -28,13 +28,22 @@ export const errorHandler = (
   error.message = err.message;
 
   // Log error for debugging
-  console.error('Error:', {
-    message: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
+  console.error(JSON.stringify({
+    level: 'error',
+    message: 'Request error occurred',
+    error: {
+      name: err.name,
+      message: err.message,
+      stack: err.stack
+    },
+    request: {
+      method: req.method,
+      url: req.url,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip
+    },
     timestamp: new Date().toISOString()
-  });
+  }));
 
   // Handle specific error types
   if (err.name === 'ValidationError') {
