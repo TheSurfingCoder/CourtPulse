@@ -12,7 +12,7 @@ RUN npm ci
 COPY . .
 
 # Build the TypeScript code
-RUN npx tsc --project backend/tsconfig.json
+RUN ./node_modules/.bin/tsc --project backend/tsconfig.json
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
