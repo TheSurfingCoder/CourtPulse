@@ -4,21 +4,17 @@
   "description": "CourtPulse - similar to Surfline.com but for all sports",
   "private": true,
   "workspaces": [
-    "frontend",
-    "backend"
+    "frontend"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npm run dev --workspace=frontend",
     "dev:frontend": "npm run dev --workspace=frontend",
-    "dev:backend": "npm run dev --workspace=backend",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspace=frontend",
     "build:frontend": "npm run build --workspace=frontend",
-    "build:backend": "npm run build --workspace=backend",
-    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start": "npm run start --workspace=frontend",
     "start:frontend": "npm run start --workspace=frontend",
-    "start:backend": "npm run start --workspace=backend",
-    "test": "npm run test --workspaces",
-    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspace=frontend",
+    "lint": "npm run lint --workspace=frontend",
     "docker:dev": "docker-compose -f docker/dev/docker-compose.yml up --build",
     "docker:staging": "docker-compose -f docker/staging/docker-compose.yml up --build",
     "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build"
