@@ -4,9 +4,9 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
-import courtRoutes from './src/routes/courts';
-import { specs } from './src/config/swagger';
-import { errorHandler, notFound } from './src/middleware/errorHandler';
+import courtRoutes from './src/routes/courts.js';
+import { specs } from './src/config/swagger.js';
+import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 //loads env variables from .env into process.env
 dotenv.config();
 const app = express();

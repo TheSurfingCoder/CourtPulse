@@ -1,5 +1,5 @@
 import express from 'express';
-import { CourtModel } from '../models/Court';
+import { CourtModel } from '../models/Court.js';
 
 const router = express.Router();
 

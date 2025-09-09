@@ -5,9 +5,9 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 
-import courtRoutes from './routes/courts';
-import { specs } from './config/swagger';
-import { errorHandler, notFound } from './middleware/errorHandler';
+import courtRoutes from './src/routes/courts.js';
+import { specs } from './src/config/swagger.js';
+import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 
 //loads env variables from .env into process.env
 dotenv.config();
