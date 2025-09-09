@@ -1,23 +1,6 @@
-import pool from '../../config/database';
-
-export interface Court {
-
-    id: number;
-    name: string; 
-    type: string; 
-    location: {lat: number; lng: number}
-    address: string;
-    surface: string;
-    is_public: boolean;
-    created_at: Date;
-    updated_at: Date;
-
-}
-
+import pool from '../../config/database.js';
 export class CourtModel {
-
-    static async findAll(): Promise<Court[]> {
-
+    static async findAll() {
         const result = await pool.query(`
                 SELECT
                     id, name, type,
@@ -26,13 +9,10 @@ export class CourtModel {
                     address, surface, is_public, created_at, updated_at
                 FROM courts
                 ORDER BY created_at DESC
-            `)
-        
-            return result.rows
-
+            `);
+        return result.rows;
     }
-
-    static async findById(id: number): Promise<Court | null> {
+    static async findById(id) {
         const result = await pool.query(`
             SELECT 
                 id, name, type, 
@@ -45,8 +25,7 @@ export class CourtModel {
         `, [id]);
         return result.rows[0] || null;
     }
-
-    static async findByType(type: string): Promise<Court[]> {
+    static async findByType(type) {
         const result = await pool.query(`
             SELECT 
                 id, name, type, 
@@ -60,8 +39,7 @@ export class CourtModel {
         `, [type]);
         return result.rows;
     }
-
-    static async create(courtData: Omit<Court, 'id' | 'created_at' | 'updated_at'>): Promise<Court> {
+    static async create(courtData) {
         const { name, type, location, address, surface, is_public } = courtData;
         const result = await pool.query(`
             INSERT INTO courts (name, type, location, address, surface, is_public)
@@ -75,12 +53,10 @@ export class CourtModel {
         `, [name, type, location.lng, location.lat, address, surface, is_public]);
         return result.rows[0];
     }
-
-    static async update(id: number, courtData: Partial<Omit<Court, 'id' | 'created_at' | 'updated_at'>>): Promise<Court | null> {
+    static async update(id, courtData) {
         const fields = [];
         const values = [];
         let paramCount = 1;
-
         if (courtData.name) {
             fields.push(`name = $${paramCount++}`);
             values.push(courtData.name);
@@ -105,12 +81,10 @@ export class CourtModel {
             fields.push(`is_public = $${paramCount++}`);
             values.push(courtData.is_public);
         }
-
-        if (fields.length === 0) return null;
-
+        if (fields.length === 0)
+            return null;
         fields.push(`updated_at = NOW()`);
         values.push(id);
-
         const result = await pool.query(`
             UPDATE courts 
             SET ${fields.join(', ')}
@@ -122,13 +96,11 @@ export class CourtModel {
                 address, surface, is_public, 
                 created_at, updated_at
         `, values);
-
         return result.rows[0] || null;
     }
-
-    static async delete(id: number): Promise<boolean> {
+    static async delete(id) {
         const result = await pool.query('DELETE FROM courts WHERE id = $1', [id]);
         return (result.rowCount ?? 0) > 0;
     }
-
 }
+//# sourceMappingURL=Court.js.map
