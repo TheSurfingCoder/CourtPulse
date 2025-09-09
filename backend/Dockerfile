@@ -27,4 +27,4 @@ USER nextjs
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "npm run start:backend"]
+CMD ["sh", "-c", "cd backend && npm start"]
