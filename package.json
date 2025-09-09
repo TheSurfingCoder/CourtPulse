@@ -24,7 +24,8 @@
     "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "typescript": "^5.0.0"
   },
   "engines": {
     "node": ">=18.0.0",
