@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/tests'],
@@ -21,5 +21,11 @@ module.exports = {
   testTimeout: 10000,
   moduleNameMapping: {
     '^@/(.*)$': '<rootDir>/src/$1'
+  },
+  extensionsToTreatAsEsm: ['.ts'],
+  globals: {
+    'ts-jest': {
+      useESM: true
+    }
   }
 };

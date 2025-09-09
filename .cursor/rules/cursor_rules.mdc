@@ -1,0 +1,17 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+-All logging should have a structured JSON response. E.g., console.log(JSON.stringify({
+  event: 'user_registered',
+  userId: user.id,
+  timestamp: new Date().toISOString()
+}));
+-logging is important. here is a rule of thumb of what needs to be captured by logging: 
+Rule of thumb:
+-Log errors always.
+-Log major lifecycle events (startup, shutdown, deploys).
+-Log key business events (user signup, payment attempt, job completed).
+-Don’t log every single function call — that’s too noisy.
+-

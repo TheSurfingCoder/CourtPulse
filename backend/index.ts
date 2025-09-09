@@ -36,8 +36,19 @@ app.use(notFound);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`API Documentation available at http://localhost:${PORT}/api-docs`);
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Server started successfully',
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    }));
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'API documentation available',
+      url: `http://localhost:${PORT}/api-docs`,
+      timestamp: new Date().toISOString()
+    }));
   });
 
 
