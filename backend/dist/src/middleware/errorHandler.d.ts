@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 export interface AppError extends Error {
     statusCode?: number;
     isOperational?: boolean;
+    code?: number;
 }
 export declare class CustomError extends Error implements AppError {
     statusCode: number;

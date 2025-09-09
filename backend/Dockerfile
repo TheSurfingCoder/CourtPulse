@@ -12,7 +12,7 @@ RUN npm ci
 COPY . .
 
 # Build the TypeScript code
-RUN ./node_modules/.bin/tsc --project backend/tsconfig.json
+RUN npm run build
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
@@ -27,4 +27,4 @@ USER nextjs
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "cd backend && npm start"]
+CMD ["npm", "start"]

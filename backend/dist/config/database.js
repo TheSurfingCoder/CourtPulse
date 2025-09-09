@@ -1,7 +1,13 @@
 // backend/config/database.ts
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
-dotenv.config();
+// In test environment, load from .env.test
+if (process.env.NODE_ENV === 'test') {
+    dotenv.config({ path: '.env.test' });
+}
+else {
+    dotenv.config();
+}
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
