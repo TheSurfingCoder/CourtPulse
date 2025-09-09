@@ -12,6 +12,21 @@ jobs:
     name: Test and Build
     runs-on: ubuntu-latest  # Uses a fresh Ubuntu computer in the cloud
     
+    # Add PostgreSQL database service
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: courtpulse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
     steps:
       # Step 1: Get your code
       - name: Checkout code
@@ -31,6 +46,12 @@ jobs:
       # Step 4: Run your tests
       - name: Run backend tests
         run: npm run test --workspace=backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: courtpulse_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
 
       # Step 5: Build your project to make sure it compiles
       - name: Build project
