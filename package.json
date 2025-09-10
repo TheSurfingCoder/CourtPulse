@@ -29,13 +29,29 @@
     "type-check:frontend": "npm run type-check --workspace=frontend",
     "docker:dev": "docker-compose -f docker/dev/docker-compose.yml up --build",
     "docker:staging": "docker-compose -f docker/staging/docker-compose.yml up --build",
-    "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build"
+    "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.6"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "backend/**/*.{ts,js}": [
+      "cd backend && npm run lint",
+      "cd backend && npm run type-check"
+    ],
+    "frontend/**/*.{ts,tsx,js,jsx}": [
+      "npm run lint --workspace=frontend",
+      "npm run type-check --workspace=frontend"
+    ],
+    "backend/**/*.{ts,js}": [
+      "cd backend && npm test -- --passWithNoTests"
+    ]
   }
 }
