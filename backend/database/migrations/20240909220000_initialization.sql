@@ -1,7 +1,7 @@
 -- Up migration: Create courts table with PostGIS support
 CREATE EXTENSION IF NOT EXISTS postgis;
 
-CREATE TABLE courts (
+CREATE TABLE IF NOT EXISTS courts (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   type VARCHAR(50) NOT NULL,
@@ -13,14 +13,14 @@ CREATE TABLE courts (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Create spatial index for fast geographic queries
-CREATE INDEX idx_courts_location ON courts USING GIST (location);
+-- Create spatial index for fast geographic queries (only if it doesn't exist)
+CREATE INDEX IF NOT EXISTS idx_courts_location ON courts USING GIST (location);
 
--- Create index for court type filtering
-CREATE INDEX idx_courts_type ON courts (type);
+-- Create index for court type filtering (only if it doesn't exist)
+CREATE INDEX IF NOT EXISTS idx_courts_type ON courts (type);
 
--- Create index for public/private filtering
-CREATE INDEX idx_courts_is_public ON courts (is_public);
+-- Create index for public/private filtering (only if it doesn't exist)
+CREATE INDEX IF NOT EXISTS idx_courts_is_public ON courts (is_public);
 
 -- Down migration: Drop courts table and PostGIS extension
 DROP TABLE IF EXISTS courts;
