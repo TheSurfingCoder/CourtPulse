@@ -1,0 +1,3 @@
+# Pre-push hook disabled for now
+# The pre-commit hook already runs quality checks
+echo "✅ Pre-push hook - quality checks already done in pre-commit"

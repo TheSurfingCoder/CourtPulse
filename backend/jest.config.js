@@ -7,7 +7,9 @@ export default {
     '**/?(*.)+(spec|test).ts'
   ],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.ts$': ['ts-jest', {
+      useESM: true
+    }],
   },
   collectCoverageFrom: [
     'src/**/*.ts',
@@ -19,13 +21,9 @@ export default {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   testTimeout: 10000,
+  extensionsToTreatAsEsm: ['.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   moduleNameMapping: {
     '^@/(.*)$': '<rootDir>/src/$1'
-  },
-  extensionsToTreatAsEsm: ['.ts'],
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
   }
 };
