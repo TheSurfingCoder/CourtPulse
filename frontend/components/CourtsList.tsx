@@ -28,7 +28,8 @@ export default function CourtsList() {
     try {
       setLoading(true);
       // Backend API endpoint
-      const response = await fetch('http://localhost:5001/api/courts');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://courtpulse-backend.onrender.com';
+      const response = await fetch(`${apiUrl}/api/courts`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
