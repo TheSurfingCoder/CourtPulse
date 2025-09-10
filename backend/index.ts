@@ -12,6 +12,42 @@ import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 //loads env variables from .env into process.env
 dotenv.config();
 
+// Import migration function
+async function runMigrations() {
+  try {
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Starting database migrations',
+      timestamp: new Date().toISOString()
+    }));
+    
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
+    // Run migrations
+    const { stdout, stderr } = await execAsync('npm run migrate:prod');
+    
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Database migrations completed successfully',
+      output: stdout,
+      timestamp: new Date().toISOString()
+    }));
+    
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Database migration failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    }));
+    
+    // Don't exit the process - let the app start anyway
+    // This allows the app to run even if migrations fail
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -35,7 +71,13 @@ app.use('/api/courts', courtRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+// Start the server with migrations
+async function startServer() {
+  // Run migrations first
+  await runMigrations();
+  
+  // Start the server
+  app.listen(PORT, () => {
     console.log(JSON.stringify({
       level: 'info',
       message: 'Server started successfully',
@@ -50,5 +92,17 @@ app.listen(PORT, () => {
       timestamp: new Date().toISOString()
     }));
   });
+}
+
+// Start the application
+startServer().catch((error) => {
+  console.error(JSON.stringify({
+    level: 'error',
+    message: 'Failed to start server',
+    error: error instanceof Error ? error.message : 'Unknown error',
+    timestamp: new Date().toISOString()
+  }));
+  process.exit(1);
+});
 
 
