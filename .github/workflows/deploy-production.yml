@@ -11,6 +11,21 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     
+    # Add PostgreSQL database service with PostGIS
+    services:
+      postgres:
+        image: postgis/postgis:17-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: courtpulse_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,6 +44,12 @@ jobs:
 
       - name: Run tests
         run: npm run test:ci
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: courtpulse_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
 
       - name: Run linting
         run: npm run lint
