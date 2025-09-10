@@ -29,6 +29,8 @@
     "type-check:frontend": "npm run type-check --workspace=frontend",
     "docker:dev": "docker-compose -f docker/dev/docker-compose.yml up --build",
     "docker:staging": "docker-compose -f docker/staging/docker-compose.yml up --build",
+    "docker:staging:down": "docker-compose -f docker/staging/docker-compose.yml down",
+    "docker:staging:logs": "docker-compose -f docker/staging/docker-compose.yml logs -f",
     "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build",
     "prepare": "husky"
   },

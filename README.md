@@ -2,6 +2,10 @@
 
 A sports court discovery and management platform - similar to Surfline.com but for all sports.
 
+## 🚀 Staging Environment
+- **Backend**: https://courtpulse-staging-backend.onrender.com
+- **Frontend**: https://courtpulse-staging.vercel.app
+
 ## 🏗️ Architecture
 
 - **Frontend**: Next.js 14 with TypeScript
