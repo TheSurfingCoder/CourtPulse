@@ -8,7 +8,7 @@ export class CustomError extends Error {
         Error.captureStackTrace(this, this.constructor);
     }
 }
-export const errorHandler = (err, req, res, next) => {
+export const errorHandler = (err, req, res) => {
     let error = { ...err };
     error.message = err.message;
     // Log error for debugging

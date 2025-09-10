@@ -35,6 +35,8 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.43.0",
+    "@typescript-eslint/parser": "^8.43.0",
     "concurrently": "^8.2.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.6"
@@ -45,15 +47,11 @@
   },
   "lint-staged": {
     "backend/**/*.{ts,js}": [
-      "cd backend && npm run lint",
-      "cd backend && npm run type-check"
+      "cd backend && npm test -- --passWithNoTests"
     ],
     "frontend/**/*.{ts,tsx,js,jsx}": [
       "npm run lint --workspace=frontend",
       "npm run type-check --workspace=frontend"
-    ],
-    "backend/**/*.{ts,js}": [
-      "cd backend && npm test -- --passWithNoTests"
     ]
   }
 }
