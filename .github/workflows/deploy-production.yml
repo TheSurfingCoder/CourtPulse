@@ -21,8 +21,11 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
+      
+      - name: Install backend dependencies
+        run: cd backend && npm ci
 
       - name: Run tests
         run: npm run test:ci
