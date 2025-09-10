@@ -1,5 +1,5 @@
 import express from 'express';
-import { CourtModel } from '../models/Court.js';
+import { CourtModel } from '../models/Court';
 const router = express.Router();
 // GET /api/courts - Get all courts
 router.get('/', async (req, res) => {

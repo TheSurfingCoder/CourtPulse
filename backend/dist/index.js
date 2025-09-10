@@ -33,7 +33,7 @@ async function runMigrations() {
         // Set DATABASE_URL environment variable for the migration command
         const env = { ...process.env, DATABASE_URL: databaseUrl };
         // Run migrations using node-pg-migrate
-        const { stdout, stderr } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
+        const { stdout } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
         console.log(JSON.stringify({
             level: 'info',
             message: 'Database migrations completed successfully',
