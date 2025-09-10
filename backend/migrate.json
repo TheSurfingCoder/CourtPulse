@@ -1,0 +1,6 @@
+{
+  "migrations-dir": "database/migrations",
+  "migration-file-language": "sql",
+  "template-file-name": "database/migrations/migration-template.sql",
+  "database-url-var": "DATABASE_URL"
+}
