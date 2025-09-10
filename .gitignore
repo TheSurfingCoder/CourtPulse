@@ -66,3 +66,4 @@ Thumbs.db
 # database environments
 development.ts 
 development.js 
+.vercel
