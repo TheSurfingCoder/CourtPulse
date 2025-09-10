@@ -43,9 +43,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Step 4: Run your tests
+      # Step 4: Run linting and type checking
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run type checking
+        run: npm run type-check
+
+      # Step 5: Run your tests
       - name: Run backend tests
-        run: npm run test --workspace=backend
+        run: npm run test:backend:ci
         env:
           DB_HOST: localhost
           DB_PORT: 5432
@@ -53,6 +60,9 @@ jobs:
           DB_USER: postgres
           DB_PASSWORD: postgres
 
-      # Step 5: Build your project to make sure it compiles
+      - name: Run frontend tests
+        run: npm run test:frontend
+
+      # Step 6: Build your project to make sure it compiles
       - name: Build project
         run: npm run build
