@@ -13,8 +13,11 @@
     "test:ci": "jest --ci --coverage --watchAll=false",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",
-    "migrate": "NODE_ENV=development tsx scripts/db/migrate.ts",
-    "migrate:prod": "NODE_ENV=production tsx scripts/db/migrate.ts"
+    "migrate": "NODE_ENV=development node-pg-migrate up -c migrate.json",
+    "migrate:prod": "NODE_ENV=production node-pg-migrate up -c migrate.json",
+    "migrate:up": "NODE_ENV=production node-pg-migrate up -c migrate.json",
+    "migrate:down": "NODE_ENV=production node-pg-migrate down -c migrate.json",
+    "migrate:create": "node-pg-migrate create -c migrate.json"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -38,6 +41,7 @@
     "@types/swagger-ui-express": "^4.1.8",
     "eslint": "^8.0.0",
     "jest": "^29.0.0",
+    "node-pg-migrate": "^8.0.3",
     "nodemon": "^3.0.0",
     "supertest": "^6.0.0",
     "ts-jest": "^29.1.0",

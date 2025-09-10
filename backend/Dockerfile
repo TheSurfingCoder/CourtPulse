@@ -14,6 +14,9 @@ COPY . .
 # Build the TypeScript code
 RUN npm run build
 
+# Run database migrations (build hook)
+RUN npm run migrate:prod || echo "Migration failed or already up to date"
+
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
 
