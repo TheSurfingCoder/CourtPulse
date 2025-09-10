@@ -25,8 +25,24 @@ async function runMigrations() {
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
 
+    // Construct DATABASE_URL from individual environment variables
+    const dbHost = process.env.DB_HOST;
+    const dbPort = process.env.DB_PORT;
+    const dbName = process.env.DB_NAME;
+    const dbUser = process.env.DB_USER;
+    const dbPassword = process.env.DB_PASSWORD;
+
+    if (!dbHost || !dbPort || !dbName || !dbUser || !dbPassword) {
+      throw new Error('Missing required database environment variables');
+    }
+
+    const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
+    
+    // Set DATABASE_URL environment variable for the migration command
+    const env = { ...process.env, DATABASE_URL: databaseUrl };
+
     // Run migrations using node-pg-migrate
-    const { stdout, stderr } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql');
+    const { stdout, stderr } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
 
     console.log(JSON.stringify({
       level: 'info',
