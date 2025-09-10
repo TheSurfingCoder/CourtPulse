@@ -21,8 +21,9 @@ export default {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   testTimeout: 10000,
+  extensionsToTreatAsEsm: ['.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   moduleNameMapping: {
     '^@/(.*)$': '<rootDir>/src/$1'
-  },
-  extensionsToTreatAsEsm: ['.ts']
+  }
 };
