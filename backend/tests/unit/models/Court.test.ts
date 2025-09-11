@@ -1,4 +1,4 @@
-import { CourtModel } from '../../../src/models/Court.js';
+import { CourtModel } from '../../../src/models/Court';
 
 // Mock the database pool - this replaces the real database with fake functions
 jest.mock('../../../config/database', () => ({
