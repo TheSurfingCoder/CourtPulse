@@ -1,4 +1,4 @@
-export default {
+module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/tests'],
@@ -8,7 +8,7 @@ export default {
   ],
   transform: {
     '^.+\\.ts$': ['ts-jest', {
-      useESM: true
+      useESM: false
     }],
   },
   collectCoverageFrom: [
@@ -21,9 +21,8 @@ export default {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   testTimeout: 10000,
-  extensionsToTreatAsEsm: ['.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1'
   }
 };
