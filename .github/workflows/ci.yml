@@ -40,8 +40,11 @@ jobs:
           cache: 'npm'  # This makes it faster by remembering installed packages
 
       # Step 3: Install your project dependencies
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
+      
+      - name: Install backend dependencies
+        run: cd backend && npm ci
 
       # Step 4: Run linting and type checking
       - name: Run linting

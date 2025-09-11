@@ -1,4 +1,7 @@
-export class CustomError extends Error {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.notFound = exports.errorHandler = exports.CustomError = void 0;
+class CustomError extends Error {
     statusCode;
     isOperational;
     constructor(message, statusCode = 500) {
@@ -8,7 +11,8 @@ export class CustomError extends Error {
         Error.captureStackTrace(this, this.constructor);
     }
 }
-export const errorHandler = (err, req, res, next) => {
+exports.CustomError = CustomError;
+const errorHandler = (err, req, res) => {
     let error = { ...err };
     error.message = err.message;
     // Log error for debugging
@@ -55,8 +59,10 @@ export const errorHandler = (err, req, res, next) => {
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 };
-export const notFound = (req, res, next) => {
+exports.errorHandler = errorHandler;
+const notFound = (req, res, next) => {
     const error = new CustomError(`Route ${req.originalUrl} not found`, 404);
     next(error);
 };
+exports.notFound = notFound;
 //# sourceMappingURL=errorHandler.js.map
