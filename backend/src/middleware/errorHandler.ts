@@ -22,8 +22,7 @@ export class CustomError extends Error implements AppError {
 export const errorHandler = (
   err: AppError,
   req: Request,
-  res: Response,
-  next: NextFunction
+  res: Response
 ) => {
   let error = { ...err };
   error.message = err.message;

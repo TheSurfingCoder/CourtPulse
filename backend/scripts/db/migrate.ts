@@ -1,12 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import pool from '../../config/database.js';
+import pool from '../../config/database';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = process.cwd();
 
-const MIGRATIONS_DIR = path.join(__dirname, '../../database/migrations');
+const MIGRATIONS_DIR = path.join(__dirname, 'database/migrations');
 
 interface Migration {
   id: number;
@@ -120,6 +118,6 @@ async function migrate(): Promise<void> {
 }
 
 // Run migrations if this script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   migrate();
 }

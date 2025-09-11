@@ -1,10 +1,15 @@
-import express from 'express';
-import { CourtModel } from '../models/Court.js';
-const router = express.Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const Court_1 = require("../models/Court");
+const router = express_1.default.Router();
 // GET /api/courts - Get all courts
 router.get('/', async (req, res) => {
     try {
-        const courts = await CourtModel.findAll();
+        const courts = await Court_1.CourtModel.findAll();
         console.log(JSON.stringify({
             level: 'info',
             message: 'Successfully fetched courts',
@@ -52,7 +57,7 @@ router.get('/:id', async (req, res) => {
                 message: 'Invalid court ID'
             });
         }
-        const court = await CourtModel.findById(id);
+        const court = await Court_1.CourtModel.findById(id);
         if (!court) {
             return res.status(404).json({
                 success: false,
@@ -77,7 +82,7 @@ router.get('/:id', async (req, res) => {
 router.get('/type/:type', async (req, res) => {
     try {
         const { type } = req.params;
-        const courts = await CourtModel.findByType(type);
+        const courts = await Court_1.CourtModel.findByType(type);
         return res.json({
             success: true,
             count: courts.length,
@@ -104,7 +109,7 @@ router.post('/', async (req, res) => {
                 message: 'Missing required fields: name, type, location (lat/lng)'
             });
         }
-        const court = await CourtModel.create({
+        const court = await Court_1.CourtModel.create({
             name,
             type,
             location,
@@ -160,7 +165,7 @@ router.put('/:id', async (req, res) => {
                 message: 'Invalid court ID'
             });
         }
-        const court = await CourtModel.update(id, req.body);
+        const court = await Court_1.CourtModel.update(id, req.body);
         if (!court) {
             return res.status(404).json({
                 success: false,
@@ -191,7 +196,7 @@ router.delete('/:id', async (req, res) => {
                 message: 'Invalid court ID'
             });
         }
-        const deleted = await CourtModel.delete(id);
+        const deleted = await Court_1.CourtModel.delete(id);
         if (!deleted) {
             return res.status(404).json({
                 success: false,
@@ -212,5 +217,5 @@ router.delete('/:id', async (req, res) => {
         });
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=courts.js.map

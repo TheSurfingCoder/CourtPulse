@@ -1,14 +1,52 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import dotenv from 'dotenv';
-import swaggerUi from 'swagger-ui-express';
-import courtRoutes from './src/routes/courts.js';
-import { specs } from './src/config/swagger.js';
-import { errorHandler, notFound } from './src/middleware/errorHandler.js';
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const helmet_1 = __importDefault(require("helmet"));
+const morgan_1 = __importDefault(require("morgan"));
+const dotenv_1 = __importDefault(require("dotenv"));
+const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
+const courts_js_1 = __importDefault(require("./src/routes/courts.js"));
+const swagger_js_1 = require("./src/config/swagger.js");
+const errorHandler_js_1 = require("./src/middleware/errorHandler.js");
 //loads env variables from .env into process.env
-dotenv.config();
+dotenv_1.default.config();
 // Import migration function
 async function runMigrations() {
     try {
@@ -17,8 +55,8 @@ async function runMigrations() {
             message: 'Starting database migrations',
             timestamp: new Date().toISOString()
         }));
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
+        const { exec } = await Promise.resolve().then(() => __importStar(require('child_process')));
+        const { promisify } = await Promise.resolve().then(() => __importStar(require('util')));
         const execAsync = promisify(exec);
         // Construct DATABASE_URL from individual environment variables
         const dbHost = process.env.DB_HOST;
@@ -33,7 +71,7 @@ async function runMigrations() {
         // Set DATABASE_URL environment variable for the migration command
         const env = { ...process.env, DATABASE_URL: databaseUrl };
         // Run migrations using node-pg-migrate
-        const { stdout, stderr } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
+        const { stdout } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
         console.log(JSON.stringify({
             level: 'info',
             message: 'Database migrations completed successfully',
@@ -52,23 +90,23 @@ async function runMigrations() {
         // This allows the app to run even if migrations fail
     }
 }
-const app = express();
+const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
-app.use(helmet());
-app.use(cors());
-app.use(morgan('combined'));
-app.use(express.json());
+app.use((0, helmet_1.default)());
+app.use((0, cors_1.default)());
+app.use((0, morgan_1.default)('combined'));
+app.use(express_1.default.json());
 // Swagger API Documentation
 //When user visits http://localhost:5000/api-docs swagger UI loads with API docs
 //Developers can see all endpoints, test them, and understand API
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
+app.use('/api-docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_js_1.specs));
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
-app.use('/api/courts', courtRoutes);
+app.use('/api/courts', courts_js_1.default);
 // Error handling middleware (must be last)
-app.use(notFound);
-app.use(errorHandler);
+app.use(errorHandler_js_1.notFound);
+app.use(errorHandler_js_1.errorHandler);
 // Start the server with migrations
 async function startServer() {
     // Run migrations first
