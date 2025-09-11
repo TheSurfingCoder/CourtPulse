@@ -1,7 +1,7 @@
 import request from 'supertest';
 import express from 'express';
-import courtRoutes from '../../src/routes/courts';
-import { setupTestDatabase, teardownTestDatabase, clearTestData, testPool } from '../helpers/database';
+import courtRoutes from '../../src/routes/courts.js';
+import { setupTestDatabase, teardownTestDatabase, clearTestData, testPool } from '../helpers/database.js';
 
 // Create a test app
 const app = express();
