@@ -1,7 +1,13 @@
-import pool from '../../config/database';
-export class CourtModel {
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CourtModel = void 0;
+const database_1 = __importDefault(require("../../config/database"));
+class CourtModel {
     static async findAll() {
-        const result = await pool.query(`
+        const result = await database_1.default.query(`
                 SELECT
                     id, name, type,
                     ST_X(location) as lat, 
@@ -13,7 +19,7 @@ export class CourtModel {
         return result.rows;
     }
     static async findById(id) {
-        const result = await pool.query(`
+        const result = await database_1.default.query(`
             SELECT 
                 id, name, type, 
                 ST_X(location) as lat, 
@@ -26,7 +32,7 @@ export class CourtModel {
         return result.rows[0] || null;
     }
     static async findByType(type) {
-        const result = await pool.query(`
+        const result = await database_1.default.query(`
             SELECT 
                 id, name, type, 
                 ST_X(location) as lat, 
@@ -41,7 +47,7 @@ export class CourtModel {
     }
     static async create(courtData) {
         const { name, type, location, address, surface, is_public } = courtData;
-        const result = await pool.query(`
+        const result = await database_1.default.query(`
             INSERT INTO courts (name, type, location, address, surface, is_public)
             VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
             RETURNING 
@@ -85,7 +91,7 @@ export class CourtModel {
             return null;
         fields.push(`updated_at = NOW()`);
         values.push(id);
-        const result = await pool.query(`
+        const result = await database_1.default.query(`
             UPDATE courts 
             SET ${fields.join(', ')}
             WHERE id = $${paramCount}
@@ -99,8 +105,9 @@ export class CourtModel {
         return result.rows[0] || null;
     }
     static async delete(id) {
-        const result = await pool.query('DELETE FROM courts WHERE id = $1', [id]);
+        const result = await database_1.default.query('DELETE FROM courts WHERE id = $1', [id]);
         return (result.rowCount ?? 0) > 0;
     }
 }
+exports.CourtModel = CourtModel;
 //# sourceMappingURL=Court.js.map

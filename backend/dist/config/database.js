@@ -1,14 +1,19 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
 // backend/config/database.ts
-import { Pool } from 'pg';
-import dotenv from 'dotenv';
+const pg_1 = require("pg");
+const dotenv_1 = __importDefault(require("dotenv"));
 // In test environment, load from .env.test
 if (process.env.NODE_ENV === 'test') {
-    dotenv.config({ path: '.env.test' });
+    dotenv_1.default.config({ path: '.env.test' });
 }
 else {
-    dotenv.config();
+    dotenv_1.default.config();
 }
-const pool = new Pool({
+const pool = new pg_1.Pool({
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
     database: process.env.DB_NAME || 'courtpulse',
@@ -38,5 +43,5 @@ pool.on('error', (err) => {
     }));
     process.exit(-1);
 });
-export default pool;
+exports.default = pool;
 //# sourceMappingURL=database.js.map

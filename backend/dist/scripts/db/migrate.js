@@ -1,10 +1,13 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import pool from '../../config/database.js';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const MIGRATIONS_DIR = path.join(__dirname, '../../database/migrations');
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const promises_1 = __importDefault(require("fs/promises"));
+const path_1 = __importDefault(require("path"));
+const database_1 = __importDefault(require("../../config/database"));
+const __dirname = process.cwd();
+const MIGRATIONS_DIR = path_1.default.join(__dirname, 'database/migrations');
 // Create migrations tracking table if it doesn't exist
 async function createMigrationsTable() {
     const query = `
@@ -14,17 +17,17 @@ async function createMigrationsTable() {
       executed_at TIMESTAMP DEFAULT NOW()
     );
   `;
-    await pool.query(query);
+    await database_1.default.query(query);
 }
 // Get list of executed migrations
 async function getExecutedMigrations() {
-    const result = await pool.query('SELECT id, filename, executed_at FROM migrations ORDER BY id');
+    const result = await database_1.default.query('SELECT id, filename, executed_at FROM migrations ORDER BY id');
     return result.rows;
 }
 // Get list of migration files
 async function getMigrationFiles() {
     try {
-        const files = await fs.readdir(MIGRATIONS_DIR);
+        const files = await promises_1.default.readdir(MIGRATIONS_DIR);
         return files
             .filter(file => file.endsWith('.sql'))
             .sort();
@@ -36,12 +39,12 @@ async function getMigrationFiles() {
 }
 // Execute a single migration
 async function executeMigration(filename) {
-    const filePath = path.join(MIGRATIONS_DIR, filename);
-    const sql = await fs.readFile(filePath, 'utf8');
+    const filePath = path_1.default.join(MIGRATIONS_DIR, filename);
+    const sql = await promises_1.default.readFile(filePath, 'utf8');
     // Extract migration ID from filename (assumes format: 001_name.sql)
     const match = filename.match(/^(\d+)_/);
     const migrationId = match ? parseInt(match[1]) : 0;
-    const client = await pool.connect();
+    const client = await database_1.default.connect();
     try {
         await client.query('BEGIN');
         // Execute the migration SQL
@@ -87,11 +90,11 @@ async function migrate() {
         process.exit(1);
     }
     finally {
-        await pool.end();
+        await database_1.default.end();
     }
 }
 // Run migrations if this script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
     migrate();
 }
 //# sourceMappingURL=migrate.js.map
