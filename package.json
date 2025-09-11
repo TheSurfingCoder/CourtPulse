@@ -32,13 +32,14 @@
     "docker:staging:down": "docker-compose -f docker/staging/docker-compose.yml down",
     "docker:staging:logs": "docker-compose -f docker/staging/docker-compose.yml logs -f",
     "docker:prod": "docker-compose -f docker/prod/docker-compose.yml up --build",
-    "prepare": "husky"
+    "prepare": "is-ci || husky"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
     "concurrently": "^8.2.2",
     "husky": "^9.1.7",
+    "is-ci": "^4.1.0",
     "lint-staged": "^16.1.6"
   },
   "engines": {
