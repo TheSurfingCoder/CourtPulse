@@ -237,3 +237,4 @@ pytest tests/
 ## License
 
 This project is part of CourtPulse and follows the same license terms.
+

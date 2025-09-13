@@ -196,3 +196,4 @@ def test_simple_closest_poi():
 
 if __name__ == "__main__":
     test_simple_closest_poi()
+

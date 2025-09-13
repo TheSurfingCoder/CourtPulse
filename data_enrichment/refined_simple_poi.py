@@ -237,3 +237,4 @@ def test_refined_simple_poi():
 
 if __name__ == "__main__":
     test_refined_simple_poi()
+

@@ -246,3 +246,4 @@ def test_fixed_google_places():
 
 if __name__ == "__main__":
     test_fixed_google_places()
+
