@@ -23,3 +23,4 @@ echo "  python example_usage.py       - See usage examples"
 echo "  python test_my_geojson.py <file> - Test your GeoJSON file"
 echo ""
 echo "To deactivate, run: deactivate"
+

@@ -36,3 +36,4 @@ CREATE EXTENSION postgis;
 ## Option 3: Skip Database for Testing
 
 You can test the GeoJSON parsing and geocoding without a database by modifying the main script.
+

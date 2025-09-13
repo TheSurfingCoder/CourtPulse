@@ -220,3 +220,4 @@ def test_closest_poi_approach():
 
 if __name__ == "__main__":
     test_closest_poi_approach()
+
