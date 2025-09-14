@@ -53,7 +53,18 @@ jobs:
       - name: Run type checking
         run: npm run type-check
 
-      # Step 5: Run your tests
+      # Step 5: Run database migrations
+      - name: Run database migrations
+        run: npm run migrate
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: courtpulse_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          NODE_ENV: test
+
+      # Step 6: Run your tests
       - name: Run backend tests
         run: npm run test:backend:ci
         env:
@@ -66,6 +77,6 @@ jobs:
       - name: Run frontend tests
         run: npm run test:frontend
 
-      # Step 6: Build your project to make sure it compiles
+      # Step 7: Build your project to make sure it compiles
       - name: Build project
         run: npm run build
