@@ -67,3 +67,4 @@ Thumbs.db
 development.ts 
 development.js 
 .vercel
+data_enrichment/venv/
