@@ -38,6 +38,7 @@ class CourtData:
     """Data class for court information"""
     osm_id: str
     geom: Point
+    polygon_geojson: Optional[str] = None  # Store original polygon GeoJSON
     sport: Optional[str] = None
     hoops: Optional[str] = None
     fallback_name: Optional[str] = None
@@ -810,14 +811,14 @@ class DatabaseManager:
     def insert_court(self, court: CourtData) -> bool:
         """Insert a new court into the database"""
         insert_sql = """
-        INSERT INTO courts (osm_id, geom, sport, hoops, fallback_name, 
-                          google_place_id, enriched_name, address)
-        VALUES (%(osm_id)s, ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326), 
-                %(sport)s, %(hoops)s, %(fallback_name)s, 
-                %(google_place_id)s, %(enriched_name)s, %(address)s)
+        INSERT INTO courts (osm_id, geom, centroid, sport, hoops, fallback_name, 
+                          google_place_id, enriched_name, address, source)
+        VALUES (%s, ST_GeomFromGeoJSON(%s), ST_Centroid(ST_GeomFromGeoJSON(%s))::geography, 
+                %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (osm_id) 
         DO UPDATE SET 
             geom = EXCLUDED.geom,
+            centroid = EXCLUDED.centroid,
             sport = EXCLUDED.sport,
             hoops = EXCLUDED.hoops,
             fallback_name = EXCLUDED.fallback_name,
@@ -829,21 +830,38 @@ class DatabaseManager:
         """
         
         try:
-            with self.engine.connect() as conn:
-                result = conn.execute(text(insert_sql), {
-                    'osm_id': court.osm_id,
-                    'lat': court.geom.y,
-                    'lon': court.geom.x,
-                    'sport': court.sport,
-                    'hoops': court.hoops,
-                    'fallback_name': court.fallback_name,
-                    'google_place_id': court.google_place_id,
-                    'enriched_name': court.enriched_name,
-                    'address': court.address
-                })
-                conn.commit()
+            # Use psycopg2 directly to avoid SQLAlchemy parameter binding issues
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            
+            # Parse connection string
+            import urllib.parse as urlparse
+            url = urlparse.urlparse(self.connection_string)
+            
+            conn = psycopg2.connect(
+                host=url.hostname,
+                port=url.port,
+                database=url.path[1:],
+                user=url.username,
+                password=url.password
+            )
+            
+            with conn.cursor() as cursor:
+                cursor.execute(insert_sql, (
+                    court.osm_id,
+                    court.polygon_geojson,  # geom - polygon geometry
+                    court.polygon_geojson,  # centroid - calculated from same polygon
+                    court.sport,
+                    court.hoops,
+                    court.fallback_name,
+                    court.google_place_id,
+                    court.enriched_name,
+                    court.address,
+                    'osm'  # source
+                ))
                 
-                court_id = result.fetchone()[0]
+                court_id = cursor.fetchone()[0]
+                conn.commit()
                 
                 logger.info(json.dumps({
                     'event': 'court_inserted',
@@ -1015,7 +1033,8 @@ class CourtDataEnricher:
             court.google_place_id = place_id
             
             if address:
-                court.enriched_name = f"{court.fallback_name} - {address.split(',')[0]}"
+                # Store just the clean court name, not concatenated with fallback
+                court.enriched_name = address.split(',')[0]
             
             logger.info(json.dumps({
                 'event': 'court_enriched',
