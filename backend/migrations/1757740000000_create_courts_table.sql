@@ -1,6 +1,9 @@
 -- Up migration: Create courts table with final structure
 -- This migration creates the courts table with the structure after all other migrations
 
+-- Enable PostGIS extension
+CREATE EXTENSION IF NOT EXISTS postgis;
+
 -- Create the courts table with the final structure
 CREATE TABLE IF NOT EXISTS courts (
     id SERIAL PRIMARY KEY,
