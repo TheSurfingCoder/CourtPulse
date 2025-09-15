@@ -4,7 +4,9 @@ import CourtsMap from '../components/CourtsMap';
 export default function Home() {
   return (
     <div>
+      <h1>CourtPulse</h1>
       <p>Find and explore sports courts in your area.</p>
+      <p>It&apos;s only wrapped by the root layout, not the users layout.</p>
       <p>Go to <a href="/users">/users</a> to see the nested layout in action!</p>
       
       <hr style={{ margin: '30px 0' }} />
