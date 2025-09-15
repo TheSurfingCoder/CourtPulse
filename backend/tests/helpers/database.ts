@@ -15,6 +15,7 @@ const testPool = new Pool({
 });
 
 // Database setup and teardown functions
+// This function creates a test database with PostGIS support
 export const setupTestDatabase = async () => {
   try {
     // Create the test database if it doesn't exist
