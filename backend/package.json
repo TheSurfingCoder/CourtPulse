@@ -12,7 +12,10 @@
     "test:ci": "jest --ci --coverage --watchAll=false",
     "lint": "eslint . --ext .ts --ignore-pattern 'dist/**' --ignore-pattern 'node_modules/**' --ignore-pattern 'coverage/**'",
     "type-check": "tsc --noEmit",
-    "migrate": "NODE_ENV=development node-pg-migrate up -c migrate.json",
+    "migrate": "node-pg-migrate up -c migrate.json",
+    "migrate:prod": "NODE_ENV=production node-pg-migrate up -c migrate.json",
+    "migrate:up": "NODE_ENV=production node-pg-migrate up -c migrate.json",
+    "migrate:down": "NODE_ENV=production node-pg-migrate down -c migrate.json",
     "migrate:create": "node-pg-migrate create -c migrate.json"
   },
   "dependencies": {
