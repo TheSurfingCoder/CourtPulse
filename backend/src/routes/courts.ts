@@ -116,7 +116,8 @@ router.post('/', async (req: express.Request, res: express.Response) => {
     const court = await CourtModel.create({
       name,
       type,
-      location,
+      lat: location.lat,
+      lng: location.lng,
       address,
       surface,
       is_public: is_public ?? true
