@@ -1,47 +1,56 @@
 import pool from '../../config/database';
 
 export interface Court {
-
     id: number;
-    name: string; 
-    type: string; 
-    location: {lat: number; lng: number}
+    name: string; // Maps to enriched_name or fallback_name
+    type: string; // Maps to sport
+    lat: number; // From centroid
+    lng: number; // From centroid
     address: string;
-    surface: string;
+    surface: string; // Maps to surface_type
     is_public: boolean;
     created_at: Date;
     updated_at: Date;
-
 }
 
 export class CourtModel {
 
     static async findAll(): Promise<Court[]> {
-
         const result = await pool.query(`
-                SELECT
-                    id, name, type,
-                    ST_X(location) as lat, 
-                    ST_Y(location) as lng,  
-                    address, surface, is_public, created_at, updated_at
-                FROM courts
-                ORDER BY created_at DESC
-            `)
+            SELECT
+                id, 
+                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                sport as type,
+                ST_X(centroid::geometry) as lat, 
+                ST_Y(centroid::geometry) as lng,  
+                address, 
+                COALESCE(surface_type::text, surface) as surface, 
+                is_public, 
+                created_at, 
+                updated_at
+            FROM courts
+            WHERE centroid IS NOT NULL
+            ORDER BY created_at DESC
+        `);
         
-            return result.rows
-
+        return result.rows;
     }
 
     static async findById(id: number): Promise<Court | null> {
         const result = await pool.query(`
             SELECT 
-                id, name, type, 
-                ST_X(location) as lat, 
-                ST_Y(location) as lng,
-                address, surface, is_public, 
-                created_at, updated_at
+                id, 
+                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                sport as type, 
+                ST_X(centroid::geometry) as lat, 
+                ST_Y(centroid::geometry) as lng,
+                address, 
+                COALESCE(surface_type::text, surface) as surface, 
+                is_public, 
+                created_at, 
+                updated_at
             FROM courts 
-            WHERE id = $1
+            WHERE id = $1 AND centroid IS NOT NULL
         `, [id]);
         return result.rows[0] || null;
     }
@@ -49,14 +58,19 @@ export class CourtModel {
     static async findByType(type: string): Promise<Court[]> {
         const result = await pool.query(`
             SELECT 
-                id, name, type, 
-                ST_X(location) as lat, 
-                ST_Y(location) as lng,
-                address, surface, is_public, 
-                created_at, updated_at
+                id, 
+                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                sport as type, 
+                ST_X(centroid::geometry) as lat, 
+                ST_Y(centroid::geometry) as lng,
+                address, 
+                COALESCE(surface_type::text, surface) as surface, 
+                is_public, 
+                created_at, 
+                updated_at
             FROM courts 
-            WHERE type = $1
-            ORDER BY name
+            WHERE sport = $1 AND centroid IS NOT NULL
+            ORDER BY COALESCE(enriched_name, fallback_name, 'Unknown Court')
         `, [type]);
         return result.rows;
     }
