@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Map, { Marker, Popup } from 'react-map-gl/maplibre';
+import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface Court {
@@ -26,15 +27,51 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
-
-  // Default viewport (you can adjust this to your area)
+  const [mapLoaded, setMapLoaded] = useState(false);
   const [viewport, setViewport] = useState({
-    longitude: -73.9851, // NYC default - adjust for your location
-    latitude: 40.7589,
-    zoom: 12
+    longitude: -122.4194,
+    latitude: 37.7749,
+    zoom: 11
   });
 
+  // Use initialViewState centered on San Francisco (where the courts are located)
+  const initialViewState = {
+    longitude: -122.4194, // San Francisco longitude
+    latitude: 37.7749,    // San Francisco latitude
+    zoom: 11
+  };
+
+  // Clustering logic
+  const cluster = useMemo(() => {
+    const supercluster = new Supercluster({
+      radius: 60,
+      maxZoom: 14,
+      minZoom: 0,
+    });
+
+    const points = courts.map(court => ({
+      type: 'Feature' as const,
+      properties: { court },
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [court.lng, court.lat]
+      }
+    }));
+
+    supercluster.load(points);
+    return supercluster;
+  }, [courts]);
+
+  const clusters = useMemo(() => {
+    return cluster.getClusters([-180, -90, 180, 90], Math.floor(viewport.zoom));
+  }, [cluster, viewport.zoom]);
+
   useEffect(() => {
+    console.log(JSON.stringify({
+      event: 'courts_map_initialized',
+      timestamp: new Date().toISOString(),
+      component: 'CourtsMap'
+    }));
     fetchCourts();
   }, []);
 
@@ -42,7 +79,21 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     try {
       setLoading(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+      
+      console.log(JSON.stringify({
+        event: 'fetch_courts_started',
+        timestamp: new Date().toISOString(),
+        apiUrl: apiUrl
+      }));
+      
       const response = await fetch(`${apiUrl}/api/courts`);
+      
+      console.log(JSON.stringify({
+        event: 'api_response_received',
+        timestamp: new Date().toISOString(),
+        status: response.status,
+        ok: response.ok
+      }));
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -50,25 +101,112 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       
       const result = await response.json();
       
-      if (result.success) {
-        setCourts(result.data);
+      console.log(JSON.stringify({
+        event: 'api_data_parsed',
+        timestamp: new Date().toISOString(),
+        success: result.success,
+        dataLength: result.data?.length || 0,
+        hasData: !!result.data,
+        isArray: Array.isArray(result.data)
+      }));
+      
+      if (result.success && Array.isArray(result.data)) {
+        // Log sample raw data to see what we're getting
+        console.log(JSON.stringify({
+          event: 'raw_court_data_sample',
+          timestamp: new Date().toISOString(),
+          sampleCourts: result.data.slice(0, 3).map((court: any) => ({
+            id: court.id,
+            name: court.name,
+            lat: court.lat,
+            lng: court.lng,
+            latType: typeof court.lat,
+            lngType: typeof court.lng
+          }))
+        }));
         
-        // Auto-center map on first court if available
-        if (result.data.length > 0) {
-          const firstCourt = result.data[0];
-          setViewport(prev => ({
-            ...prev,
-            longitude: firstCourt.lng,
-            latitude: firstCourt.lat,
-            zoom: 13
+        // Fix coordinate data - lat/lng are swapped in the API response
+        const validCourts = result.data.filter((court: any) => {
+          if (!court || typeof court.lat !== 'number' || typeof court.lng !== 'number' ||
+              court.lat === 0 || court.lng === 0 || isNaN(court.lat) || isNaN(court.lng)) {
+            return false;
+          }
+          
+          // The API has lat/lng swapped, so we need to swap them back
+          const correctedLat = court.lng; // API's lng is actually latitude
+          const correctedLng = court.lat; // API's lat is actually longitude
+          
+          // Validate the corrected coordinates
+          const isValidLat = correctedLat >= -90 && correctedLat <= 90;
+          const isValidLng = correctedLng >= -180 && correctedLng <= 180;
+          
+          if (isValidLat && isValidLng) {
+            // Store corrected coordinates
+            court.lat = correctedLat;
+            court.lng = correctedLng;
+            return true;
+          }
+          
+          return false;
+        });
+        
+        // Log invalid courts for debugging
+        const invalidCourts = result.data.filter((court: any) => {
+          const hasValidLat = court && 
+            typeof court.lat === 'number' && 
+            !isNaN(court.lat) && 
+            court.lat >= -90 && 
+            court.lat <= 90 &&
+            court.lat !== 0;
+            
+          const hasValidLng = court && 
+            typeof court.lng === 'number' && 
+            !isNaN(court.lng) && 
+            court.lng >= -180 && 
+            court.lng <= 180 &&
+            court.lng !== 0;
+            
+          return !(hasValidLat && hasValidLng);
+        });
+
+        if (invalidCourts.length > 0) {
+          console.log(JSON.stringify({
+            event: 'invalid_courts_found',
+            timestamp: new Date().toISOString(),
+            invalidCount: invalidCourts.length,
+            sampleInvalidCourts: invalidCourts.slice(0, 3).map((court: any) => ({
+              id: court.id,
+              name: court.name,
+              lat: court.lat,
+              lng: court.lng,
+              latType: typeof court.lat,
+              lngType: typeof court.lng
+            }))
           }));
         }
+
+        console.log(JSON.stringify({
+          event: 'courts_filtered',
+          timestamp: new Date().toISOString(),
+          originalCount: result.data.length,
+          validCount: validCourts.length,
+          filteredOut: result.data.length - validCourts.length
+        }));
+        
+        setCourts(validCourts);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch courts');
-      console.error('Error fetching courts:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
+      setError(errorMessage);
+      
+      console.log(JSON.stringify({
+        event: 'fetch_courts_error',
+        timestamp: new Date().toISOString(),
+        error: errorMessage,
+        errorType: err?.constructor?.name || 'Unknown'
+      }));
     } finally {
       setLoading(false);
     }
@@ -106,6 +244,12 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
   };
 
   if (loading) {
+    console.log(JSON.stringify({
+      event: 'map_loading_state',
+      timestamp: new Date().toISOString(),
+      state: 'loading'
+    }));
+    
     return (
       <div className={`flex items-center justify-center h-96 bg-gray-100 rounded-lg ${className}`}>
         <div className="text-center">
@@ -117,6 +261,13 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
   }
 
   if (error) {
+    console.log(JSON.stringify({
+      event: 'map_error_state',
+      timestamp: new Date().toISOString(),
+      state: 'error',
+      error: error
+    }));
+    
     return (
       <div className={`flex items-center justify-center h-96 bg-red-50 rounded-lg border border-red-200 ${className}`}>
         <div className="text-center">
@@ -134,6 +285,34 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     );
   }
 
+  // Use a simple, stable map style to avoid MapLibre GL issues
+  const mapStyle = {
+    version: 8 as const,
+    sources: {
+      'osm': {
+        type: 'raster' as const,
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '© OpenStreetMap contributors'
+      }
+    },
+    layers: [
+      {
+        id: 'osm',
+        type: 'raster' as const,
+        source: 'osm'
+      }
+    ]
+  };
+
+  console.log(JSON.stringify({
+    event: 'map_rendering',
+    timestamp: new Date().toISOString(),
+    state: 'success',
+    courtsCount: courts.length,
+    mapLoaded: mapLoaded
+  }));
+
   return (
     <div className={`relative ${className}`}>
       <div className="absolute top-4 left-4 z-10 bg-white p-3 rounded-lg shadow-lg">
@@ -144,42 +323,100 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       </div>
 
       <Map
-        {...viewport}
+        initialViewState={initialViewState}
         onMove={evt => setViewport(evt.viewState)}
+        onLoad={() => {
+          console.log(JSON.stringify({
+            event: 'map_loaded',
+            timestamp: new Date().toISOString(),
+            courtsCount: courts.length
+          }));
+          setMapLoaded(true);
+        }}
+        onError={(error) => {
+          console.log(JSON.stringify({
+            event: 'map_error',
+            timestamp: new Date().toISOString(),
+            error: error.error?.message || 'Unknown map error',
+            errorType: (error.error as any)?.type || 'Unknown'
+          }));
+        }}
         style={{ width: '100%', height: '500px' }}
-        mapStyle={`https://api.maptiler.com/maps/streets-v2/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_API_KEY || 'demo'}`}
-        attributionControl={true}
+        mapStyle={mapStyle}
+        attributionControl={false}
         logoPosition="bottom-left"
       >
-        {courts.map((court) => (
-          <Marker
-            key={court.id}
-            longitude={court.lng}
-            latitude={court.lat}
-            onClick={() => setSelectedCourt(court)}
-          >
-            <div
-              className="cursor-pointer transform hover:scale-110 transition-transform"
-              style={{
-                background: getCourtColor(court.type),
-                borderRadius: '50%',
-                width: '30px',
-                height: '30px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '16px',
-                border: '2px solid white',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
-              }}
-              title={`${court.name} (${court.type})`}
-            >
-              {getCourtIcon(court.type)}
-            </div>
-          </Marker>
-        ))}
+        {mapLoaded && clusters.map((cluster) => {
+          const [longitude, latitude] = cluster.geometry.coordinates;
+          const {
+            cluster: isCluster,
+            point_count: pointCount
+          } = cluster.properties;
 
-        {selectedCourt && (
+          if (isCluster) {
+            // Render cluster marker
+            return (
+              <Marker
+                key={`cluster-${cluster.id}`}
+                longitude={longitude}
+                latitude={latitude}
+              >
+                <div
+                  className="cursor-pointer transform hover:scale-110 transition-transform"
+                  style={{
+                    background: '#3b82f6',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    color: 'white',
+                    border: '2px solid white',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                  }}
+                  title={`${pointCount} courts`}
+                >
+                  {pointCount}
+                </div>
+              </Marker>
+            );
+          } else {
+            // Render individual court marker
+            const court = cluster.properties.court;
+            return (
+              <Marker
+                key={court.id}
+                longitude={longitude}
+                latitude={latitude}
+                onClick={() => setSelectedCourt(court)}
+              >
+                <div
+                  className="cursor-pointer transform hover:scale-110 transition-transform"
+                  style={{
+                    background: getCourtColor(court.type),
+                    borderRadius: '50%',
+                    width: '30px',
+                    height: '30px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '16px',
+                    border: '2px solid white',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                  }}
+                  title={`${court.name} (${court.type})`}
+                >
+                  {getCourtIcon(court.type)}
+                </div>
+              </Marker>
+            );
+          }
+        })}
+
+        {mapLoaded && selectedCourt && (
           <Popup
             longitude={selectedCourt.lng}
             latitude={selectedCourt.lat}
