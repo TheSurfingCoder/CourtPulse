@@ -49,14 +49,21 @@ export const setupTestDatabase = async () => {
     await testPool.query(`
       CREATE TABLE courts (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        type VARCHAR(100) NOT NULL,
-        location GEOMETRY(POINT, 4326),
-        address TEXT,
-        surface VARCHAR(100),
-        is_public BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        address VARCHAR(500),
+        surface VARCHAR(50),
+        is_public BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        source VARCHAR(50) NOT NULL DEFAULT 'osm',
+        osm_id VARCHAR(255) UNIQUE,
+        google_place_id VARCHAR(255),
+        geom GEOMETRY(POLYGON, 4326),
+        sport VARCHAR(50) NOT NULL,
+        hoops INTEGER,
+        fallback_name VARCHAR(255),
+        enriched_name VARCHAR(255),
+        surface_type VARCHAR(50),
+        centroid GEOGRAPHY(POINT, 4326)
       )
     `);
     console.log('Courts table created successfully with PostGIS');

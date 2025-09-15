@@ -110,7 +110,8 @@ describe('CourtModel', () => {
       const courtData = {
         name: 'New Court',
         type: 'tennis',
-        location: { lat: 40.7589, lng: -73.9851 },
+        lat: 40.7589,
+        lng: -73.9851,
         address: 'New Address',
         surface: 'clay',
         is_public: true
@@ -173,7 +174,7 @@ describe('CourtModel', () => {
       expect(result).toEqual(mockCourts);
       // Assert: Check the database was called with correct query and parameters
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE type = $1'),
+        expect.stringContaining('WHERE sport = $1'),
         ['basketball']
       );
     });

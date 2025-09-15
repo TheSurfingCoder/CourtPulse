@@ -35,7 +35,7 @@ describe('Courts API Integration Tests', () => {
       
       // Insert test data directly into the database using PostGIS
       await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
       `, ['Test Court', 'basketball', -73.9851, 40.7589, 'Test Address', 'asphalt', true]);
 
@@ -77,7 +77,7 @@ describe('Courts API Integration Tests', () => {
       
       // Insert test court
       const result = await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
         RETURNING id
       `, ['Test Court', 'basketball', -73.9851, 40.7589, 'Test Address', 'asphalt', true]);
@@ -119,12 +119,12 @@ describe('Courts API Integration Tests', () => {
       
       // Insert test courts
       await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
       `, ['Basketball Court 1', 'basketball', -73.9851, 40.7589, 'Test Address 1', 'asphalt', true]);
 
       await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
       `, ['Tennis Court 1', 'tennis', -73.9851, 40.7589, 'Test Address 2', 'clay', true]);
 
@@ -205,9 +205,9 @@ describe('Courts API Integration Tests', () => {
       expect(response.body.data.type).toBe('basketball');
 
       // Verify the court was actually saved to the database
-      const dbResult = await testPool.query('SELECT * FROM courts WHERE name = $1', ['New Court']);
+      const dbResult = await testPool.query('SELECT * FROM courts WHERE enriched_name = $1', ['New Court']);
       expect(dbResult.rows).toHaveLength(1);
-      expect(dbResult.rows[0].name).toBe('New Court');
+      expect(dbResult.rows[0].enriched_name).toBe('New Court');
     });
   });
 
@@ -237,7 +237,7 @@ describe('Courts API Integration Tests', () => {
       
       // Insert test court
       const result = await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
         RETURNING id
       `, ['Original Court', 'basketball', -73.9851, 40.7589, 'Original Address', 'asphalt', true]);
@@ -301,7 +301,7 @@ describe('Courts API Integration Tests', () => {
       
       // Insert test court
       const result = await testPool.query(`
-        INSERT INTO courts (name, type, location, address, surface, is_public)
+        INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
         RETURNING id
       `, ['Court to Delete', 'basketball', -73.9851, 40.7589, 'Test Address', 'asphalt', true]);
