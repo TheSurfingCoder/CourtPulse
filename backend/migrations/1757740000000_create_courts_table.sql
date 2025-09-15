@@ -46,7 +46,11 @@ EXCEPTION
 END $$;
 
 -- Convert columns to use ENUMs
+-- First drop the default, then convert, then set the default
+ALTER TABLE courts ALTER COLUMN source DROP DEFAULT;
 ALTER TABLE courts ALTER COLUMN source TYPE court_source_enum USING source::court_source_enum;
+ALTER TABLE courts ALTER COLUMN source SET DEFAULT 'osm'::court_source_enum;
+
 ALTER TABLE courts ALTER COLUMN sport TYPE sport_type USING sport::sport_type;
 ALTER TABLE courts ALTER COLUMN surface_type TYPE surface_type_enum USING surface_type::surface_type_enum;
 
