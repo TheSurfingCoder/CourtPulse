@@ -11,11 +11,25 @@ interface Court {
   type: string;
   lat: number;
   lng: number;
-  address: string;
   surface: string;
   is_public: boolean;
   created_at: string;
   updated_at: string;
+}
+
+interface ClusteredCourt {
+  cluster_id: string;
+  representative_osm_id: string;
+  photon_name: string;
+  total_courts: number;
+  total_hoops: number;
+  sports: string[];
+  centroid_lat: number;
+  centroid_lon: number;
+  cluster_bounds: {
+    bounds: any;
+    center: any;
+  };
 }
 
 interface CourtsMapProps {
@@ -26,7 +40,8 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
+  const [selectedCluster, setSelectedCluster] = useState<any>(null);
+  const [clusterDetails, setClusterDetails] = useState<Court[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [viewport, setViewport] = useState({
     longitude: -122.4194,
@@ -41,30 +56,137 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     zoom: 11
   };
 
-  // Clustering logic
-  const cluster = useMemo(() => {
-    const supercluster = new Supercluster({
-      radius: 60,
-      maxZoom: 14,
-      minZoom: 0,
-    });
-
-    const points = courts.map(court => ({
+  // Convert courts to GeoJSON features for supercluster
+  const mapPoints = useMemo(() => {
+    return courts.map(court => ({
       type: 'Feature' as const,
-      properties: { court },
+      properties: { 
+        id: court.id,
+        name: court.name,
+        type: court.type,
+        surface: court.surface,
+        is_public: court.is_public
+      },
       geometry: {
         type: 'Point' as const,
-        coordinates: [court.lng, court.lat]
+        coordinates: [court.lat, court.lng] // Fixed: lat is longitude, lng is latitude in the data
       }
     }));
-
-    supercluster.load(points);
-    return supercluster;
   }, [courts]);
 
+  // Initialize supercluster
+  const [supercluster, setSupercluster] = useState<Supercluster | null>(null);
+
+  // Load points into supercluster when data changes
+  useEffect(() => {
+    if (mapPoints.length > 0) {
+      console.log(JSON.stringify({
+        event: 'supercluster_initializing',
+        timestamp: new Date().toISOString(),
+        mapPointsLength: mapPoints.length,
+        SuperclusterType: typeof Supercluster,
+        samplePoint: mapPoints[0]
+      }));
+      
+      try {
+        const cluster = new Supercluster({
+          radius: 40,        // Cluster radius in pixels
+          maxZoom: 16,       // Max zoom level to cluster
+          minZoom: 0,        // Min zoom level to cluster
+          minPoints: 2       // Minimum points to form a cluster
+        });
+        
+        console.log(JSON.stringify({
+          event: 'supercluster_loading_points',
+          timestamp: new Date().toISOString(),
+          pointCount: mapPoints.length
+        }));
+        
+        cluster.load(mapPoints);
+        
+        console.log(JSON.stringify({
+          event: 'supercluster_initialized',
+          timestamp: new Date().toISOString(),
+          hasGetClusters: typeof cluster.getClusters === 'function',
+          clusterMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(cluster))
+        }));
+        
+        setSupercluster(cluster);
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'supercluster_initialization_error',
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Unknown error',
+          mapPointsLength: mapPoints.length
+        }));
+        setSupercluster(null);
+      }
+    } else {
+      setSupercluster(null);
+    }
+  }, [mapPoints]);
+
+  // Get clusters for current viewport
   const clusters = useMemo(() => {
-    return cluster.getClusters([-180, -90, 180, 90], Math.floor(viewport.zoom));
-  }, [cluster, viewport.zoom]);
+    if (!supercluster || mapPoints.length === 0) {
+      console.log(JSON.stringify({
+        event: 'clusters_skipped',
+        timestamp: new Date().toISOString(),
+        reason: !supercluster ? 'no_supercluster' : 'no_mappoints',
+        mapPointsLength: mapPoints.length
+      }));
+      // Fallback to showing individual points if no clustering
+      return mapPoints.map((point, index) => ({
+        ...point,
+        id: `point-${index}`,
+        properties: {
+          ...point.properties,
+          cluster: false,
+          point_count: 1
+        }
+      }));
+    }
+    
+    const bbox: [number, number, number, number] = [
+      viewport.longitude - 0.1, // west
+      viewport.latitude - 0.1,  // south
+      viewport.longitude + 0.1, // east
+      viewport.latitude + 0.1   // north
+    ];
+    
+    try {
+      const result = supercluster.getClusters(bbox, Math.floor(viewport.zoom));
+      
+      console.log(JSON.stringify({
+        event: 'clusters_calculated',
+        timestamp: new Date().toISOString(),
+        clusterCount: result.length,
+        zoom: viewport.zoom,
+        bbox: bbox
+      }));
+      
+      return result;
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'clusters_error',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Unknown error',
+        superclusterType: typeof supercluster,
+        hasGetClusters: typeof supercluster?.getClusters === 'function'
+      }));
+      
+      // Fallback to showing individual points if clustering fails
+      return mapPoints.map((point, index) => ({
+        ...point,
+        id: `point-${index}`,
+        properties: {
+          ...point.properties,
+          cluster: false,
+          point_count: 1
+        }
+      }));
+    }
+  }, [supercluster, viewport, mapPoints]);
 
   useEffect(() => {
     console.log(JSON.stringify({
@@ -86,13 +208,22 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         apiUrl: apiUrl
       }));
       
-      const response = await fetch(`${apiUrl}/api/courts`);
+      const response = await fetch(`${apiUrl}/api/courts`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      });
       
       console.log(JSON.stringify({
-        event: 'api_response_received',
+        event: 'courts_api_response_received',
         timestamp: new Date().toISOString(),
         status: response.status,
-        ok: response.ok
+        ok: response.ok,
+        statusText: response.statusText,
+        url: response.url
       }));
       
       if (!response.ok) {
@@ -102,7 +233,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       const result = await response.json();
       
       console.log(JSON.stringify({
-        event: 'api_data_parsed',
+        event: 'courts_api_data_parsed',
         timestamp: new Date().toISOString(),
         success: result.success,
         dataLength: result.data?.length || 0,
@@ -111,89 +242,20 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
       
       if (result.success && Array.isArray(result.data)) {
-        // Log sample raw data to see what we're getting
         console.log(JSON.stringify({
-          event: 'raw_court_data_sample',
+          event: 'courts_loaded',
           timestamp: new Date().toISOString(),
+          courtCount: result.data.length,
           sampleCourts: result.data.slice(0, 3).map((court: any) => ({
             id: court.id,
             name: court.name,
+            type: court.type,
             lat: court.lat,
-            lng: court.lng,
-            latType: typeof court.lat,
-            lngType: typeof court.lng
+            lng: court.lng
           }))
         }));
         
-        // Fix coordinate data - lat/lng are swapped in the API response
-        const validCourts = result.data.filter((court: any) => {
-          if (!court || typeof court.lat !== 'number' || typeof court.lng !== 'number' ||
-              court.lat === 0 || court.lng === 0 || isNaN(court.lat) || isNaN(court.lng)) {
-            return false;
-          }
-          
-          // The API has lat/lng swapped, so we need to swap them back
-          const correctedLat = court.lng; // API's lng is actually latitude
-          const correctedLng = court.lat; // API's lat is actually longitude
-          
-          // Validate the corrected coordinates
-          const isValidLat = correctedLat >= -90 && correctedLat <= 90;
-          const isValidLng = correctedLng >= -180 && correctedLng <= 180;
-          
-          if (isValidLat && isValidLng) {
-            // Store corrected coordinates
-            court.lat = correctedLat;
-            court.lng = correctedLng;
-            return true;
-          }
-          
-          return false;
-        });
-        
-        // Log invalid courts for debugging
-        const invalidCourts = result.data.filter((court: any) => {
-          const hasValidLat = court && 
-            typeof court.lat === 'number' && 
-            !isNaN(court.lat) && 
-            court.lat >= -90 && 
-            court.lat <= 90 &&
-            court.lat !== 0;
-            
-          const hasValidLng = court && 
-            typeof court.lng === 'number' && 
-            !isNaN(court.lng) && 
-            court.lng >= -180 && 
-            court.lng <= 180 &&
-            court.lng !== 0;
-            
-          return !(hasValidLat && hasValidLng);
-        });
-
-        if (invalidCourts.length > 0) {
-          console.log(JSON.stringify({
-            event: 'invalid_courts_found',
-            timestamp: new Date().toISOString(),
-            invalidCount: invalidCourts.length,
-            sampleInvalidCourts: invalidCourts.slice(0, 3).map((court: any) => ({
-              id: court.id,
-              name: court.name,
-              lat: court.lat,
-              lng: court.lng,
-              latType: typeof court.lat,
-              lngType: typeof court.lng
-            }))
-          }));
-        }
-
-        console.log(JSON.stringify({
-          event: 'courts_filtered',
-          timestamp: new Date().toISOString(),
-          originalCount: result.data.length,
-          validCount: validCourts.length,
-          filteredOut: result.data.length - validCourts.length
-        }));
-        
-        setCourts(validCourts);
+        setCourts(result.data);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
@@ -209,6 +271,39 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClusterClick = (cluster: any) => {
+    if (cluster.properties.cluster && supercluster) {
+      // It's a cluster - get the children
+      const children = supercluster.getChildren(cluster.id);
+      setClusterDetails(children.map((child: any) => ({
+        id: child.properties.id,
+        name: child.properties.name,
+        type: child.properties.type,
+        surface: child.properties.surface,
+        is_public: child.properties.is_public,
+        lat: child.geometry.coordinates[1],
+        lng: child.geometry.coordinates[0],
+        created_at: '',
+        updated_at: ''
+      })));
+      setSelectedCluster(cluster);
+    } else {
+      // It's an individual court
+      setClusterDetails([{
+        id: cluster.properties.id,
+        name: cluster.properties.name,
+        type: cluster.properties.type,
+        surface: cluster.properties.surface,
+        is_public: cluster.properties.is_public,
+        lat: cluster.geometry.coordinates[1],
+        lng: cluster.geometry.coordinates[0],
+        created_at: '',
+        updated_at: ''
+      }]);
+      setSelectedCluster(cluster);
     }
   };
 
@@ -309,6 +404,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     event: 'map_rendering',
     timestamp: new Date().toISOString(),
     state: 'success',
+    clustersCount: clusters.length,
     courtsCount: courts.length,
     mapLoaded: mapLoaded
   }));
@@ -318,7 +414,13 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       <div className="absolute top-4 left-4 z-10 bg-white p-3 rounded-lg shadow-lg">
         <h3 className="font-semibold text-gray-800 mb-1">Courts Map</h3>
         <p className="text-sm text-gray-600">
-          {courts.length} court{courts.length !== 1 ? 's' : ''} found
+          {clusters.length} location{clusters.length !== 1 ? 's' : ''} found
+        </p>
+        <p className="text-xs text-gray-500">
+          {courts.length} total courts
+        </p>
+        <p className="text-xs text-gray-500">
+          Zoom: {viewport.zoom.toFixed(1)}
         </p>
       </div>
 
@@ -329,7 +431,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
           console.log(JSON.stringify({
             event: 'map_loaded',
             timestamp: new Date().toISOString(),
-            courtsCount: courts.length
+            clustersCount: clusters.length
           }));
           setMapLoaded(true);
         }}
@@ -347,93 +449,91 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         logoPosition="bottom-left"
       >
         {mapLoaded && clusters.map((cluster) => {
-          const [longitude, latitude] = cluster.geometry.coordinates;
-          const {
-            cluster: isCluster,
-            point_count: pointCount
-          } = cluster.properties;
-
-          if (isCluster) {
-            // Render cluster marker
-            return (
-              <Marker
-                key={`cluster-${cluster.id}`}
-                longitude={longitude}
-                latitude={latitude}
+          const isCluster = cluster.properties.cluster;
+          const pointCount = cluster.properties.point_count || 1;
+          const displayName = isCluster 
+            ? `${pointCount} courts`
+            : cluster.properties.name;
+            
+          const markerSize = isCluster ? 40 : 30;
+          
+          return (
+            <Marker
+              key={cluster.id}
+              longitude={cluster.geometry.coordinates[0]}
+              latitude={cluster.geometry.coordinates[1]}
+              onClick={() => handleClusterClick(cluster)}
+            >
+              <div
+                className="cursor-pointer transform hover:scale-110 transition-transform"
+                style={{
+                  background: isCluster ? '#ff6b6b' : '#feca57',
+                  borderRadius: '50%',
+                  width: `${markerSize}px`,
+                  height: `${markerSize}px`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: isCluster ? '14px' : '16px',
+                  fontWeight: isCluster ? 'bold' : 'normal',
+                  color: 'white',
+                  border: '2px solid white',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                }}
+                title={displayName}
               >
-                <div
-                  className="cursor-pointer transform hover:scale-110 transition-transform"
-                  style={{
-                    background: '#3b82f6',
-                    borderRadius: '50%',
-                    width: '40px',
-                    height: '40px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    color: 'white',
-                    border: '2px solid white',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                  }}
-                  title={`${pointCount} courts`}
-                >
-                  {pointCount}
-                </div>
-              </Marker>
-            );
-          } else {
-            // Render individual court marker
-            const court = cluster.properties.court;
-            return (
-              <Marker
-                key={court.id}
-                longitude={longitude}
-                latitude={latitude}
-                onClick={() => setSelectedCourt(court)}
-              >
-                <div
-                  className="cursor-pointer transform hover:scale-110 transition-transform"
-                  style={{
-                    background: getCourtColor(court.type),
-                    borderRadius: '50%',
-                    width: '30px',
-                    height: '30px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '16px',
-                    border: '2px solid white',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                  }}
-                  title={`${court.name} (${court.type})`}
-                >
-                  {getCourtIcon(court.type)}
-                </div>
-              </Marker>
-            );
-          }
+                {isCluster ? pointCount : '🏀'}
+              </div>
+            </Marker>
+          );
         })}
 
-        {mapLoaded && selectedCourt && (
+        {mapLoaded && selectedCluster && (
           <Popup
-            longitude={selectedCourt.lng}
-            latitude={selectedCourt.lat}
-            onClose={() => setSelectedCourt(null)}
+            longitude={selectedCluster.geometry.coordinates[0]}
+            latitude={selectedCluster.geometry.coordinates[1]}
+            onClose={() => {
+              setSelectedCluster(null);
+              setClusterDetails([]);
+            }}
             closeButton={true}
             closeOnClick={false}
             anchor="bottom"
           >
-            <div className="p-2 min-w-[250px]">
-              <h3 className="font-semibold text-lg mb-2">{selectedCourt.name}</h3>
-              <div className="space-y-1 text-sm">
-                <p><span className="font-medium">Type:</span> {selectedCourt.type}</p>
-                <p><span className="font-medium">Surface:</span> {selectedCourt.surface}</p>
-                <p><span className="font-medium">Address:</span> {selectedCourt.address}</p>
-                <p><span className="font-medium">Public:</span> {selectedCourt.is_public ? 'Yes' : 'No'}</p>
-                <p><span className="font-medium">Coordinates:</span> {selectedCourt.lat.toFixed(6)}, {selectedCourt.lng.toFixed(6)}</p>
-              </div>
+            <div className="p-3 min-w-[300px] max-w-[400px]">
+              <h3 className="font-semibold text-lg mb-2">
+                {selectedCluster.properties.cluster 
+                  ? `${selectedCluster.properties.point_count} Courts`
+                  : selectedCluster.properties.name
+                }
+              </h3>
+              
+              {selectedCluster.properties.cluster ? (
+                <div className="space-y-2 text-sm mb-3">
+                  <p><span className="font-medium">Courts:</span> {selectedCluster.properties.point_count}</p>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm mb-3">
+                  <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>
+                  <p><span className="font-medium">Surface:</span> {selectedCluster.properties.surface}</p>
+                  <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public ? 'Yes' : 'No'}</p>
+                </div>
+              )}
+              
+              {clusterDetails.length > 0 && (
+                <div className="border-t pt-2">
+                  <h4 className="font-medium text-sm mb-2">Individual Courts:</h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {clusterDetails.map((court, index) => (
+                      <div key={court.id} className="text-xs bg-gray-50 p-2 rounded">
+                        <p className="font-medium">{court.name}</p>
+                        <p>Type: {court.type}</p>
+                        <p>Surface: {court.surface}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </Popup>
         )}

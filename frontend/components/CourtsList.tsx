@@ -8,7 +8,6 @@ interface Court {
   type: string;
   lat: number;
   lng: number;
-  address: string;
   surface: string;
   is_public: boolean;
   created_at: string;
@@ -28,8 +27,30 @@ export default function CourtsList() {
     try {
       setLoading(true);
       // Backend API endpoint
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://courtpulse-backend.onrender.com';
-      const response = await fetch(`${apiUrl}/api/courts`);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+      
+      console.log(JSON.stringify({
+        event: 'courts_list_fetch_started',
+        timestamp: new Date().toISOString(),
+        apiUrl: apiUrl
+      }));
+      
+      const response = await fetch(`${apiUrl}/api/courts`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      
+      console.log(JSON.stringify({
+        event: 'courts_list_response_received',
+        timestamp: new Date().toISOString(),
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText
+      }));
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -96,9 +117,6 @@ export default function CourtsList() {
               </p>
               <p style={{ margin: '4px 0', color: '#666' }}>
                 <strong>Surface:</strong> {court.surface}
-              </p>
-              <p style={{ margin: '4px 0', color: '#666' }}>
-                <strong>Address:</strong> {court.address}
               </p>
               <p style={{ margin: '4px 0', color: '#666' }}>
                 <strong>Public:</strong> {court.is_public ? 'Yes' : 'No'}

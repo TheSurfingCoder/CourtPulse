@@ -3,7 +3,50 @@ import { CourtModel } from '../models/Court';
 
 const router = express.Router();
 
-// GET /api/courts - Get all courts
+// GET /api/courts/clustered - Get clustered courts for map display
+router.get('/clustered', async (req: express.Request, res: express.Response) => {
+  try {
+    const clusteredCourts = await CourtModel.findAllClustered();
+    
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Successfully fetched clustered courts',
+      count: clusteredCourts.length,
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+    
+    return res.json({
+      success: true,
+      count: clusteredCourts.length,
+      data: clusteredCourts
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Failed to fetch clustered courts',
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch clustered courts',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// GET /api/courts - Get all courts (individual records)
 router.get('/', async (req: express.Request, res: express.Response) => {
   try {
     const courts = await CourtModel.findAll();
@@ -41,6 +84,53 @@ router.get('/', async (req: express.Request, res: express.Response) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch courts',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// GET /api/courts/cluster/:clusterId - Get all courts in a cluster
+router.get('/cluster/:clusterId', async (req: express.Request, res: express.Response) => {
+  try {
+    const { clusterId } = req.params;
+    const courts = await CourtModel.findClusterDetails(clusterId);
+    
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Successfully fetched cluster details',
+      cluster_id: clusterId,
+      count: courts.length,
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+    
+    return res.json({
+      success: true,
+      cluster_id: clusterId,
+      count: courts.length,
+      data: courts
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Failed to fetch cluster details',
+      cluster_id: req.params.clusterId,
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      request: {
+        method: req.method,
+        url: req.url
+      },
+      timestamp: new Date().toISOString()
+    }));
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch cluster details',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -103,7 +193,7 @@ router.get('/type/:type', async (req: express.Request, res: express.Response) =>
 // POST /api/courts - Create new court
 router.post('/', async (req: express.Request, res: express.Response) => {
   try {
-    const { name, type, location, address, surface, is_public } = req.body;
+    const { name, type, location, surface, is_public } = req.body;
 
     // Basic validation
     if (!name || !type || !location || !location.lat || !location.lng) {
@@ -118,8 +208,7 @@ router.post('/', async (req: express.Request, res: express.Response) => {
       type,
       lat: location.lat,
       lng: location.lng,
-      address,
-      surface,
+      surface: surface || 'Unknown',
       is_public: is_public ?? true
     });
 

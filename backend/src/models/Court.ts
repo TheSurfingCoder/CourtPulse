@@ -6,11 +6,25 @@ export interface Court {
     type: string; // Maps to sport
     lat: number; // From centroid
     lng: number; // From centroid
-    address: string;
     surface: string; // Maps to surface_type
     is_public: boolean;
     created_at: Date;
     updated_at: Date;
+}
+
+export interface ClusteredCourt {
+    cluster_id: string;
+    representative_osm_id: string;
+    photon_name: string;
+    total_courts: number;
+    total_hoops: number;
+    sports: string[];
+    centroid_lat: number;
+    centroid_lon: number;
+    cluster_bounds: {
+        bounds: any; // GeoJSON Polygon
+        center: any; // GeoJSON Point
+    };
 }
 
 export interface CourtInput {
@@ -18,7 +32,6 @@ export interface CourtInput {
     type: string;
     lat: number;
     lng: number;
-    address: string;
     surface: string;
     is_public: boolean;
 }
@@ -33,8 +46,7 @@ export class CourtModel {
                 sport as type,
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,  
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 created_at, 
                 updated_at
@@ -54,8 +66,7 @@ export class CourtModel {
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 created_at, 
                 updated_at
@@ -73,8 +84,7 @@ export class CourtModel {
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 created_at, 
                 updated_at
@@ -86,22 +96,21 @@ export class CourtModel {
     }
 
     static async create(courtData: CourtInput): Promise<Court> {
-        const { name, type, lat, lng, address, surface, is_public } = courtData;
+        const { name, type, lat, lng, surface, is_public } = courtData;
         const result = await pool.query(`
-            INSERT INTO courts (enriched_name, sport, centroid, address, surface_type, is_public)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
+            INSERT INTO courts (enriched_name, sport, centroid, surface_type, is_public)
+            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
             RETURNING 
                 id, 
                 COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 created_at, 
                 updated_at
-        `, [name, type, lng, lat, address, surface, is_public]);
+        `, [name, type, lng, lat, surface, is_public]);
         return result.rows[0];
     }
 
@@ -121,10 +130,6 @@ export class CourtModel {
         if (courtData.lat !== undefined && courtData.lng !== undefined) {
             fields.push(`centroid = ST_SetSRID(ST_MakePoint($${paramCount++}, $${paramCount++}), 4326)`);
             values.push(courtData.lng, courtData.lat);
-        }
-        if (courtData.address) {
-            fields.push(`address = $${paramCount++}`);
-            values.push(courtData.address);
         }
         if (courtData.surface) {
             fields.push(`surface_type = $${paramCount++}`);
@@ -150,8 +155,7 @@ export class CourtModel {
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 created_at, 
                 updated_at
@@ -163,6 +167,47 @@ export class CourtModel {
     static async delete(id: number): Promise<boolean> {
         const result = await pool.query('DELETE FROM courts WHERE id = $1', [id]);
         return (result.rowCount ?? 0) > 0;
+    }
+
+    static async findAllClustered(): Promise<ClusteredCourt[]> {
+        const result = await pool.query(`
+            SELECT 
+                cluster_id,
+                representative_osm_id,
+                photon_name,
+                total_courts,
+                total_hoops,
+                sports,
+                centroid_lat,
+                centroid_lon,
+                cluster_bounds
+            FROM get_clustered_courts_for_map()
+            ORDER BY photon_name
+        `);
+        
+        return result.rows;
+    }
+
+    static async findClusterDetails(clusterId: string): Promise<Court[]> {
+        const result = await pool.query(`
+            SELECT
+                id, 
+                COALESCE(photon_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                sport as type,
+                ST_Y(centroid::geometry) as lat, 
+                ST_X(centroid::geometry) as lng,  
+                COALESCE(surface_type::text, 'Unknown') as surface, 
+                is_public, 
+                created_at, 
+                updated_at,
+                hoops,
+                osm_id
+            FROM courts
+            WHERE cluster_id = $1
+            ORDER BY cluster_representative DESC, osm_id
+        `, [clusterId]);
+        
+        return result.rows;
     }
 
 }
