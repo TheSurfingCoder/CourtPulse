@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Map, { Marker, Popup } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -48,12 +48,75 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     latitude: 37.7749,
     zoom: 11
   });
+  
+  // Debounced viewport for cluster calculations
+  const [debouncedViewport, setDebouncedViewport] = useState({
+    longitude: -122.4194,
+    latitude: 37.7749,
+    zoom: 11
+  });
+  
+  // Debounce timer ref
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  
+  // Cluster cache for performance optimization
+  const clusterCache = useRef<Record<string, any[]>>({});
+  const MAX_CACHE_SIZE = 50; // Limit cache size to prevent memory issues
 
   // Use initialViewState centered on San Francisco (where the courts are located)
   const initialViewState = {
     longitude: -122.4194, // San Francisco longitude
     latitude: 37.7749,    // San Francisco latitude
     zoom: 11
+  };
+
+  // Helper function to create cache key from viewport
+  const createCacheKey = (viewport: { longitude: number; latitude: number; zoom: number }, bbox: [number, number, number, number]) => {
+    // Round zoom to nearest 0.5 for better cache efficiency
+    const roundedZoom = Math.round(viewport.zoom * 2) / 2;
+    // Round bbox coordinates to 1 decimal place for much better cache hits (0.1 degrees = ~7 miles)
+    const roundedBbox = bbox.map(coord => Math.round(coord * 10) / 10);
+    return `${roundedZoom}:${roundedBbox.join(',')}`;
+  };
+
+  // Calculate bounding box from actual map viewport bounds
+  const calculateBoundingBox = (viewport: { longitude: number; latitude: number; zoom: number }) => {
+    // Convert zoom level to approximate degrees per pixel
+    // At zoom 0: ~360 degrees / 256 pixels = ~1.4 degrees per pixel
+    // Each zoom level doubles the resolution
+    const degreesPerPixel = 360 / (256 * Math.pow(2, viewport.zoom));
+    
+    // Approximate map container dimensions (adjust based on your actual map size)
+    const mapWidth = 800;  // pixels
+    const mapHeight = 600; // pixels
+    
+    // Calculate half-width and half-height in degrees
+    const halfWidthDegrees = (mapWidth / 2) * degreesPerPixel;
+    const halfHeightDegrees = (mapHeight / 2) * degreesPerPixel;
+    
+    // Create bounding box from actual viewport
+    const bbox: [number, number, number, number] = [
+      viewport.longitude - halfWidthDegrees,  // west
+      viewport.latitude - halfHeightDegrees,  // south
+      viewport.longitude + halfWidthDegrees,  // east
+      viewport.latitude + halfHeightDegrees   // north
+    ];
+    
+    // Calculate approximate size in miles for logging
+    const avgLatitude = viewport.latitude;
+    const latFactor = Math.cos(avgLatitude * Math.PI / 180); // Adjust for latitude
+    const milesPerDegreeLongitude = 69.172 * latFactor;
+    const milesPerDegreeLatitude = 69.172;
+    
+    const widthMiles = (bbox[2] - bbox[0]) * milesPerDegreeLongitude;
+    const heightMiles = (bbox[3] - bbox[1]) * milesPerDegreeLatitude;
+    
+    return { 
+      bbox, 
+      widthMiles: Math.round(widthMiles * 100) / 100,
+      heightMiles: Math.round(heightMiles * 100) / 100,
+      degreesPerPixel: Math.round(degreesPerPixel * 1000000) / 1000000
+    };
   };
 
   // Convert courts to GeoJSON features for supercluster
@@ -89,6 +152,10 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
       
       try {
+        // Simple timing for cluster initialization
+        console.time('cluster-init');
+        const initStartTime = performance.now();
+        
         const cluster = new Supercluster({
           radius: 40,        // Cluster radius in pixels
           maxZoom: 16,       // Max zoom level to cluster
@@ -103,6 +170,11 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         }));
         
         cluster.load(mapPoints);
+        
+        // End cluster init timing
+        const initEndTime = performance.now();
+        const initDuration = initEndTime - initStartTime;
+        console.timeEnd('cluster-init');
         
         console.log(JSON.stringify({
           event: 'supercluster_initialized',
@@ -126,8 +198,47 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     }
   }, [mapPoints]);
 
-  // Get clusters for current viewport
+  // Debounce viewport changes for cluster calculations
+  useEffect(() => {
+    // Clear existing timer
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    
+    console.log(JSON.stringify({
+      event: 'viewport_debounce_started',
+      timestamp: new Date().toISOString(),
+      viewport: viewport,
+      zoom: viewport.zoom
+    }));
+    
+    // Set new timer for 500ms
+    debounceTimer.current = setTimeout(() => {
+      console.log(JSON.stringify({
+        event: 'viewport_debounced',
+        timestamp: new Date().toISOString(),
+        previousViewport: debouncedViewport,
+        newViewport: viewport,
+        zoomChange: Math.abs(viewport.zoom - debouncedViewport.zoom)
+      }));
+      
+      setDebouncedViewport(viewport);
+    }, 500);
+    
+    // Cleanup function
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, [viewport]);
+
+  // Get clusters for current viewport (using debounced viewport)
   const clusters = useMemo(() => {
+    // Simple timing for cluster calculations
+    console.time('cluster-calc');
+    const calcStartTime = performance.now();
+    
     if (!supercluster || mapPoints.length === 0) {
       console.log(JSON.stringify({
         event: 'clusters_skipped',
@@ -147,22 +258,112 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
     }
     
-    const bbox: [number, number, number, number] = [
-      viewport.longitude - 0.1, // west
-      viewport.latitude - 0.1,  // south
-      viewport.longitude + 0.1, // east
-      viewport.latitude + 0.1   // north
-    ];
+    // Calculate bounding box from actual map viewport
+    const { bbox, widthMiles, heightMiles, degreesPerPixel } = calculateBoundingBox(debouncedViewport);
+
+    // Log bounding box calculation
+    console.log(JSON.stringify({
+      event: 'bbox_calculated',
+      timestamp: new Date().toISOString(),
+      zoom: debouncedViewport.zoom,
+      degreesPerPixel: degreesPerPixel,
+      bbox: bbox,
+      widthMiles: widthMiles,
+      heightMiles: heightMiles,
+      diagonalMiles: Math.round(Math.sqrt(widthMiles * widthMiles + heightMiles * heightMiles) * 100) / 100
+    }));
+    
+    // Create cache key
+    const cacheKey = createCacheKey(debouncedViewport, bbox);
+    
+    // Check cache first
+    if (clusterCache.current[cacheKey]) {
+      const cachedResult = clusterCache.current[cacheKey];
+      console.log(JSON.stringify({
+        event: 'cluster_cache_hit',
+        timestamp: new Date().toISOString(),
+        cacheKey: cacheKey,
+        clusterCount: cachedResult?.length || 0,
+        cacheSize: Object.keys(clusterCache.current).length,
+        zoom: debouncedViewport.zoom,
+        widthMiles: widthMiles,
+        heightMiles: heightMiles
+      }));
+      console.timeEnd('cluster-calc');
+      return cachedResult;
+    }
     
     try {
-      const result = supercluster.getClusters(bbox, Math.floor(viewport.zoom));
+      const result = supercluster.getClusters(bbox, Math.floor(debouncedViewport.zoom));
       
       console.log(JSON.stringify({
         event: 'clusters_calculated',
         timestamp: new Date().toISOString(),
         clusterCount: result.length,
-        zoom: viewport.zoom,
+        zoom: debouncedViewport.zoom,
         bbox: bbox
+      }));
+      
+      // End cluster calculation timing
+      const calcEndTime = performance.now();
+      const calcDuration = calcEndTime - calcStartTime;
+      console.timeEnd('cluster-calc');
+      
+      console.log(JSON.stringify({
+        event: 'clusters_calculated',
+        timestamp: new Date().toISOString(),
+        clusterCount: result.length,
+        calcDurationMs: Math.round(calcDuration),
+        zoom: debouncedViewport.zoom,
+        widthMiles: widthMiles,
+        heightMiles: heightMiles,
+        bbox: bbox,
+        cacheKey: cacheKey,
+        diagonalMiles: Math.round(Math.sqrt(widthMiles * widthMiles + heightMiles * heightMiles) * 100) / 100
+      }));
+      
+      // Log sample cluster data structure for debugging
+      if (result.length > 0) {
+        console.log(JSON.stringify({
+          event: 'cluster_data_sample',
+          timestamp: new Date().toISOString(),
+          sampleCluster: {
+            id: result[0].id,
+            type: result[0].type,
+            geometry: result[0].geometry,
+            properties: result[0].properties
+          },
+          totalClusters: result.length
+        }));
+      }
+      
+      // Store in cache with LRU eviction
+      const cacheKeys = Object.keys(clusterCache.current);
+      if (cacheKeys.length >= MAX_CACHE_SIZE) {
+        // Remove oldest entry (first key)
+        const firstKey = cacheKeys[0];
+        delete clusterCache.current[firstKey];
+        
+        console.log(JSON.stringify({
+          event: 'cluster_cache_evicted',
+          timestamp: new Date().toISOString(),
+          evictedKey: firstKey || 'unknown',
+          cacheSize: Object.keys(clusterCache.current).length
+        }));
+      }
+      
+      // Store new result in cache
+      clusterCache.current[cacheKey] = result;
+      
+      console.log(JSON.stringify({
+        event: 'cluster_cache_stored',
+        timestamp: new Date().toISOString(),
+        cacheKey: cacheKey,
+        clusterCount: result.length,
+        cacheSize: Object.keys(clusterCache.current).length,
+        zoom: debouncedViewport.zoom,
+        widthMiles: widthMiles,
+        heightMiles: heightMiles
       }));
       
       return result;
@@ -186,7 +387,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         }
       }));
     }
-  }, [supercluster, viewport, mapPoints]);
+  }, [supercluster, debouncedViewport, mapPoints]);
 
   useEffect(() => {
     console.log(JSON.stringify({
@@ -201,6 +402,10 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     try {
       setLoading(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+      
+      // Simple performance timing
+      console.time('courts-data-fetch');
+      const startTime = performance.now();
       
       console.log(JSON.stringify({
         event: 'fetch_courts_started',
@@ -242,10 +447,16 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
       
       if (result.success && Array.isArray(result.data)) {
+        // End timing and log performance
+        const endTime = performance.now();
+        const fetchDuration = endTime - startTime;
+        console.timeEnd('courts-data-fetch');
+        
         console.log(JSON.stringify({
           event: 'courts_loaded',
           timestamp: new Date().toISOString(),
           courtCount: result.data.length,
+          fetchDurationMs: Math.round(fetchDuration),
           sampleCourts: result.data.slice(0, 3).map((court: any) => ({
             id: court.id,
             name: court.name,
@@ -404,7 +615,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     event: 'map_rendering',
     timestamp: new Date().toISOString(),
     state: 'success',
-    clustersCount: clusters.length,
+    clustersCount: clusters?.length || 0,
     courtsCount: courts.length,
     mapLoaded: mapLoaded
   }));
@@ -414,7 +625,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       <div className="absolute top-4 left-4 z-10 bg-white p-3 rounded-lg shadow-lg">
         <h3 className="font-semibold text-gray-800 mb-1">Courts Map</h3>
         <p className="text-sm text-gray-600">
-          {clusters.length} location{clusters.length !== 1 ? 's' : ''} found
+          {clusters?.length || 0} location{(clusters?.length || 0) !== 1 ? 's' : ''} found
         </p>
         <p className="text-xs text-gray-500">
           {courts.length} total courts
@@ -422,6 +633,28 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         <p className="text-xs text-gray-500">
           Zoom: {viewport.zoom.toFixed(1)}
         </p>
+            <p className="text-xs text-gray-500">
+              Cache: {Object.keys(clusterCache.current).length}/{MAX_CACHE_SIZE}
+            </p>
+            <p className="text-xs text-gray-500">
+              Viewport: {clusters?.length ? 
+                `${Math.round(calculateBoundingBox(debouncedViewport).widthMiles * 10) / 10} × ${Math.round(calculateBoundingBox(debouncedViewport).heightMiles * 10) / 10}` 
+                : '0 × 0'} miles
+            </p>
+            
+            {/* Cache Status Indicator */}
+            <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
+              <p className="font-medium text-gray-700">Cache Status:</p>
+              {Object.keys(clusterCache.current).length > 0 ? (
+                <div>
+                  <p className="text-green-600">✅ Cache Active ({Object.keys(clusterCache.current).length} entries)</p>
+                  <p className="text-gray-600">Latest key: {Object.keys(clusterCache.current)[Object.keys(clusterCache.current).length - 1]?.substring(0, 30)}...</p>
+                </div>
+              ) : (
+                <p className="text-yellow-600">⚠️ No cache entries yet</p>
+              )}
+            </div>
+        
       </div>
 
       <Map
@@ -431,7 +664,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
           console.log(JSON.stringify({
             event: 'map_loaded',
             timestamp: new Date().toISOString(),
-            clustersCount: clusters.length
+            clustersCount: clusters?.length || 0
           }));
           setMapLoaded(true);
         }}
@@ -448,7 +681,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         attributionControl={false}
         logoPosition="bottom-left"
       >
-        {mapLoaded && clusters.map((cluster) => {
+        {mapLoaded && clusters && clusters.map((cluster) => {
           const isCluster = cluster.properties.cluster;
           const pointCount = cluster.properties.point_count || 1;
           const displayName = isCluster 
@@ -490,6 +723,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
 
         {mapLoaded && selectedCluster && (
           <Popup
+            key={`popup-${selectedCluster.id}`}
             longitude={selectedCluster.geometry.coordinates[0]}
             latitude={selectedCluster.geometry.coordinates[1]}
             onClose={() => {
