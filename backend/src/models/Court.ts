@@ -210,4 +210,71 @@ export class CourtModel {
         return result.rows;
     }
 
+    static async searchCourts(filters: {
+        bbox?: [number, number, number, number];
+        sport?: string;
+        surface_type?: string;
+        is_public?: boolean;
+        zoom?: number;
+    }): Promise<Court[]> {
+        // Build dynamic query with filters
+        let query = `
+            SELECT
+                id, 
+                COALESCE(photon_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                sport as type,
+                ST_Y(centroid::geometry) as lat, 
+                ST_X(centroid::geometry) as lng,  
+                COALESCE(surface_type::text, 'Unknown') as surface, 
+                is_public, 
+                created_at, 
+                updated_at
+            FROM courts
+            WHERE centroid IS NOT NULL
+        `;
+        
+        const queryParams: any[] = [];
+        let paramIndex = 1;
+        
+        // Add bbox filter (viewport-based query)
+        if (filters.bbox && filters.bbox.length === 4) {
+            const [west, south, east, north] = filters.bbox;
+            query += ` AND ST_Within(centroid::geometry, ST_MakeEnvelope($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, 4326))`;
+            queryParams.push(west, south, east, north);
+            paramIndex += 4;
+        }
+        
+        // Add sport filter
+        if (filters.sport) {
+            query += ` AND sport = $${paramIndex}`;
+            queryParams.push(filters.sport);
+            paramIndex++;
+        }
+        
+        // Add surface_type filter
+        if (filters.surface_type) {
+            query += ` AND surface_type = $${paramIndex}`;
+            queryParams.push(filters.surface_type);
+            paramIndex++;
+        }
+        
+        // Add is_public filter
+        if (filters.is_public !== undefined) {
+            query += ` AND is_public = $${paramIndex}`;
+            queryParams.push(filters.is_public);
+            paramIndex++;
+        }
+        
+        // Add zoom-based limit (optional performance optimization)
+        if (filters.zoom && filters.zoom > 15) {
+            // For very high zoom levels, limit results to prevent overload
+            query += ` LIMIT 1000`;
+        }
+        
+        query += ` ORDER BY created_at DESC`;
+        
+        const result = await pool.query(query, queryParams);
+        return result.rows;
+    }
+
 }

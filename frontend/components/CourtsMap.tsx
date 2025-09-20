@@ -5,6 +5,7 @@ import Map, { Marker, Popup } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+
 interface Court {
   id: number;
   name: string;
@@ -17,66 +18,85 @@ interface Court {
   updated_at: string;
 }
 
-interface ClusteredCourt {
-  cluster_id: string;
-  representative_osm_id: string;
-  photon_name: string;
-  total_courts: number;
-  total_hoops: number;
-  sports: string[];
-  centroid_lat: number;
-  centroid_lon: number;
-  cluster_bounds: {
-    bounds: any;
-    center: any;
-  };
-}
 
+//used for React prop-passing for styling
 interface CourtsMapProps {
   className?: string;
 }
 
 export default function CourtsMap({ className = '' }: CourtsMapProps) {
-  const [courts, setCourts] = useState<Court[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedCluster, setSelectedCluster] = useState<any>(null);
-  const [clusterDetails, setClusterDetails] = useState<Court[]>([]);
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const [courts, setCourts] = useState<Court[]>([]); //array of court objects from API
+  const [loading, setLoading] = useState(false); // boolean for fetch status
+  const [error, setError] = useState<string | null>(null); // 
+  const [selectedCluster, setSelectedCluster] = useState<any>(null); //used for popup trigger
+  const [clusterDetails, setClusterDetails] = useState<Court[]>([]); //array of courts in selected cluster
+  const [mapLoaded, setMapLoaded] = useState(false); //true when Maplibre GL finishes loading tiles/rendering.
+/*
+Why both:
+loading - Data isn't ready yet
+mapLoaded - Data is ready, but map isn't rendered yet
+loading=true → fetch data → loading=false → map renders → mapLoaded=true → show markers
+*/
+
+  // Ref for immediate court data updates (prevents flickering)
+  const courtsRef = useRef<Court[]>([]);
+  
   const [viewport, setViewport] = useState({
     longitude: -122.4194,
     latitude: 37.7749,
-    zoom: 11
-  });
+    zoom: 12
+  }); //updates on every mouse / zoom 
   
   // Debounced viewport for cluster calculations
   const [debouncedViewport, setDebouncedViewport] = useState({
     longitude: -122.4194,
     latitude: 37.7749,
-    zoom: 11
-  });
+    zoom: 12
+  }); //same thing as viewport but delayed every 500ms
   
   // Debounce timer ref
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null); //debouncertimer ref. good to use ref here
   
-  // Cluster cache for performance optimization
-  const clusterCache = useRef<Record<string, any[]>>({});
+  // Filter state for search functionality
+  const [filters, setFilters] = useState({
+    sport: '',
+    surface_type: '',
+    is_public: undefined as boolean | undefined
+  });
+  
+  // Court data cache for performance optimization (caches raw API responses)
+  const courtCache = useRef<Record<string, Court[]>>({});
   const MAX_CACHE_SIZE = 50; // Limit cache size to prevent memory issues
 
   // Use initialViewState centered on San Francisco (where the courts are located)
-  const initialViewState = {
+  // DEBUGGING: Memoize initialViewState to prevent map re-mounting
+  const initialViewState = useMemo(() => ({
     longitude: -122.4194, // San Francisco longitude
     latitude: 37.7749,    // San Francisco latitude
-    zoom: 11
-  };
+    zoom: 12
+  }), []); // Empty dependency array - never changes
 
-  // Helper function to create cache key from viewport
-  const createCacheKey = (viewport: { longitude: number; latitude: number; zoom: number }, bbox: [number, number, number, number]) => {
+  // DEBUGGING: Track component re-renders with more detail
+  console.log(JSON.stringify({
+    event: 'courts_map_render',
+    timestamp: new Date().toISOString(),
+    courtsLength: courts.length,
+    loading: loading,
+    error: error,
+    mapLoaded: mapLoaded,
+    viewport: viewport,
+    renderCount: Math.random() // Add random number to track each render
+  }));
+
+  // Helper function to create cache key from viewport and filters
+  const createCacheKey = (viewport: { longitude: number; latitude: number; zoom: number }, bbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
     // Round zoom to nearest 0.5 for better cache efficiency
     const roundedZoom = Math.round(viewport.zoom * 2) / 2;
     // Round bbox coordinates to 1 decimal place for much better cache hits (0.1 degrees = ~7 miles)
     const roundedBbox = bbox.map(coord => Math.round(coord * 10) / 10);
-    return `${roundedZoom}:${roundedBbox.join(',')}`;
+    // Create filter key for cache differentiation
+    const filterKey = JSON.stringify(filters);
+    return `${roundedZoom}:${roundedBbox.join(',')}:${filterKey}`;
   };
 
   // Calculate bounding box from actual map viewport bounds
@@ -119,8 +139,66 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     };
   };
 
+  // Check if two bounding boxes overlap
+  const doBoundingBoxesOverlap = (bbox1: [number, number, number, number], bbox2: [number, number, number, number]) => {
+    const [west1, south1, east1, north1] = bbox1;
+    const [west2, south2, east2, north2] = bbox2;
+    
+    // Two rectangles overlap if one is not completely to the left, right, top, or bottom of the other
+    return !(east1 < west2 || west1 > east2 || north1 < south2 || south1 > north2);
+  };
+
+  // Check if a point is within a bounding box
+  const isPointInBoundingBox = (point: { lng: number; lat: number }, bbox: [number, number, number, number]) => {
+    const [west, south, east, north] = bbox;
+    return point.lng >= west && point.lng <= east && point.lat >= south && point.lat <= north;
+  };
+
+  // Get courts from cache that overlap with the current search area
+  const getOverlappingCourtsFromCache = (searchBbox: [number, number, number, number], filters: any) => {
+    const overlappingCourts: Court[] = [];
+    const cacheKeys = Object.keys(courtCache.current);
+    
+    for (const cacheKey of cacheKeys) {
+      // Parse cache key to get bbox and filters
+      const parts = cacheKey.split(':');
+      if (parts.length >= 3) {
+        const cacheBbox = parts[1].split(',').map(coord => parseFloat(coord)) as [number, number, number, number];
+        const cacheFilters = JSON.parse(parts.slice(2).join(':'));
+        
+        // Check if filters match and bboxes overlap
+        if (JSON.stringify(cacheFilters) === JSON.stringify(filters) && 
+            doBoundingBoxesOverlap(searchBbox, cacheBbox)) {
+          
+          const cachedCourts = courtCache.current[cacheKey];
+          console.log(JSON.stringify({
+            event: 'cache_overlap_found',
+            timestamp: new Date().toISOString(),
+            cacheKey: cacheKey,
+            cacheBbox: cacheBbox,
+            searchBbox: searchBbox,
+            overlappingCourtCount: cachedCourts.length
+          }));
+          
+          overlappingCourts.push(...cachedCourts);
+        }
+      }
+    }
+    
+    // Remove duplicates based on court ID
+    const uniqueCourts = overlappingCourts.filter((court, index, self) => 
+      index === self.findIndex(c => c.id === court.id)
+    );
+    
+    return uniqueCourts;
+  };
+
   // Convert courts to GeoJSON features for supercluster
+  //takes the data fetch / data stored in courts and stores it in mappoints which is an array of objects
   const mapPoints = useMemo(() => {
+    // DEBUGGING: Comment out ref system temporarily
+    // const courtsData = courtsRef.current.length > 0 ? courtsRef.current : courts;
+    
     return courts.map(court => ({
       type: 'Feature' as const,
       properties: { 
@@ -132,15 +210,15 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       },
       geometry: {
         type: 'Point' as const,
-        coordinates: [court.lat, court.lng] // Fixed: lat is longitude, lng is latitude in the data
+        coordinates: [court.lng, court.lat] // GeoJSON format: [longitude, latitude]
       }
     }));
   }, [courts]);
 
-  // Initialize supercluster
+  // DEBUGGING: Comment out ALL clustering logic
   const [supercluster, setSupercluster] = useState<Supercluster | null>(null);
 
-  // Load points into supercluster when data changes
+  // Initialize Supercluster when mapPoints change
   useEffect(() => {
     if (mapPoints.length > 0) {
       console.log(JSON.stringify({
@@ -152,15 +230,14 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       }));
       
       try {
-        // Simple timing for cluster initialization
         console.time('cluster-init');
         const initStartTime = performance.now();
         
         const cluster = new Supercluster({
-          radius: 40,        // Cluster radius in pixels
-          maxZoom: 16,       // Max zoom level to cluster
-          minZoom: 0,        // Min zoom level to cluster
-          minPoints: 2       // Minimum points to form a cluster
+          radius: 40,
+          maxZoom: 16,
+          minZoom: 0,
+          minPoints: 2
         });
         
         console.log(JSON.stringify({
@@ -171,7 +248,6 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         
         cluster.load(mapPoints);
         
-        // End cluster init timing
         const initEndTime = performance.now();
         const initDuration = initEndTime - initStartTime;
         console.timeEnd('cluster-init');
@@ -198,9 +274,8 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     }
   }, [mapPoints]);
 
-  // Debounce viewport changes for cluster calculations
+  // Debounce viewport changes to prevent excessive clustering recalculations
   useEffect(() => {
-    // Clear existing timer
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
     }
@@ -212,7 +287,6 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       zoom: viewport.zoom
     }));
     
-    // Set new timer for 500ms
     debounceTimer.current = setTimeout(() => {
       console.log(JSON.stringify({
         event: 'viewport_debounced',
@@ -225,7 +299,6 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       setDebouncedViewport(viewport);
     }, 500);
     
-    // Cleanup function
     return () => {
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
@@ -233,20 +306,8 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     };
   }, [viewport]);
 
-  // Get clusters for current viewport (using debounced viewport)
-  const clusters = useMemo(() => {
-    // Simple timing for cluster calculations
-    console.time('cluster-calc');
-    const calcStartTime = performance.now();
-    
-    if (!supercluster || mapPoints.length === 0) {
-      console.log(JSON.stringify({
-        event: 'clusters_skipped',
-        timestamp: new Date().toISOString(),
-        reason: !supercluster ? 'no_supercluster' : 'no_mappoints',
-        mapPointsLength: mapPoints.length
-      }));
-      // Fallback to showing individual points if no clustering
+  // Helper function to create fallback points
+  const createFallbackPoints = () => {
       return mapPoints.map((point, index) => ({
         ...point,
         id: `point-${index}`,
@@ -256,12 +317,17 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
           point_count: 1
         }
       }));
-    }
+  };
+
+  // Get clusters for current viewport (using debounced viewport)
+  const clusters = useMemo(() => {
+    console.time('cluster-calc');
+    const calcStartTime = performance.now();
     
-    // Calculate bounding box from actual map viewport
+    if (!supercluster) return [];
+    
     const { bbox, widthMiles, heightMiles, degreesPerPixel } = calculateBoundingBox(debouncedViewport);
 
-    // Log bounding box calculation
     console.log(JSON.stringify({
       event: 'bbox_calculated',
       timestamp: new Date().toISOString(),
@@ -273,26 +339,6 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
       diagonalMiles: Math.round(Math.sqrt(widthMiles * widthMiles + heightMiles * heightMiles) * 100) / 100
     }));
     
-    // Create cache key
-    const cacheKey = createCacheKey(debouncedViewport, bbox);
-    
-    // Check cache first
-    if (clusterCache.current[cacheKey]) {
-      const cachedResult = clusterCache.current[cacheKey];
-      console.log(JSON.stringify({
-        event: 'cluster_cache_hit',
-        timestamp: new Date().toISOString(),
-        cacheKey: cacheKey,
-        clusterCount: cachedResult?.length || 0,
-        cacheSize: Object.keys(clusterCache.current).length,
-        zoom: debouncedViewport.zoom,
-        widthMiles: widthMiles,
-        heightMiles: heightMiles
-      }));
-      console.timeEnd('cluster-calc');
-      return cachedResult;
-    }
-    
     try {
       const result = supercluster.getClusters(bbox, Math.floor(debouncedViewport.zoom));
       
@@ -300,103 +346,79 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
         event: 'clusters_calculated',
         timestamp: new Date().toISOString(),
         clusterCount: result.length,
-        zoom: debouncedViewport.zoom,
-        bbox: bbox
+        viewport: debouncedViewport,
+        calcDuration: performance.now() - calcStartTime
       }));
       
-      // End cluster calculation timing
-      const calcEndTime = performance.now();
-      const calcDuration = calcEndTime - calcStartTime;
       console.timeEnd('cluster-calc');
-      
-      console.log(JSON.stringify({
-        event: 'clusters_calculated',
-        timestamp: new Date().toISOString(),
-        clusterCount: result.length,
-        calcDurationMs: Math.round(calcDuration),
-        zoom: debouncedViewport.zoom,
-        widthMiles: widthMiles,
-        heightMiles: heightMiles,
-        bbox: bbox,
-        cacheKey: cacheKey,
-        diagonalMiles: Math.round(Math.sqrt(widthMiles * widthMiles + heightMiles * heightMiles) * 100) / 100
-      }));
-      
-      // Log sample cluster data structure for debugging
-      if (result.length > 0) {
-        console.log(JSON.stringify({
-          event: 'cluster_data_sample',
-          timestamp: new Date().toISOString(),
-          sampleCluster: {
-            id: result[0].id,
-            type: result[0].type,
-            geometry: result[0].geometry,
-            properties: result[0].properties
-          },
-          totalClusters: result.length
-        }));
-      }
-      
-      // Store in cache with LRU eviction
-      const cacheKeys = Object.keys(clusterCache.current);
-      if (cacheKeys.length >= MAX_CACHE_SIZE) {
-        // Remove oldest entry (first key)
-        const firstKey = cacheKeys[0];
-        delete clusterCache.current[firstKey];
-        
-        console.log(JSON.stringify({
-          event: 'cluster_cache_evicted',
-          timestamp: new Date().toISOString(),
-          evictedKey: firstKey || 'unknown',
-          cacheSize: Object.keys(clusterCache.current).length
-        }));
-      }
-      
-      // Store new result in cache
-      clusterCache.current[cacheKey] = result;
-      
-      console.log(JSON.stringify({
-        event: 'cluster_cache_stored',
-        timestamp: new Date().toISOString(),
-        cacheKey: cacheKey,
-        clusterCount: result.length,
-        cacheSize: Object.keys(clusterCache.current).length,
-        zoom: debouncedViewport.zoom,
-        widthMiles: widthMiles,
-        heightMiles: heightMiles
-      }));
       
       return result;
     } catch (error) {
       console.error(JSON.stringify({
-        event: 'clusters_error',
+        event: 'cluster_calculation_error',
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? error.message : 'Unknown error',
-        superclusterType: typeof supercluster,
-        hasGetClusters: typeof supercluster?.getClusters === 'function'
+        viewport: debouncedViewport
       }));
       
-      // Fallback to showing individual points if clustering fails
-      return mapPoints.map((point, index) => ({
-        ...point,
-        id: `point-${index}`,
-        properties: {
-          ...point.properties,
-          cluster: false,
-          point_count: 1
-        }
-      }));
+      // Fallback: return individual points
+      return createFallbackPoints();
     }
   }, [supercluster, debouncedViewport, mapPoints]);
 
+
+  //runs once when CourtsMap first renders. Calls fetchcourts
+  // Initial data fetch - search for basketball courts in San Francisco
   useEffect(() => {
     console.log(JSON.stringify({
       event: 'courts_map_initialized',
       timestamp: new Date().toISOString(),
       component: 'CourtsMap'
     }));
-    fetchCourts();
+    
+    // Set initial filter for basketball courts
+    setFilters(prev => ({ ...prev, sport: 'basketball' }));
+    
+    // Trigger initial search after a short delay to ensure viewport is set
+    const timer = setTimeout(() => {
+      console.log(JSON.stringify({
+        event: 'initial_search_triggered',
+        timestamp: new Date().toISOString(),
+        filters: { sport: 'basketball' },
+        viewport: viewport
+      }));
+      fetchCourtsWithFilters();
+    }, 100);
+    
+    return () => clearTimeout(timer);
   }, []);
+
+  // Auto-fetch when filters change (debounced to avoid excessive API calls)
+  useEffect(() => {
+    // Skip initial render (filters are set in the first useEffect)
+    if (filters.sport === '' && filters.surface_type === '' && filters.is_public === undefined) {
+      return;
+    }
+    
+    console.log(JSON.stringify({
+      event: 'filters_changed',
+      timestamp: new Date().toISOString(),
+      filters: filters,
+      viewport: viewport
+    }));
+    
+    // Debounce filter changes to avoid excessive API calls
+    const filterTimer = setTimeout(() => {
+      console.log(JSON.stringify({
+        event: 'auto_fetch_triggered_by_filter_change',
+        timestamp: new Date().toISOString(),
+        filters: filters
+      }));
+      fetchCourtsWithFilters();
+    }, 300); // 300ms debounce
+    
+    return () => clearTimeout(filterTimer);
+  }, [filters.sport, filters.surface_type, filters.is_public]);
 
   const fetchCourts = async () => {
     try {
@@ -485,86 +507,263 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
     }
   };
 
+  const fetchCourtsWithFilters = async () => {
+    // DEBUGGING: Log when search starts
+    console.log(JSON.stringify({
+      event: 'search_button_clicked',
+      timestamp: new Date().toISOString(),
+      currentCourtsLength: courts.length,
+      currentLoading: loading,
+      currentViewport: viewport
+    }));
+    
+    // Prevent multiple simultaneous requests
+    if (loading) {
+      console.log(JSON.stringify({
+        event: 'search_already_in_progress',
+        timestamp: new Date().toISOString()
+      }));
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+      
+      // Calculate bounding box from current viewport
+      const { bbox } = calculateBoundingBox(viewport);
+      
+      // Create cache key for this request
+      const cacheKey = createCacheKey(viewport, bbox, filters);
+      
+      // Check for exact cache hit first
+      if (courtCache.current[cacheKey]) {
+        const cachedCourts = courtCache.current[cacheKey];
+        console.log(JSON.stringify({
+          event: 'court_cache_hit',
+          timestamp: new Date().toISOString(),
+          cacheKey: cacheKey,
+          courtCount: cachedCourts.length,
+          cacheSize: Object.keys(courtCache.current).length,
+          allCacheKeys: Object.keys(courtCache.current)
+        }));
+        
+        console.log(JSON.stringify({
+          event: 'no_api_call_needed',
+          timestamp: new Date().toISOString(),
+          reason: 'exact_cache_hit',
+          cacheKey: cacheKey,
+          courtCount: cachedCourts.length
+        }));
+        
+        setCourts(cachedCourts);
+        setLoading(false);
+        return;
+      }
+
+      // INCREMENTAL FETCHING: Get overlapping courts from cache
+      const overlappingCourts = getOverlappingCourtsFromCache(bbox, filters);
+      console.log(JSON.stringify({
+        event: 'incremental_fetch_start',
+        timestamp: new Date().toISOString(),
+        overlappingCourtCount: overlappingCourts.length,
+        searchBbox: bbox,
+        filters: filters
+      }));
+      
+      // Check if zoom level allows searching
+      if (viewport.zoom <= 11) {
+        console.log(JSON.stringify({
+          event: 'search_skipped_low_zoom',
+          timestamp: new Date().toISOString(),
+          zoom: viewport.zoom
+        }));
+        
+        // Even at low zoom, show overlapping cached data if available
+        if (overlappingCourts.length > 0) {
+          console.log(JSON.stringify({
+            event: 'no_api_call_needed',
+            timestamp: new Date().toISOString(),
+            reason: 'low_zoom_using_cached_data',
+            overlappingCourtCount: overlappingCourts.length,
+            zoom: viewport.zoom
+          }));
+          setCourts(overlappingCourts);
+        } else {
+          console.log(JSON.stringify({
+            event: 'no_api_call_needed',
+            timestamp: new Date().toISOString(),
+            reason: 'low_zoom_no_cached_data',
+            zoom: viewport.zoom
+          }));
+          setCourts([]);
+        }
+        
+        setLoading(false);
+        return;
+      }
+      
+      // Build query parameters
+      const queryParams = new URLSearchParams({
+        zoom: viewport.zoom.toString(),
+        bbox: bbox.join(',')
+      });
+      
+      // Add filters to query params
+      if (filters.sport) queryParams.append('sport', filters.sport);
+      if (filters.surface_type) queryParams.append('surface_type', filters.surface_type);
+      if (filters.is_public !== undefined) queryParams.append('is_public', filters.is_public.toString());
+      
+      console.log(JSON.stringify({
+        event: 'new_api_call_started',
+        timestamp: new Date().toISOString(),
+        filters: filters,
+        bbox: bbox,
+        zoom: viewport.zoom,
+        overlappingCachedCount: overlappingCourts.length,
+        reason: 'cache_miss_or_incremental_fetch'
+      }));
+      
+      const response = await fetch(`${apiUrl}/api/courts/search?${queryParams.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      console.log(JSON.stringify({
+        event: 'courts_search_completed',
+        timestamp: new Date().toISOString(),
+        success: result.success,
+        dataLength: result.data?.length || 0,
+        filters: filters
+      }));
+      
+            if (result.success && Array.isArray(result.data)) {
+              // INCREMENTAL FETCHING: Combine new API data with overlapping cached data
+              const combinedCourts = [...overlappingCourts, ...result.data];
+              
+              // Remove duplicates based on court ID
+              const uniqueCourts = combinedCourts.filter((court, index, self) => 
+                index === self.findIndex(c => c.id === court.id)
+              );
+              
+              console.log(JSON.stringify({
+                event: 'incremental_fetch_completed',
+                timestamp: new Date().toISOString(),
+                newApiDataCount: result.data.length,
+                overlappingCachedCount: overlappingCourts.length,
+                combinedCount: uniqueCourts.length,
+                duplicatesRemoved: combinedCourts.length - uniqueCourts.length
+              }));
+              
+              // Store new API data in cache
+              const cacheKeys = Object.keys(courtCache.current);
+              if (cacheKeys.length >= MAX_CACHE_SIZE) {
+                // Remove oldest entry (first key)
+                const firstKey = cacheKeys[0];
+                delete courtCache.current[firstKey];
+                console.log(JSON.stringify({
+                  event: 'cache_entry_evicted',
+                  timestamp: new Date().toISOString(),
+                  evictedKey: firstKey,
+                  cacheSize: cacheKeys.length
+                }));
+              }
+              courtCache.current[cacheKey] = result.data;
+              
+              console.log(JSON.stringify({
+                event: 'court_cache_stored',
+                timestamp: new Date().toISOString(),
+                cacheKey: cacheKey,
+                courtCount: result.data.length,
+                cacheSize: Object.keys(courtCache.current).length,
+                filters: filters
+              }));
+        
+              // Set the combined data (cached + new)
+              setCourts(uniqueCourts);
+      } else {
+        throw new Error(result.message || 'Failed to fetch courts');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
+      setError(errorMessage);
+      
+      console.log(JSON.stringify({
+        event: 'fetch_courts_with_filters_error',
+        timestamp: new Date().toISOString(),
+        error: errorMessage
+      }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle cluster clicks to show popup with cluster details
   const handleClusterClick = (cluster: any) => {
     if (cluster.properties.cluster && supercluster) {
       // It's a cluster - get the children
       const children = supercluster.getChildren(cluster.id);
-      setClusterDetails(children.map((child: any) => ({
-        id: child.properties.id,
-        name: child.properties.name,
-        type: child.properties.type,
-        surface: child.properties.surface,
-        is_public: child.properties.is_public,
+      // Convert cluster features back to Court objects for display
+      const courtDetails = children.map((child: any) => ({
+        id: child.properties.id || child.id,
+        name: child.properties.name || 'Unknown Court',
+        type: child.properties.type || 'unknown',
         lat: child.geometry.coordinates[1],
         lng: child.geometry.coordinates[0],
-        created_at: '',
-        updated_at: ''
-      })));
+        surface: child.properties.surface || 'Unknown',
+        is_public: child.properties.is_public,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+      setClusterDetails(courtDetails);
       setSelectedCluster(cluster);
     } else {
-      // It's an individual court
-      setClusterDetails([{
-        id: cluster.properties.id,
-        name: cluster.properties.name,
-        type: cluster.properties.type,
-        surface: cluster.properties.surface,
-        is_public: cluster.properties.is_public,
+      // It's an individual court - convert to Court object
+      const courtDetail = {
+        id: cluster.properties.id || cluster.id,
+        name: cluster.properties.name || 'Unknown Court',
+        type: cluster.properties.type || 'unknown',
         lat: cluster.geometry.coordinates[1],
         lng: cluster.geometry.coordinates[0],
-        created_at: '',
-        updated_at: ''
-      }]);
+        surface: cluster.properties.surface || 'Unknown',
+        is_public: cluster.properties.is_public,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      setClusterDetails([courtDetail]);
       setSelectedCluster(cluster);
     }
   };
 
-  const getCourtIcon = (type: string) => {
-    // You can customize these icons later
-    switch (type.toLowerCase()) {
-      case 'basketball':
-        return '🏀';
-      case 'tennis':
-        return '🎾';
-      case 'soccer':
-        return '⚽';
-      case 'football':
-        return '🏈';
-      default:
-        return '🏟️';
-    }
-  };
+  
 
-  const getCourtColor = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'basketball':
-        return '#ff6b6b';
-      case 'tennis':
-        return '#4ecdc4';
-      case 'soccer':
-        return '#45b7d1';
-      case 'football':
-        return '#96ceb4';
-      default:
-        return '#feca57';
-    }
-  };
-
-  if (loading) {
-    console.log(JSON.stringify({
-      event: 'map_loading_state',
-      timestamp: new Date().toISOString(),
-      state: 'loading'
-    }));
-    
-    return (
-      <div className={`flex items-center justify-center h-96 bg-gray-100 rounded-lg ${className}`}>
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading courts map...</p>
-        </div>
-      </div>
-    );
-  }
+  // DEBUGGING: Don't unmount the map during loading - this was causing the flickering!
+  // if (loading) {
+  //   console.log(JSON.stringify({
+  //     event: 'map_loading_state',
+  //     timestamp: new Date().toISOString(),
+  //     state: 'loading'
+  //   }));
+  //   
+  //   return (
+  //     <div className={`flex items-center justify-center h-96 bg-gray-100 rounded-lg ${className}`}>
+  //       <div className="text-center">
+  //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+  //         <p className="text-gray-600">Loading courts map...</p>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   if (error) {
     console.log(JSON.stringify({
@@ -622,6 +821,15 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
 
   return (
     <div className={`relative ${className}`}>
+      {/* Loading Overlay - Only show when loading, don't unmount map */}
+      {loading && (
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600 font-medium">Searching courts...</p>
+          </div>
+        </div>
+      )}
       <div className="absolute top-4 left-4 z-10 bg-white p-3 rounded-lg shadow-lg">
         <h3 className="font-semibold text-gray-800 mb-1">Courts Map</h3>
         <p className="text-sm text-gray-600">
@@ -634,7 +842,7 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
           Zoom: {viewport.zoom.toFixed(1)}
         </p>
             <p className="text-xs text-gray-500">
-              Cache: {Object.keys(clusterCache.current).length}/{MAX_CACHE_SIZE}
+              Cache: {Object.keys(courtCache.current).length}/{MAX_CACHE_SIZE}
             </p>
             <p className="text-xs text-gray-500">
               Viewport: {clusters?.length ? 
@@ -645,16 +853,117 @@ export default function CourtsMap({ className = '' }: CourtsMapProps) {
             {/* Cache Status Indicator */}
             <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
               <p className="font-medium text-gray-700">Cache Status:</p>
-              {Object.keys(clusterCache.current).length > 0 ? (
-                <div>
-                  <p className="text-green-600">✅ Cache Active ({Object.keys(clusterCache.current).length} entries)</p>
-                  <p className="text-gray-600">Latest key: {Object.keys(clusterCache.current)[Object.keys(clusterCache.current).length - 1]?.substring(0, 30)}...</p>
-                </div>
+              {Object.keys(courtCache.current).length > 0 ? (
+                <p className="text-green-600">✅ Cache Active ({Object.keys(courtCache.current).length} entries)</p>
               ) : (
                 <p className="text-yellow-600">⚠️ No cache entries yet</p>
               )}
             </div>
         
+      </div>
+
+      {/* Search and Filter Controls - Pill Design Top Center */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
+        <div className="bg-white/95 backdrop-blur-sm rounded-full shadow-lg border border-gray-200 px-6 py-3 flex items-center gap-4">
+          {/* Sport Filter */}
+          <select
+            value={filters.sport}
+            onChange={(e) => setFilters(prev => ({ ...prev, sport: e.target.value }))}
+            className="px-3 py-1 text-sm border-0 rounded-full focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <option value="">All Sports</option>
+            <option value="basketball">Basketball</option>
+            <option value="tennis">Tennis</option>
+            <option value="soccer">Soccer</option>
+            <option value="volleyball">Volleyball</option>
+            <option value="handball">Handball</option>
+          </select>
+
+          {/* Surface Filter */}
+          <select
+            value={filters.surface_type}
+            onChange={(e) => setFilters(prev => ({ ...prev, surface_type: e.target.value }))}
+            className="px-3 py-1 text-sm border-0 rounded-full focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <option value="">All Surfaces</option>
+            <option value="asphalt">Asphalt</option>
+            <option value="concrete">Concrete</option>
+            <option value="wood">Wood</option>
+            <option value="synthetic">Synthetic</option>
+            <option value="clay">Clay</option>
+            <option value="grass">Grass</option>
+          </select>
+
+          {/* Public/Private Toggle */}
+          <select
+            value={filters.is_public === undefined ? '' : filters.is_public.toString()}
+            onChange={(e) => setFilters(prev => ({ 
+              ...prev, 
+              is_public: e.target.value === '' ? undefined : e.target.value === 'true' 
+            }))}
+            className="px-3 py-1 text-sm border-0 rounded-full focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <option value="">All Access</option>
+            <option value="true">Public Only</option>
+            <option value="false">Private Only</option>
+          </select>
+
+          {/* Divider */}
+          <div className="w-px h-6 bg-gray-300"></div>
+
+          {/* Refresh Button */}
+          <button
+            onClick={fetchCourtsWithFilters}
+            disabled={viewport.zoom <= 11}
+            className={`px-4 py-1 rounded-full font-medium transition-all duration-200 flex items-center gap-2 ${
+              viewport.zoom <= 11
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : loading
+                ? 'bg-blue-100 text-blue-600 cursor-wait'
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg'
+            }`}
+            title="Filters auto-update, but you can manually refresh if needed"
+          >
+            {loading ? (
+              <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+          </button>
+
+          {/* Clear Filters */}
+          {(filters.sport || filters.surface_type || filters.is_public !== undefined) && (
+            <button
+              onClick={() => setFilters({ sport: '', surface_type: '', is_public: undefined })}
+              className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 transition-colors rounded-full hover:bg-gray-100"
+              title="Clear all filters"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Status Indicators - Below the pill */}
+        <div className="mt-2 flex justify-center gap-4 text-xs text-gray-500">
+          <div className="flex items-center gap-1">
+            <div className={`w-1.5 h-1.5 rounded-full ${viewport.zoom > 11 ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+            {viewport.zoom > 11 ? 'Auto-Search Active' : 'Zoom In to Search'}
+          </div>
+          {loading && (
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+              Auto-searching...
+            </div>
+          )}
+          {Object.keys(courtCache.current).length > 0 && (
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-500"></div>
+              {Object.keys(courtCache.current).length} cached
+            </div>
+          )}
+        </div>
       </div>
 
       <Map

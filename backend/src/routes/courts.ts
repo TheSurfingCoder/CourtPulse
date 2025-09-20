@@ -46,6 +46,92 @@ router.get('/clustered', async (req: express.Request, res: express.Response) => 
   }
 });
 
+// GET /api/courts/search - Search courts with viewport and filters
+router.get('/search', async (req: express.Request, res: express.Response) => {
+  try {
+    const { bbox, zoom, sport, surface_type, is_public } = req.query;
+    
+    // Validate zoom level (must be > 11 for search)
+    const zoomLevel = parseFloat(zoom as string);
+    if (zoomLevel <= 11) {
+      return res.status(400).json({
+        success: false,
+        message: 'Zoom level must be greater than 11 to search courts'
+      });
+    }
+    
+    // Parse bbox parameter
+    let parsedBbox: [number, number, number, number] | undefined;
+    if (bbox) {
+      const bboxArray = (bbox as string).split(',').map(coord => parseFloat(coord));
+      if (bboxArray.length === 4 && bboxArray.every(coord => !isNaN(coord))) {
+        parsedBbox = bboxArray as [number, number, number, number];
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid bbox format. Expected: west,south,east,north'
+        });
+      }
+    }
+    
+    // Parse filters
+    const filters: any = {
+      bbox: parsedBbox,
+      zoom: zoomLevel,
+      sport: sport as string,
+      surface_type: surface_type as string,
+      is_public: is_public !== undefined ? is_public === 'true' : undefined
+    };
+    
+    // Remove undefined values
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === undefined) {
+        delete filters[key];
+      }
+    });
+    
+    const courts = await CourtModel.searchCourts(filters);
+    
+    console.log(JSON.stringify({
+      event: 'courts_search_completed',
+      timestamp: new Date().toISOString(),
+      filters: filters,
+      resultCount: courts.length,
+      request: {
+        method: req.method,
+        url: req.url,
+        query: req.query
+      }
+    }));
+    
+    return res.json({
+      success: true,
+      count: courts.length,
+      data: courts,
+      filters: filters
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'courts_search_error',
+      timestamp: new Date().toISOString(),
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      request: {
+        method: req.method,
+        url: req.url,
+        query: req.query
+      }
+    }));
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to search courts',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // GET /api/courts - Get all courts (individual records)
 router.get('/', async (req: express.Request, res: express.Response) => {
   try {

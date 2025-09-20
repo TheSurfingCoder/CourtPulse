@@ -1,4 +1,3 @@
-import CourtsList from '../components/CourtsList';
 import CourtsMap from '../components/CourtsMap';
 
 export default function Home() {
@@ -17,13 +16,6 @@ export default function Home() {
         <CourtsMap className="rounded-lg shadow-lg" />
       </div>
       
-      <hr style={{ margin: '30px 0' }} />
-      
-      {/* Courts List */}
-      <div>
-        <h2 style={{ marginBottom: '20px', color: '#333' }}>All Courts</h2>
-        <CourtsList />
-      </div>
     </div>
   )
 }

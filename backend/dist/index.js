@@ -93,7 +93,12 @@ async function runMigrations() {
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 app.use((0, helmet_1.default)());
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)({
+    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use((0, morgan_1.default)('combined'));
 app.use(express_1.default.json());
 // Swagger API Documentation
