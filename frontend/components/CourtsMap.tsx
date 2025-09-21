@@ -65,8 +65,18 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   });
   
   // Court data cache for performance optimization (caches raw API responses)
+  // Cache key format: "west,south,east,north" (bbox only, no zoom)
   const courtCache = useRef<Record<string, Court[]>>({});
   const MAX_CACHE_SIZE = 50; // Limit cache size to prevent memory issues
+  
+  // Track last searched area for smart re-query detection
+  const lastSearchedArea = useRef<{
+    bbox: [number, number, number, number];
+    filters: { sport: string; surface_type: string; is_public: boolean | undefined };
+  } | null>(null);
+
+  // State for tracking when user has moved to new area requiring search
+  const [needsNewSearch, setNeedsNewSearch] = useState(false);
 
   // Use initialViewState centered on San Francisco (where the courts are located)
   // DEBUGGING: Memoize initialViewState to prevent map re-mounting
@@ -88,15 +98,125 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     renderCount: Math.random() // Add random number to track each render
   }));
 
-  // Helper function to create cache key from viewport and filters
-  const createCacheKey = (viewport: { longitude: number; latitude: number; zoom: number }, bbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
-    // Round zoom to nearest 0.5 for better cache efficiency
-    const roundedZoom = Math.round(viewport.zoom * 2) / 2;
-    // Round bbox coordinates to 1 decimal place for much better cache hits (0.1 degrees = ~7 miles)
+  // Helper function to create cache key from bbox only (no zoom, no filters)
+  const createCacheKey = (bbox: [number, number, number, number]) => {
+    // Round bbox coordinates to 1 decimal place for better cache hits (0.1 degrees = ~7 miles)
     const roundedBbox = bbox.map(coord => Math.round(coord * 10) / 10);
-    // Create filter key for cache differentiation
-    const filterKey = JSON.stringify(filters);
-    return `${roundedZoom}:${roundedBbox.join(',')}:${filterKey}`;
+    return roundedBbox.join(',');
+  };
+
+  // Helper function to check if one bbox is contained within another
+  const isBboxContained = (innerBbox: [number, number, number, number], outerBbox: [number, number, number, number]) => {
+    const [innerWest, innerSouth, innerEast, innerNorth] = innerBbox;
+    const [outerWest, outerSouth, outerEast, outerNorth] = outerBbox;
+    
+    return innerWest >= outerWest && innerSouth >= outerSouth && 
+           innerEast <= outerEast && innerNorth <= outerNorth;
+  };
+
+  // Helper function to calculate bbox overlap percentage
+  const calculateBboxOverlap = (bbox1: [number, number, number, number], bbox2: [number, number, number, number]) => {
+    const [west1, south1, east1, north1] = bbox1;
+    const [west2, south2, east2, north2] = bbox2;
+    
+    // Calculate intersection
+    const west = Math.max(west1, west2);
+    const south = Math.max(south1, south2);
+    const east = Math.min(east1, east2);
+    const north = Math.min(north1, north2);
+    
+    // If no intersection, return 0
+    if (west >= east || south >= north) return 0;
+    
+    const intersectionArea = (east - west) * (north - south);
+    const unionArea = (east1 - west1) * (north1 - south1) + (east2 - west2) * (north2 - south2) - intersectionArea;
+    
+    return intersectionArea / unionArea;
+  };
+
+  // Helper function to find cache hit based on coverage area
+  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
+    // Round search bbox to same precision as cache keys
+    const roundedSearchBbox: [number, number, number, number] = searchBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
+    
+    console.log(JSON.stringify({
+      event: 'cache_hit_check_start',
+      timestamp: new Date().toISOString(),
+      originalSearchBbox: searchBbox,
+      roundedSearchBbox: roundedSearchBbox,
+      filters: filters,
+      cacheKeys: Object.keys(courtCache.current)
+    }));
+    
+    for (const [cacheKey, cachedCourts] of Object.entries(courtCache.current)) {
+      const [cacheWest, cacheSouth, cacheEast, cacheNorth] = cacheKey.split(',').map(Number);
+      const cacheBbox: [number, number, number, number] = [cacheWest, cacheSouth, cacheEast, cacheNorth];
+      
+      console.log(JSON.stringify({
+        event: 'cache_hit_check_comparison',
+        timestamp: new Date().toISOString(),
+        cacheKey: cacheKey,
+        cacheBbox: cacheBbox,
+        originalSearchBbox: searchBbox,
+        roundedSearchBbox: roundedSearchBbox,
+        isContained: isBboxContained(roundedSearchBbox, cacheBbox)
+      }));
+      
+      // Check if search area is within cached area (using rounded coordinates)
+      if (isBboxContained(roundedSearchBbox, cacheBbox)) {
+        console.log(JSON.stringify({
+          event: 'coverage_cache_hit',
+          timestamp: new Date().toISOString(),
+          cacheKey: cacheKey,
+          searchBbox: searchBbox,
+          cacheBbox: cacheBbox,
+          cachedCourtCount: cachedCourts.length
+        }));
+        
+        // Filter cached results client-side
+        const filteredCourts = cachedCourts.filter(court => {
+          if (filters.sport && court.type !== filters.sport) return false;
+          if (filters.surface_type && court.surface !== filters.surface_type) return false;
+          if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
+          return true;
+        });
+        
+        console.log(JSON.stringify({
+          event: 'client_side_filtering_applied',
+          timestamp: new Date().toISOString(),
+          originalCount: cachedCourts.length,
+          filteredCount: filteredCourts.length,
+          filters: filters
+        }));
+        
+        return filteredCourts;
+      }
+    }
+    
+    console.log(JSON.stringify({
+      event: 'no_cache_hit_found',
+      timestamp: new Date().toISOString(),
+      searchBbox: searchBbox,
+      availableCacheKeys: Object.keys(courtCache.current)
+    }));
+    
+    return null; // No cache hit
+  };
+
+  // Helper function to check if user has moved to a new area requiring search
+  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
+    if (!lastSearchedArea.current) return false;
+    
+    const { bbox: lastBbox, filters: lastFilters } = lastSearchedArea.current;
+    
+    // Check if filters changed (always trigger new search)
+    if (JSON.stringify(currentFilters) !== JSON.stringify(lastFilters)) {
+      return true;
+    }
+    
+    // Check if current area has < 50% overlap with last searched area
+    const overlap = calculateBboxOverlap(currentBbox, lastBbox);
+    return overlap < 0.5;
   };
 
   // Calculate bounding box from actual map viewport bounds
@@ -420,6 +540,25 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     return () => clearTimeout(filterTimer);
   }, [filters.sport, filters.surface_type, filters.is_public]);
 
+  // Detect when user has moved to a new area requiring search
+  useEffect(() => {
+    if (!lastSearchedArea.current) return;
+    
+    const { bbox } = calculateBoundingBox(viewport);
+    const shouldSearch = shouldTriggerNewSearch(bbox, filters);
+    
+    console.log(JSON.stringify({
+      event: 'new_area_detection',
+      timestamp: new Date().toISOString(),
+      currentBbox: bbox,
+      lastSearchedBbox: lastSearchedArea.current.bbox,
+      shouldSearch: shouldSearch,
+      needsNewSearch: needsNewSearch
+    }));
+    
+    setNeedsNewSearch(shouldSearch);
+  }, [viewport.longitude, viewport.latitude, viewport.zoom]);
+
   const fetchCourts = async () => {
     try {
       setLoading(true);
@@ -533,43 +672,22 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       // Calculate bounding box from current viewport
       const { bbox } = calculateBoundingBox(viewport);
       
-      // Create cache key for this request
-      const cacheKey = createCacheKey(viewport, bbox, filters);
-      
-      // Check for exact cache hit first
-      if (courtCache.current[cacheKey]) {
-        const cachedCourts = courtCache.current[cacheKey];
-        console.log(JSON.stringify({
-          event: 'court_cache_hit',
-          timestamp: new Date().toISOString(),
-          cacheKey: cacheKey,
-          courtCount: cachedCourts.length,
-          cacheSize: Object.keys(courtCache.current).length,
-          allCacheKeys: Object.keys(courtCache.current)
-        }));
-        
+      // NEW CACHING STRATEGY: Check for coverage area cache hit first
+      const cachedResult = findCacheHit(bbox, filters);
+      if (cachedResult) {
         console.log(JSON.stringify({
           event: 'no_api_call_needed',
           timestamp: new Date().toISOString(),
-          reason: 'exact_cache_hit',
-          cacheKey: cacheKey,
-          courtCount: cachedCourts.length
+          reason: 'coverage_cache_hit_with_client_filtering',
+          courtCount: cachedResult.length,
+          cacheSize: Object.keys(courtCache.current).length
         }));
         
-        setCourts(cachedCourts);
+        setCourts(cachedResult);
+        setNeedsNewSearch(false);
         setLoading(false);
         return;
       }
-
-      // INCREMENTAL FETCHING: Get overlapping courts from cache
-      const overlappingCourts = getOverlappingCourtsFromCache(bbox, filters);
-      console.log(JSON.stringify({
-        event: 'incremental_fetch_start',
-        timestamp: new Date().toISOString(),
-        overlappingCourtCount: overlappingCourts.length,
-        searchBbox: bbox,
-        filters: filters
-      }));
       
       // Check if zoom level allows searching
       if (viewport.zoom <= 11) {
@@ -579,26 +697,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           zoom: viewport.zoom
         }));
         
-        // Even at low zoom, show overlapping cached data if available
-        if (overlappingCourts.length > 0) {
-          console.log(JSON.stringify({
-            event: 'no_api_call_needed',
-            timestamp: new Date().toISOString(),
-            reason: 'low_zoom_using_cached_data',
-            overlappingCourtCount: overlappingCourts.length,
-            zoom: viewport.zoom
-          }));
-          setCourts(overlappingCourts);
-        } else {
-          console.log(JSON.stringify({
-            event: 'no_api_call_needed',
-            timestamp: new Date().toISOString(),
-            reason: 'low_zoom_no_cached_data',
-            zoom: viewport.zoom
-          }));
-          setCourts([]);
-        }
-        
+        setCourts([]);
         setLoading(false);
         return;
       }
@@ -620,8 +719,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         filters: filters,
         bbox: bbox,
         zoom: viewport.zoom,
-        overlappingCachedCount: overlappingCourts.length,
-        reason: 'cache_miss_or_incremental_fetch'
+        reason: 'no_coverage_cache_hit'
       }));
       
       const response = await fetch(`${apiUrl}/api/courts/search?${queryParams.toString()}`, {
@@ -647,50 +745,46 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         filters: filters
       }));
       
-            if (result.success && Array.isArray(result.data)) {
-              // INCREMENTAL FETCHING: Combine new API data with overlapping cached data
-              const combinedCourts = [...overlappingCourts, ...result.data];
-              
-              // Remove duplicates based on court ID
-              const uniqueCourts = combinedCourts.filter((court, index, self) => 
-                index === self.findIndex(c => c.id === court.id)
-              );
-              
-              console.log(JSON.stringify({
-                event: 'incremental_fetch_completed',
-                timestamp: new Date().toISOString(),
-                newApiDataCount: result.data.length,
-                overlappingCachedCount: overlappingCourts.length,
-                combinedCount: uniqueCourts.length,
-                duplicatesRemoved: combinedCourts.length - uniqueCourts.length
-              }));
-              
-              // Store new API data in cache
-              const cacheKeys = Object.keys(courtCache.current);
-              if (cacheKeys.length >= MAX_CACHE_SIZE) {
-                // Remove oldest entry (first key)
-                const firstKey = cacheKeys[0];
-                delete courtCache.current[firstKey];
-                console.log(JSON.stringify({
-                  event: 'cache_entry_evicted',
-                  timestamp: new Date().toISOString(),
-                  evictedKey: firstKey,
-                  cacheSize: cacheKeys.length
-                }));
-              }
-              courtCache.current[cacheKey] = result.data;
-              
-              console.log(JSON.stringify({
-                event: 'court_cache_stored',
-                timestamp: new Date().toISOString(),
-                cacheKey: cacheKey,
-                courtCount: result.data.length,
-                cacheSize: Object.keys(courtCache.current).length,
-                filters: filters
-              }));
+      if (result.success && Array.isArray(result.data)) {
+        // NEW CACHING STRATEGY: Store by coverage area only (no zoom, no filters)
+        const cacheKey = createCacheKey(bbox);
         
-              // Set the combined data (cached + new)
-              setCourts(uniqueCourts);
+        // Manage cache size
+        const cacheKeys = Object.keys(courtCache.current);
+        if (cacheKeys.length >= MAX_CACHE_SIZE) {
+          // Remove oldest entry (first key)
+          const firstKey = cacheKeys[0];
+          delete courtCache.current[firstKey];
+          console.log(JSON.stringify({
+            event: 'cache_entry_evicted',
+            timestamp: new Date().toISOString(),
+            evictedKey: firstKey,
+            cacheSize: cacheKeys.length
+          }));
+        }
+        
+        // Store the raw API response (all courts in this area)
+        courtCache.current[cacheKey] = result.data;
+        
+        console.log(JSON.stringify({
+          event: 'court_cache_stored',
+          timestamp: new Date().toISOString(),
+          cacheKey: cacheKey,
+          courtCount: result.data.length,
+          cacheSize: Object.keys(courtCache.current).length,
+          filters: filters,
+          actualBbox: bbox,
+          roundedBbox: cacheKey.split(',').map(Number)
+        }));
+        
+        // Update last searched area for smart re-query detection
+        lastSearchedArea.current = {
+          bbox: bbox,
+          filters: { ...filters }
+        };
+        
+        setCourts(result.data);
+        setNeedsNewSearch(false);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
@@ -854,9 +948,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
             <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
               <p className="font-medium text-gray-700">Cache Status:</p>
               {Object.keys(courtCache.current).length > 0 ? (
-                <p className="text-green-600">✅ Cache Active ({Object.keys(courtCache.current).length} entries)</p>
+                <p className="text-green-600">✅ Coverage Cache Active ({Object.keys(courtCache.current).length} areas)</p>
               ) : (
                 <p className="text-yellow-600">⚠️ No cache entries yet</p>
+              )}
+              {needsNewSearch && (
+                <p className="text-orange-600 mt-1">🔍 New area detected - click refresh to search</p>
               )}
             </div>
         
@@ -920,12 +1017,18 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : loading
                 ? 'bg-blue-100 text-blue-600 cursor-wait'
+                : needsNewSearch
+                ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-md hover:shadow-lg animate-pulse'
                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg'
             }`}
-            title="Filters auto-update, but you can manually refresh if needed"
+            title={needsNewSearch ? "New area detected - click to search this location" : "Filters auto-update, but you can manually refresh if needed"}
           >
             {loading ? (
               <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            ) : needsNewSearch ? (
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
             ) : (
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -955,6 +1058,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
               Auto-searching...
+            </div>
+          )}
+          {needsNewSearch && (
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
+              New area detected
             </div>
           )}
           {Object.keys(courtCache.current).length > 0 && (
