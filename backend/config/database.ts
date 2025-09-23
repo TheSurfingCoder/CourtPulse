@@ -1,6 +1,7 @@
 // backend/config/database.ts
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import { logEvent, logError, logLifecycleEvent } from '../../shared/logger.js';
 
 // In test environment, load from .env.test
 if (process.env.NODE_ENV === 'test') {
@@ -28,26 +29,18 @@ const pool = new Pool(
 
 // Test the connection
 pool.on('connect', () => {
-  console.log(JSON.stringify({
-    level: 'info',
+  logLifecycleEvent('database_connection_established', {
     message: 'Database connection established',
     environment: process.env.NODE_ENV || 'development',
     connectionMethod: process.env.DATABASE_URL ? 'DATABASE_URL' : 'individual_env_vars',
-    database: process.env.DB_NAME || 'courtpulse',
-    timestamp: new Date().toISOString()
-  }));
+    database: process.env.DB_NAME || 'courtpulse'
+  });
 });
 
 pool.on('error', (err) => {
-  console.error(JSON.stringify({
-    level: 'error',
-    message: 'Unexpected error on idle database client',
-    error: {
-      message: err.message,
-      stack: err.stack
-    },
-    timestamp: new Date().toISOString()
-  }));
+  logError(err, {
+    message: 'Unexpected error on idle database client'
+  });
   process.exit(-1);
 });
 

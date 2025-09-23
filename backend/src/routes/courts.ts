@@ -1,5 +1,6 @@
 import express from 'express';
 import { CourtModel } from '../models/Court';
+import { logEvent, logError, logBusinessEvent } from '../../../shared/logger.js';
 
 const router = express.Router();
 
@@ -8,16 +9,14 @@ router.get('/clustered', async (req: express.Request, res: express.Response) => 
   try {
     const clusteredCourts = await CourtModel.findAllClustered();
     
-    console.log(JSON.stringify({
-      level: 'info',
+    logBusinessEvent('clustered_courts_fetched', {
       message: 'Successfully fetched clustered courts',
       count: clusteredCourts.length,
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
     
     return res.json({
       success: true,
@@ -25,19 +24,13 @@ router.get('/clustered', async (req: express.Request, res: express.Response) => 
       data: clusteredCourts
     });
   } catch (error) {
-    console.error(JSON.stringify({
-      level: 'error',
+    logError(error instanceof Error ? error : new Error(String(error)), {
       message: 'Failed to fetch clustered courts',
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      },
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch clustered courts',
@@ -92,9 +85,7 @@ router.get('/search', async (req: express.Request, res: express.Response) => {
     
     const courts = await CourtModel.searchCourts(filters);
     
-    console.log(JSON.stringify({
-      event: 'courts_search_completed',
-      timestamp: new Date().toISOString(),
+    logBusinessEvent('courts_search_completed', {
       filters: filters,
       resultCount: courts.length,
       request: {
@@ -102,7 +93,7 @@ router.get('/search', async (req: express.Request, res: express.Response) => {
         url: req.url,
         query: req.query
       }
-    }));
+    });
     
     return res.json({
       success: true,
@@ -137,16 +128,14 @@ router.get('/', async (req: express.Request, res: express.Response) => {
   try {
     const courts = await CourtModel.findAll();
     
-    console.log(JSON.stringify({
-      level: 'info',
+    logBusinessEvent('courts_fetched', {
       message: 'Successfully fetched courts',
       count: courts.length,
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
     
     return res.json({
       success: true,
@@ -181,17 +170,15 @@ router.get('/cluster/:clusterId', async (req: express.Request, res: express.Resp
     const { clusterId } = req.params;
     const courts = await CourtModel.findClusterDetails(clusterId);
     
-    console.log(JSON.stringify({
-      level: 'info',
+    logBusinessEvent('cluster_details_fetched', {
       message: 'Successfully fetched cluster details',
       cluster_id: clusterId,
       count: courts.length,
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
     
     return res.json({
       success: true,
@@ -298,17 +285,15 @@ router.post('/', async (req: express.Request, res: express.Response) => {
       is_public: is_public ?? true
     });
 
-    console.log(JSON.stringify({
-      level: 'info',
+    logBusinessEvent('court_created', {
       message: 'Successfully created court',
       courtId: court.id,
       courtName: court.name,
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
 
     return res.status(201).json({
       success: true,

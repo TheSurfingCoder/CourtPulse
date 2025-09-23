@@ -1,21 +1,63 @@
+'use client';
+
 import CourtsMap from '../components/CourtsMap';
+import Header from '../components/Header';
+import FilterBar from '../components/FilterBar';
+import { useState } from 'react';
 
 export default function Home() {
+  const [filters, setFilters] = useState({
+    sport: 'basketball', // Start with basketball like the original
+    surface_type: '',
+    is_public: undefined as boolean | undefined
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [needsNewSearch, setNeedsNewSearch] = useState(false);
+  const [viewport, setViewport] = useState({ 
+    longitude: -122.4194, 
+    latitude: 37.7849, 
+    zoom: 14 
+  });
+
+  const handleRefresh = () => {
+    // Trigger a manual search in the CourtsMap component
+    // This will be handled by the CourtsMap component's internal logic
+    console.log('Refresh triggered');
+  };
+
+  const handleLoadingChange = (loading: boolean) => {
+    setLoading(loading);
+  };
+
+  const handleNeedsNewSearchChange = (needsNewSearch: boolean) => {
+    setNeedsNewSearch(needsNewSearch);
+  };
+
+  const handleViewportChange = (viewport: { longitude: number; latitude: number; zoom: number }) => {
+    setViewport(viewport);
+  };
+
   return (
-    <div>
-      <h1>CourtPulse</h1>
-      <p>Find and explore sports courts in your area.</p>
-      <p>It&apos;s only wrapped by the root layout, not the users layout.</p>
-      <p>Go to <a href="/users">/users</a> to see the nested layout in action!</p>
-      
-      <hr style={{ margin: '30px 0' }} />
-      
-      {/* Interactive Map */}
-      <div style={{ marginBottom: '40px' }}>
-        <h2 style={{ marginBottom: '20px', color: '#333' }}>Interactive Courts Map</h2>
-        <CourtsMap className="rounded-lg shadow-lg" />
-      </div>
-      
+    <div className="flex flex-col w-full h-screen">
+      <Header />
+      <FilterBar 
+        filters={filters}
+        setFilters={setFilters}
+      />
+      <main className="flex-1 flex flex-col w-full overflow-hidden">
+        <CourtsMap 
+          filters={filters}
+          onFiltersChange={setFilters}
+          onRefresh={handleRefresh}
+          loading={loading}
+          needsNewSearch={needsNewSearch}
+          viewport={viewport}
+          onLoadingChange={handleLoadingChange}
+          onNeedsNewSearchChange={handleNeedsNewSearchChange}
+          onViewportChange={handleViewportChange}
+        />
+      </main>
     </div>
   )
 }

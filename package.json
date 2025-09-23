@@ -30,6 +30,7 @@
     "migrate": "cd backend && npm run migrate"
   },
   "devDependencies": {
+    "@types/pino": "^7.0.4",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
     "concurrently": "^8.2.2",
@@ -48,5 +49,10 @@
       "cd frontend && npm run lint",
       "cd frontend && npm run type-check"
     ]
+  },
+  "dependencies": {
+    "pino": "^9.11.0",
+    "pino-http": "^10.5.0",
+    "pino-pretty": "^13.1.1"
   }
 }
