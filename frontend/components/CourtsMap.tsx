@@ -55,12 +55,7 @@ export default function CourtsMap({
   onViewportChange
 }: CourtsMapProps) {
   const [courts, setCourts] = useState<Court[]>([]); //array of court objects from API
-  const [loading, setLoading] = useState(false); // boolean for fetch status
-
-  // Update parent when loading state changes
-  useEffect(() => {
-    onLoadingChange(loading);
-  }, [loading, onLoadingChange]);
+  // Use external loading state only - no internal loading state
   const [error, setError] = useState<string | null>(null); // 
   const [selectedCluster, setSelectedCluster] = useState<any>(null); //used for popup trigger
   const [clusterDetails, setClusterDetails] = useState<Court[]>([]); //array of courts in selected cluster
@@ -103,13 +98,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     filters: { sport: string; surface_type: string; is_public: boolean | undefined };
   } | null>(null);
 
-  // State for tracking when user has moved to new area requiring search
-  const [needsNewSearch, setNeedsNewSearch] = useState(false);
-
-  // Update parent when needsNewSearch state changes
-  useEffect(() => {
-    onNeedsNewSearchChange(needsNewSearch);
-  }, [needsNewSearch, onNeedsNewSearchChange]);
+  // Use external needsNewSearch state only - no internal state
 
   // Use initialViewState centered on San Francisco (where the courts are located)
   // DEBUGGING: Memoize initialViewState to prevent map re-mounting
@@ -175,7 +164,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         // Found coverage cache hit - filter client-side
         
         // Filter cached results client-side
-        const filteredCourts = cachedCourts.filter(court => {
+        const filteredCourts = cachedCourts.filter((court: Court) => {
           if (filters.sport && court.type !== filters.sport) return false;
           if (filters.surface_type && court.surface !== filters.surface_type) return false;
           if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
@@ -205,14 +194,14 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
     if (!lastSearchedArea.current) return false;
     
-    const { bbox: lastBbox, filters: lastFilters } = lastSearchedArea.current;
-    
-    // Check if filters changed (always trigger new search)
-    if (JSON.stringify(currentFilters) !== JSON.stringify(lastFilters)) {
-      return true;
+    // Check if we have cached data that can cover this area
+    const cachedResult = findCacheHit(currentBbox, currentFilters);
+    if (cachedResult) {
+      return false; // No need to search - we have this area cached
     }
     
     // Check if current area is contained within last searched area (cache hit)
+    const { bbox: lastBbox } = lastSearchedArea.current;
     if (isBboxContained(currentBbox, lastBbox)) {
       return false; // No need to search - we have this area cached
     }
@@ -450,10 +439,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   useEffect(() => {
     // Courts map initialized
     
-    // Set initial filter for basketball courts
-    setFilters({ sport: 'basketball', surface_type: '', is_public: undefined });
-    
     // Trigger initial search after a short delay to ensure viewport is set
+    // Note: Filters are already set by parent component
     const timer = setTimeout(() => {
       // Initial search triggered
       fetchCourtsWithFilters();
@@ -464,8 +451,9 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Handle filter changes - check cache first, then search if needed
   useEffect(() => {
-    // Skip initial render (filters are set in the first useEffect)
-    if (filters.sport === '' && filters.surface_type === '' && filters.is_public === undefined) {
+    // Skip initial render to prevent double calls with initial useEffect
+    const isInitialRender = !lastSearchedArea.current;
+    if (isInitialRender) {
       return;
     }
     
@@ -478,7 +466,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       if (cachedResult) {
         // Use cached data with client-side filtering
         setCourts(cachedResult);
-        setNeedsNewSearch(false);
+        onNeedsNewSearchChange(false);
         logEvent('filter_applied_from_cache', {
           filters: filters,
           courtCount: cachedResult.length
@@ -502,12 +490,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     
     // Update needsNewSearch state
     
-    setNeedsNewSearch(shouldSearch);
+    onNeedsNewSearchChange(shouldSearch);
   }, [viewport.longitude, viewport.latitude, viewport.zoom]);
 
   const fetchCourts = async () => {
     try {
-      setLoading(true);
+      onLoadingChange(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Simple performance timing
@@ -554,18 +542,18 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       logEvent('fetch_courts_error', {error: errorMessage,
         errorType: err?.constructor?.name || 'Unknown'});
     } finally {
-      setLoading(false);
+      onLoadingChange(false);
     }
   };
 
   const fetchCourtsWithFilters = async () => {
     // Prevent multiple simultaneous requests
-    if (loading) {
+    if (externalLoading) {
       return;
     }
     
     try {
-      setLoading(true);
+      onLoadingChange(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Calculate bounding box from current viewport
@@ -580,8 +568,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         });
         
         setCourts(cachedResult);
-        setNeedsNewSearch(false);
-        setLoading(false);
+        onNeedsNewSearchChange(false);
+        onLoadingChange(false);
         return;
       }
       
@@ -590,20 +578,18 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         logEvent('search_skipped_low_zoom', {zoom: viewport.zoom});
         
         setCourts([]);
-        setLoading(false);
+        onLoadingChange(false);
         return;
       }
       
-      // Build query parameters
+      // Build query parameters - DON'T include filters to get raw data for caching
       const queryParams = new URLSearchParams({
         zoom: viewport.zoom.toString(),
         bbox: bbox.join(',')
       });
       
-      // Add filters to query params
-      if (filters.sport) queryParams.append('sport', filters.sport);
-      if (filters.surface_type) queryParams.append('surface_type', filters.surface_type);
-      if (filters.is_public !== undefined) queryParams.append('is_public', filters.is_public.toString());
+      // Note: We don't add filters to query params here because we want raw data for caching
+      // Filters will be applied client-side to the cached data
       
       logEvent('api_search_started', {
         filters: filters,
@@ -643,9 +629,19 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         // Store the raw API response (all courts in this area)
         courtCache.current[cacheKey] = result.data;
         
+        // Apply filters client-side to the raw data
+        const filteredCourts = result.data.filter((court: Court) => {
+          if (filters.sport && court.type !== filters.sport) return false;
+          if (filters.surface_type && court.surface !== filters.surface_type) return false;
+          if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
+          return true;
+        });
+        
         logEvent('cache_stored', {
           courtCount: result.data.length,
-          cacheSize: Object.keys(courtCache.current).length
+          filteredCourtCount: filteredCourts.length,
+          cacheSize: Object.keys(courtCache.current).length,
+          filters: filters
         });
         
         // Update last searched area for smart re-query detection
@@ -654,8 +650,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           filters: { ...filters }
         };
         
-        setCourts(result.data);
-        setNeedsNewSearch(false);
+        setCourts(filteredCourts);
+        onNeedsNewSearchChange(false);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
@@ -665,7 +661,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       
       logEvent('fetch_courts_with_filters_error', {error: errorMessage});
     } finally {
-      setLoading(false);
+      onLoadingChange(false);
     }
   };
 
@@ -769,7 +765,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   return (
     <div className={`relative w-full h-full ${className}`}>
       {/* Loading Overlay - Only show when loading, don't unmount map */}
-      {loading && (
+      {externalLoading && (
         <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -786,7 +782,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg ${
             viewport.zoom <= 11
               ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : loading
+              : externalLoading
               ? 'bg-blue-100 text-blue-600 cursor-wait'
               : externalNeedsNewSearch
               ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-md hover:shadow-lg animate-pulse'
@@ -794,7 +790,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           }`}
           title={externalNeedsNewSearch ? "New area detected - click to search this location" : "Filters auto-update, but you can manually refresh if needed"}
         >
-          {loading ? (
+          {externalLoading ? (
             <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
           ) : externalNeedsNewSearch ? (
             <>
