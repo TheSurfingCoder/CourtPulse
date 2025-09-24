@@ -1,46 +1,12 @@
 import express from 'express';
 import { CourtModel } from '../models/Court';
 import { logEvent, logError, logBusinessEvent } from '../../../shared/logger.js';
+import { searchRateLimit } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-// GET /api/courts/clustered - Get clustered courts for map display
-router.get('/clustered', async (req: express.Request, res: express.Response) => {
-  try {
-    const clusteredCourts = await CourtModel.findAllClustered();
-    
-    logBusinessEvent('clustered_courts_fetched', {
-      message: 'Successfully fetched clustered courts',
-      count: clusteredCourts.length,
-      request: {
-        method: req.method,
-        url: req.url
-      }
-    });
-    
-    return res.json({
-      success: true,
-      count: clusteredCourts.length,
-      data: clusteredCourts
-    });
-  } catch (error) {
-    logError(error instanceof Error ? error : new Error(String(error)), {
-      message: 'Failed to fetch clustered courts',
-      request: {
-        method: req.method,
-        url: req.url
-      }
-    });
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch clustered courts',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
 // GET /api/courts/search - Search courts with viewport and filters
-router.get('/search', async (req: express.Request, res: express.Response) => {
+router.get('/search', searchRateLimit, async (req: express.Request, res: express.Response) => {
   try {
     const { bbox, zoom, sport, surface_type, is_public } = req.query;
     
@@ -118,92 +84,6 @@ router.get('/search', async (req: express.Request, res: express.Response) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to search courts',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// GET /api/courts - Get all courts (individual records)
-router.get('/', async (req: express.Request, res: express.Response) => {
-  try {
-    const courts = await CourtModel.findAll();
-    
-    logBusinessEvent('courts_fetched', {
-      message: 'Successfully fetched courts',
-      count: courts.length,
-      request: {
-        method: req.method,
-        url: req.url
-      }
-    });
-    
-    return res.json({
-      success: true,
-      count: courts.length,
-      data: courts
-    });
-  } catch (error) {
-    console.error(JSON.stringify({
-      level: 'error',
-      message: 'Failed to fetch courts',
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      },
-      request: {
-        method: req.method,
-        url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch courts',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
-// GET /api/courts/cluster/:clusterId - Get all courts in a cluster
-router.get('/cluster/:clusterId', async (req: express.Request, res: express.Response) => {
-  try {
-    const { clusterId } = req.params;
-    const courts = await CourtModel.findClusterDetails(clusterId);
-    
-    logBusinessEvent('cluster_details_fetched', {
-      message: 'Successfully fetched cluster details',
-      cluster_id: clusterId,
-      count: courts.length,
-      request: {
-        method: req.method,
-        url: req.url
-      }
-    });
-    
-    return res.json({
-      success: true,
-      cluster_id: clusterId,
-      count: courts.length,
-      data: courts
-    });
-  } catch (error) {
-    console.error(JSON.stringify({
-      level: 'error',
-      message: 'Failed to fetch cluster details',
-      cluster_id: req.params.clusterId,
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      },
-      request: {
-        method: req.method,
-        url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch cluster details',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

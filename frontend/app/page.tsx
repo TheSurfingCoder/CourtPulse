@@ -3,6 +3,7 @@
 import CourtsMap from '../components/CourtsMap';
 import Header from '../components/Header';
 import FilterBar from '../components/FilterBar';
+import RateLimitModal from '../components/RateLimitModal';
 import { useState } from 'react';
 
 export default function Home() {
@@ -19,6 +20,11 @@ export default function Home() {
     latitude: 37.7849, 
     zoom: 14 
   });
+  const [rateLimitModal, setRateLimitModal] = useState({
+    isOpen: false,
+    retryAfter: 60
+  });
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
 
   const handleRefresh = () => {
     // Trigger a manual search in the CourtsMap component
@@ -36,6 +42,44 @@ export default function Home() {
 
   const handleViewportChange = (viewport: { longitude: number; latitude: number; zoom: number }) => {
     setViewport(viewport);
+  };
+
+  const handleRateLimitExceeded = (retryAfter: number) => {
+    const until = Date.now() + (retryAfter * 1000);
+    setRateLimitUntil(until);
+    setRateLimitModal({
+      isOpen: true,
+      retryAfter
+    });
+  };
+
+  const closeRateLimitModal = () => {
+    setRateLimitModal({
+      isOpen: false,
+      retryAfter: 60
+    });
+  };
+
+  const handleRetry = () => {
+    // Check if rate limit period has passed
+    if (rateLimitUntil && Date.now() < rateLimitUntil) {
+      const remainingSeconds = Math.ceil((rateLimitUntil - Date.now()) / 1000);
+      setRateLimitModal({
+        isOpen: true,
+        retryAfter: remainingSeconds
+      });
+      return; // Don't retry yet
+    }
+    
+    // Close the modal and reset rate limit
+    setRateLimitModal({
+      isOpen: false,
+      retryAfter: 60
+    });
+    setRateLimitUntil(null);
+    
+    // Trigger a new search by setting needsNewSearch to true
+    setNeedsNewSearch(true);
   };
 
   return (
@@ -56,8 +100,16 @@ export default function Home() {
           onLoadingChange={handleLoadingChange}
           onNeedsNewSearchChange={handleNeedsNewSearchChange}
           onViewportChange={handleViewportChange}
+          onRateLimitExceeded={handleRateLimitExceeded}
         />
       </main>
+      
+      <RateLimitModal 
+        isOpen={rateLimitModal.isOpen}
+        onClose={closeRateLimitModal}
+        onRetry={handleRetry}
+        retryAfter={rateLimitModal.retryAfter}
+      />
     </div>
   )
 }

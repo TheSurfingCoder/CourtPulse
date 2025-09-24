@@ -40,6 +40,7 @@ interface CourtsMapProps {
   onLoadingChange: (loading: boolean) => void;
   onNeedsNewSearchChange: (needsNewSearch: boolean) => void;
   onViewportChange: (viewport: { longitude: number; latitude: number; zoom: number }) => void;
+  onRateLimitExceeded: (retryAfter: number) => void;
 }
 
 export default function CourtsMap({ 
@@ -52,7 +53,8 @@ export default function CourtsMap({
   viewport: externalViewport,
   onLoadingChange,
   onNeedsNewSearchChange,
-  onViewportChange
+  onViewportChange,
+  onRateLimitExceeded
 }: CourtsMapProps) {
   const [courts, setCourts] = useState<Court[]>([]); //array of court objects from API
   // Use external loading state only - no internal loading state
@@ -493,58 +495,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     onNeedsNewSearchChange(shouldSearch);
   }, [viewport.longitude, viewport.latitude, viewport.zoom]);
 
-  const fetchCourts = async () => {
-    try {
-      onLoadingChange(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
-      
-      // Simple performance timing
-      console.time('courts-data-fetch');
-      const startTime = performance.now();
-      
-      // Fetch started
-      
-      const response = await fetch(`${apiUrl}/api/courts`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        mode: 'cors',
-        credentials: 'omit'
-      });
-      
-      // API response received
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      // API data parsed
-      
-      if (result.success && Array.isArray(result.data)) {
-        // End timing and log performance
-        const endTime = performance.now();
-        const fetchDuration = endTime - startTime;
-        console.timeEnd('courts-data-fetch');
-        
-        // Courts loaded
-        
-        setCourts(result.data);
-      } else {
-        throw new Error(result.message || 'Failed to fetch courts');
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
-      setError(errorMessage);
-      
-      logEvent('fetch_courts_error', {error: errorMessage,
-        errorType: err?.constructor?.name || 'Unknown'});
-    } finally {
-      onLoadingChange(false);
-    }
-  };
 
   const fetchCourtsWithFilters = async () => {
     // Prevent multiple simultaneous requests
@@ -606,6 +556,13 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       });
       
       if (!response.ok) {
+        // Handle rate limiting specifically
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+          onRateLimitExceeded(retryAfterSeconds);
+          return; // Don't throw error, just return early
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -730,7 +687,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           <h3 className="text-red-800 font-semibold mb-2">Error loading map</h3>
           <p className="text-red-600 mb-4">{error}</p>
           <button 
-            onClick={fetchCourts}
+            onClick={fetchCourtsWithFilters}
             className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
           >
             Retry
