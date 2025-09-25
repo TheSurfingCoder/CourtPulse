@@ -55,6 +55,7 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          cd data_enrichment
           python scripts/create_backup.py \
             --environment $ENVIRONMENT \
             --region $REGION
@@ -78,6 +79,7 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          cd data_enrichment
           python scripts/validate_data_quality.py \
             --environment $ENVIRONMENT \
             --region $REGION
@@ -102,6 +104,7 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          cd data_enrichment
           python scripts/rollback.py \
             --environment $ENVIRONMENT \
             --region $REGION
