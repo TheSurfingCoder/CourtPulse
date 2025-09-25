@@ -1,9 +1,11 @@
 name: Data Pipeline
 
-# Trigger on pull requests to develop and main branches
+# Trigger on pushes to develop and pull requests to main
 on:
+  push:
+    branches: [develop]
   pull_request:
-    branches: [develop, main]
+    branches: [main]
   # Also keep manual trigger for production use
   workflow_dispatch:
     inputs:
