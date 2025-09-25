@@ -2,12 +2,14 @@ import pool from '../../config/database';
 
 export interface Court {
     id: number;
-    name: string; // Maps to enriched_name or fallback_name
+    name: string; // Maps to individual_court_name or fallback
+    cluster_group_name: string | null; // Maps to photon_name (cluster group name)
     type: string; // Maps to sport
     lat: number; // From centroid
     lng: number; // From centroid
     surface: string; // Maps to surface_type
     is_public: boolean;
+    cluster_id: string | null; // UUID for clustering
     created_at: Date;
     updated_at: Date;
 }
@@ -30,12 +32,14 @@ export class CourtModel {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
                 created_at, 
                 updated_at
             FROM courts 
@@ -48,17 +52,19 @@ export class CourtModel {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
                 created_at, 
                 updated_at
             FROM courts 
             WHERE sport = $1 AND centroid IS NOT NULL
-            ORDER BY COALESCE(enriched_name, fallback_name, 'Unknown Court')
+            ORDER BY COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court')
         `, [type]);
         return result.rows;
     }
@@ -70,12 +76,14 @@ export class CourtModel {
             VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
             RETURNING 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
                 created_at, 
                 updated_at
         `, [name, type, lng, lat, surface, is_public]);
@@ -119,12 +127,14 @@ export class CourtModel {
             WHERE id = $${paramCount}
             RETURNING 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
                 created_at, 
                 updated_at
         `, values);
@@ -148,12 +158,14 @@ export class CourtModel {
         let query = `
             SELECT
                 id, 
-                COALESCE(photon_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type,
                 ST_Y(centroid::geometry) as lat, 
                 ST_X(centroid::geometry) as lng,  
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
                 created_at, 
                 updated_at
             FROM courts
@@ -192,13 +204,13 @@ export class CourtModel {
             paramIndex++;
         }
         
+        query += ` ORDER BY created_at DESC`;
+        
         // Add zoom-based limit (optional performance optimization)
         if (filters.zoom && filters.zoom > 15) {
             // For very high zoom levels, limit results to prevent overload
             query += ` LIMIT 1000`;
         }
-        
-        query += ` ORDER BY created_at DESC`;
         
         const result = await pool.query(query, queryParams);
         return result.rows;

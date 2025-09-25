@@ -5,6 +5,7 @@ import Map, { Marker, Popup } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { logEvent, logError, logBusinessEvent } from '../lib/logger-with-backend';
+import MapTypeToggle from './MapTypeToggle';
 
 
 interface Court {
@@ -15,6 +16,7 @@ interface Court {
   lng: number;
   surface: string;
   is_public: boolean;
+  cluster_group_name: string;
   created_at: string;
   updated_at: string;
 }
@@ -62,6 +64,7 @@ export default function CourtsMap({
   const [selectedCluster, setSelectedCluster] = useState<any>(null); //used for popup trigger
   const [clusterDetails, setClusterDetails] = useState<Court[]>([]); //array of courts in selected cluster
   const [mapLoaded, setMapLoaded] = useState(false); //true when Maplibre GL finishes loading tiles/rendering.
+  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets'); //current map type
 /*
 Why both:
 loading - Data isn't ready yet
@@ -316,7 +319,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         name: court.name,
         type: court.type,
         surface: court.surface,
-        is_public: court.is_public
+        is_public: court.is_public,
+        cluster_group_name: court.cluster_group_name
       },
       geometry: {
         type: 'Point' as const,
@@ -625,22 +629,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Handle cluster clicks to show popup with cluster details
   const handleClusterClick = (cluster: any) => {
     if (cluster.properties.cluster && supercluster) {
-      // It's a cluster - get the children
-      const children = supercluster.getChildren(cluster.id);
-      // Convert cluster features back to Court objects for display
-      const courtDetails = children.map((child: any) => ({
-        id: child.properties.id || child.id,
-        name: child.properties.name || 'Unknown Court',
-        type: child.properties.type || 'unknown',
-        lat: child.geometry.coordinates[1],
-        lng: child.geometry.coordinates[0],
-        surface: child.properties.surface || 'Unknown',
-        is_public: child.properties.is_public,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }));
-      setClusterDetails(courtDetails);
-      setSelectedCluster(cluster);
+      // It's a cluster - don't show popup, just log the click
+      logEvent('cluster_clicked_no_popup', {
+        clusterId: cluster.id,
+        pointCount: cluster.properties.point_count
+      });
+      return; // Exit early for clusters
     } else {
       // It's an individual court - convert to Court object
       const courtDetail = {
@@ -651,6 +645,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         lng: cluster.geometry.coordinates[0],
         surface: cluster.properties.surface || 'Unknown',
         is_public: cluster.properties.is_public,
+        cluster_group_name: cluster.properties.cluster_group_name || 'Unknown Group',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -697,24 +692,63 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     );
   }
 
-  // Use a simple, stable map style to avoid MapLibre GL issues
-  const mapStyle = {
-    version: 8 as const,
-    sources: {
-      'osm': {
-        type: 'raster' as const,
-        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        attribution: '© OpenStreetMap contributors'
-      }
-    },
-    layers: [
-      {
-        id: 'osm',
-        type: 'raster' as const,
-        source: 'osm'
-      }
-    ]
+  // Map style configuration based on current map type
+  const mapStyle = useMemo(() => {
+    const maptilerApiKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
+    
+    if (mapType === 'satellite' && maptilerApiKey) {
+      // Maptiler satellite style
+      const satelliteStyle = {
+        version: 8 as const,
+        sources: {
+          'maptiler-satellite': {
+            type: 'raster' as const,
+            tiles: [`https://api.maptiler.com/maps/satellite/{z}/{x}/{y}.jpg?key=${maptilerApiKey}`],
+            tileSize: 256,
+            attribution: '© Maptiler © DigitalGlobe'
+          }
+        },
+        layers: [
+          {
+            id: 'maptiler-satellite',
+            type: 'raster' as const,
+            source: 'maptiler-satellite'
+          }
+        ]
+      };
+      return satelliteStyle;
+    }
+    
+    // Default OpenStreetMap style
+    const streetStyle = {
+      version: 8 as const,
+      sources: {
+        'osm': {
+          type: 'raster' as const,
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© OpenStreetMap contributors'
+        }
+      },
+      layers: [
+        {
+          id: 'osm',
+          type: 'raster' as const,
+          source: 'osm'
+        }
+      ]
+    };
+    return streetStyle;
+  }, [mapType]);
+
+  // Handle map type change
+  const handleMapTypeChange = (newMapType: 'streets' | 'satellite') => {
+    setMapType(newMapType);
+    logEvent('map_type_changed', {
+      from: mapType,
+      to: newMapType,
+      timestamp: new Date().toISOString()
+    });
   };
 
   // Map rendering complete
@@ -822,7 +856,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           );
         })}
 
-        {mapLoaded && selectedCluster && (
+        {mapLoaded && selectedCluster && !selectedCluster.properties.cluster && (
           <Popup
             key={`popup-${selectedCluster.id}`}
             longitude={selectedCluster.geometry.coordinates[0]}
@@ -837,42 +871,26 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           >
             <div className="p-3 min-w-[300px] max-w-[400px]">
               <h3 className="font-semibold text-lg mb-2">
-                {selectedCluster.properties.cluster 
-                  ? `${selectedCluster.properties.point_count} Courts`
-                  : selectedCluster.properties.name
-                }
+                {selectedCluster.properties.cluster_group_name}
               </h3>
               
-              {selectedCluster.properties.cluster ? (
-                <div className="space-y-2 text-sm mb-3">
-                  <p><span className="font-medium">Courts:</span> {selectedCluster.properties.point_count}</p>
-                </div>
-              ) : (
-                <div className="space-y-2 text-sm mb-3">
-                  <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>
-                  <p><span className="font-medium">Surface:</span> {selectedCluster.properties.surface}</p>
-                  <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public ? 'Yes' : 'No'}</p>
-                </div>
-              )}
-              
-              {clusterDetails.length > 0 && (
-                <div className="border-t pt-2">
-                  <h4 className="font-medium text-sm mb-2">Individual Courts:</h4>
-                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {clusterDetails.map((court, index) => (
-                      <div key={court.id} className="text-xs bg-gray-50 p-2 rounded">
-                        <p className="font-medium">{court.name}</p>
-                        <p>Type: {court.type}</p>
-                        <p>Surface: {court.surface}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="space-y-2 text-sm mb-3">
+                <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>
+                <p><span className="font-medium">Surface:</span> {selectedCluster.properties.surface}</p>
+                <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public ? 'Yes' : 'No'}</p>
+              </div>
             </div>
           </Popup>
         )}
       </Map>
+
+      {/* Map Type Toggle - Bottom Right */}
+      <MapTypeToggle 
+        currentMapType={mapType}
+        onMapTypeChange={handleMapTypeChange}
+      />
     </div>
   );
 }
+
+

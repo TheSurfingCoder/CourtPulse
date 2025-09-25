@@ -68,16 +68,14 @@ class PhotonGeocodingProvider:
             school_name, school_data = self._try_school_search(lat, lon)
             
             if school_name and self._is_high_quality_name(school_name):
-                # Format school name with court count
-                formatted_name = f"{school_name} ({court_count} Court{'s' if court_count > 1 else ''})"
+                # Return clean school name without court count
                 logger.info(json.dumps({
                     'event': 'school_search_successful',
                     'name': school_name,
-                    'formatted_name': formatted_name,
                     'court_count': court_count,
                     'coordinates': {'lat': lat, 'lon': lon}
                 }))
-                return formatted_name, school_data
+                return school_name, school_data
             
             # Step 2: Try park/playground search (SECOND PRIORITY)
             search_name, search_data = self._try_search_fallback(lat, lon, "recreation")

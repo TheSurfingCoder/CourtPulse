@@ -5,130 +5,83 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const Court_1 = require("../models/Court");
+const logger_js_1 = require("../../../shared/logger.js");
+const rateLimiter_js_1 = require("../middleware/rateLimiter.js");
 const router = express_1.default.Router();
-// GET /api/courts/clustered - Get clustered courts for map display
-router.get('/clustered', async (req, res) => {
+// GET /api/courts/search - Search courts with viewport and filters
+router.get('/search', rateLimiter_js_1.searchRateLimit, async (req, res) => {
     try {
-        const clusteredCourts = await Court_1.CourtModel.findAllClustered();
-        console.log(JSON.stringify({
-            level: 'info',
-            message: 'Successfully fetched clustered courts',
-            count: clusteredCourts.length,
+        const { bbox, zoom, sport, surface_type, is_public } = req.query;
+        // Validate zoom level (must be > 11 for search)
+        const zoomLevel = parseFloat(zoom);
+        if (zoomLevel <= 11) {
+            return res.status(400).json({
+                success: false,
+                message: 'Zoom level must be greater than 11 to search courts'
+            });
+        }
+        // Parse bbox parameter
+        let parsedBbox;
+        if (bbox) {
+            const bboxArray = bbox.split(',').map(coord => parseFloat(coord));
+            if (bboxArray.length === 4 && bboxArray.every(coord => !isNaN(coord))) {
+                parsedBbox = bboxArray;
+            }
+            else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid bbox format. Expected: west,south,east,north'
+                });
+            }
+        }
+        // Parse filters
+        const filters = {
+            bbox: parsedBbox,
+            zoom: zoomLevel,
+            sport: sport,
+            surface_type: surface_type,
+            is_public: is_public !== undefined ? is_public === 'true' : undefined
+        };
+        // Remove undefined values
+        Object.keys(filters).forEach(key => {
+            if (filters[key] === undefined) {
+                delete filters[key];
+            }
+        });
+        const courts = await Court_1.CourtModel.searchCourts(filters);
+        (0, logger_js_1.logBusinessEvent)('courts_search_completed', {
+            filters: filters,
+            resultCount: courts.length,
             request: {
                 method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
+                url: req.url,
+                query: req.query
+            }
+        });
         return res.json({
             success: true,
-            count: clusteredCourts.length,
-            data: clusteredCourts
+            count: courts.length,
+            data: courts,
+            filters: filters
         });
     }
     catch (error) {
         console.error(JSON.stringify({
-            level: 'error',
-            message: 'Failed to fetch clustered courts',
+            event: 'courts_search_error',
+            timestamp: new Date().toISOString(),
             error: {
                 message: error instanceof Error ? error.message : 'Unknown error',
                 stack: error instanceof Error ? error.stack : undefined
             },
             request: {
                 method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
+                url: req.url,
+                query: req.query
+            }
         }));
         return res.status(500).json({
             success: false,
-            message: 'Failed to fetch clustered courts',
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
-    }
-});
-// GET /api/courts - Get all courts (individual records)
-router.get('/', async (req, res) => {
-    try {
-        const courts = await Court_1.CourtModel.findAll();
-        console.log(JSON.stringify({
-            level: 'info',
-            message: 'Successfully fetched courts',
-            count: courts.length,
-            request: {
-                method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
-        return res.json({
-            success: true,
-            count: courts.length,
-            data: courts
-        });
-    }
-    catch (error) {
-        console.error(JSON.stringify({
-            level: 'error',
-            message: 'Failed to fetch courts',
-            error: {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                stack: error instanceof Error ? error.stack : undefined
-            },
-            request: {
-                method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to fetch courts',
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
-    }
-});
-// GET /api/courts/cluster/:clusterId - Get all courts in a cluster
-router.get('/cluster/:clusterId', async (req, res) => {
-    try {
-        const { clusterId } = req.params;
-        const courts = await Court_1.CourtModel.findClusterDetails(clusterId);
-        console.log(JSON.stringify({
-            level: 'info',
-            message: 'Successfully fetched cluster details',
-            cluster_id: clusterId,
-            count: courts.length,
-            request: {
-                method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
-        return res.json({
-            success: true,
-            cluster_id: clusterId,
-            count: courts.length,
-            data: courts
-        });
-    }
-    catch (error) {
-        console.error(JSON.stringify({
-            level: 'error',
-            message: 'Failed to fetch cluster details',
-            cluster_id: req.params.clusterId,
-            error: {
-                message: error instanceof Error ? error.message : 'Unknown error',
-                stack: error instanceof Error ? error.stack : undefined
-            },
-            request: {
-                method: req.method,
-                url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to fetch cluster details',
+            message: 'Failed to search courts',
             error: error instanceof Error ? error.message : 'Unknown error'
         });
     }
@@ -203,17 +156,15 @@ router.post('/', async (req, res) => {
             surface: surface || 'Unknown',
             is_public: is_public ?? true
         });
-        console.log(JSON.stringify({
-            level: 'info',
+        (0, logger_js_1.logBusinessEvent)('court_created', {
             message: 'Successfully created court',
             courtId: court.id,
             courtName: court.name,
             request: {
                 method: req.method,
                 url: req.url
-            },
-            timestamp: new Date().toISOString()
-        }));
+            }
+        });
         return res.status(201).json({
             success: true,
             data: court
@@ -299,89 +250,6 @@ router.delete('/:id', async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Failed to delete court',
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
-    }
-});
-// GET /api/courts/viewport - Get courts within a viewport based on zoom level
-router.get('/viewport', async (req, res) => {
-    try {
-        const { west, south, east, north, zoom, sport, surface_type, is_public } = req.query;
-        // Validate required parameters
-        if (!west || !south || !east || !north || !zoom) {
-            return res.status(400).json({
-                success: false,
-                message: 'Missing required parameters: west, south, east, north, zoom'
-            });
-        }
-        // Parse and validate coordinates
-        const bbox = [
-            parseFloat(west),
-            parseFloat(south),
-            parseFloat(east),
-            parseFloat(north)
-        ];
-        const zoomLevel = parseFloat(zoom);
-        // Validate bbox
-        if (bbox.some(coord => isNaN(coord))) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid coordinates provided'
-            });
-        }
-        // Validate zoom level
-        if (isNaN(zoomLevel) || zoomLevel < 0 || zoomLevel > 20) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid zoom level. Must be between 0 and 20'
-            });
-        }
-        // Parse filters
-        const filters = {};
-        if (sport)
-            filters.sport = sport;
-        if (surface_type)
-            filters.surface_type = surface_type;
-        if (is_public !== undefined) {
-            filters.is_public = is_public === 'true';
-        }
-        console.log(JSON.stringify({
-            event: 'viewport_query_started',
-            timestamp: new Date().toISOString(),
-            bbox: bbox,
-            zoom: zoomLevel,
-            filters: filters
-        }));
-        // Get courts based on viewport and zoom level
-        const courts = await Court_1.CourtModel.getCourtsInViewport(bbox, zoomLevel, filters);
-        console.log(JSON.stringify({
-            event: 'viewport_query_completed',
-            timestamp: new Date().toISOString(),
-            courtCount: courts.length,
-            zoom: zoomLevel,
-            bbox: bbox
-        }));
-        return res.json({
-            success: true,
-            data: courts,
-            meta: {
-                count: courts.length,
-                zoom: zoomLevel,
-                bbox: bbox,
-                filters: filters
-            }
-        });
-    }
-    catch (error) {
-        console.error(JSON.stringify({
-            event: 'viewport_query_error',
-            timestamp: new Date().toISOString(),
-            error: error instanceof Error ? error.message : 'Unknown error',
-            stack: error instanceof Error ? error.stack : undefined
-        }));
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to fetch courts in viewport',
             error: error instanceof Error ? error.message : 'Unknown error'
         });
     }
