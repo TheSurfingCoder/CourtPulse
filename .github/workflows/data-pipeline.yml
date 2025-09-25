@@ -1,7 +1,10 @@
 name: Data Pipeline
 
-# Manual trigger with options for different environments and regions
+# Trigger on pull requests to develop and main branches
 on:
+  pull_request:
+    branches: [develop, main]
+  # Also keep manual trigger for production use
   workflow_dispatch:
     inputs:
       region:
@@ -49,25 +52,35 @@ jobs:
       - name: Create database backup
         run: |
           # Create backup before processing
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
           python scripts/create_backup.py \
-            --environment ${{ github.event.inputs.environment }} \
-            --region ${{ github.event.inputs.region }}
+            --environment $ENVIRONMENT \
+            --region $REGION
       
       - name: Run data pipeline
         run: |
           cd data_enrichment
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          SCOPE="${{ github.event.inputs.scope || 'incremental' }}"
           python run_optimized_pipeline.py \
             --data-file export.geojson \
-            --region ${{ github.event.inputs.region }} \
-            --scope ${{ github.event.inputs.scope }} \
-            --environment ${{ github.event.inputs.environment }} \
-            --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+            --region $REGION \
+            --scope $SCOPE \
+            --environment $ENVIRONMENT \
+            --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
       - name: Validate data quality
         run: |
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
           python scripts/validate_data_quality.py \
-            --environment ${{ github.event.inputs.environment }} \
-            --region ${{ github.event.inputs.region }}
+            --environment $ENVIRONMENT \
+            --region $REGION
       
       - name: Notify success
         if: success()
@@ -86,9 +99,12 @@ jobs:
       - name: Rollback on failure
         if: failure()
         run: |
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
           python scripts/rollback.py \
-            --environment ${{ github.event.inputs.environment }} \
-            --region ${{ github.event.inputs.region }}
+            --environment $ENVIRONMENT \
+            --region $REGION
       
       - name: Notify failure
         if: failure()
