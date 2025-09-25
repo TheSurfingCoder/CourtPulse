@@ -29,64 +29,46 @@ on:
 
 jobs:
   data-pipeline:
-    name: Data Pipeline - ${{ github.event.inputs.region }} (${{ github.event.inputs.environment }})
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6 hours max
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          cache: 'pip'
-
+      
       - name: Install dependencies
         run: |
           cd data_enrichment
-          pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Create database backup
         run: |
-          cd data_enrichment
+          # Create backup before processing
           python scripts/create_backup.py \
             --environment ${{ github.event.inputs.environment }} \
             --region ${{ github.event.inputs.region }}
-        env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
-
-      - name: Extract data from Overpass API
-        run: |
-          cd data_enrichment
-          python scripts/extract_overpass_data.py \
-            --region ${{ github.event.inputs.region }} \
-            --output-file data/export_${{ github.event.inputs.region }}.geojson
-        id: extract-data
-
+      
       - name: Run data pipeline
         run: |
           cd data_enrichment
           python run_optimized_pipeline.py \
-            --data-file data/export_${{ github.event.inputs.region }}.geojson \
+            --data-file export.geojson \
             --region ${{ github.event.inputs.region }} \
             --scope ${{ github.event.inputs.scope }} \
             --environment ${{ github.event.inputs.environment }} \
             --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
-        env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
-
+      
       - name: Validate data quality
         run: |
-          cd data_enrichment
           python scripts/validate_data_quality.py \
             --environment ${{ github.event.inputs.environment }} \
             --region ${{ github.event.inputs.region }}
-        env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
-
+      
       - name: Notify success
         if: success()
         uses: actions/github-script@v6
@@ -94,26 +76,20 @@ jobs:
           script: |
             const region = '${{ github.event.inputs.region }}';
             const environment = '${{ github.event.inputs.environment }}';
-            const scope = '${{ github.event.inputs.scope }}';
             
             console.log(`✅ Data pipeline completed successfully!`);
             console.log(`   Region: ${region}`);
             console.log(`   Environment: ${environment}`);
-            console.log(`   Scope: ${scope}`);
             
-            // You can add more sophisticated notifications here
-            // e.g., Discord webhook, Slack notification, etc.
-
+            // You can add more sophisticated success notifications here
+      
       - name: Rollback on failure
         if: failure()
         run: |
-          cd data_enrichment
           python scripts/rollback.py \
             --environment ${{ github.event.inputs.environment }} \
             --region ${{ github.event.inputs.region }}
-        env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
-
+      
       - name: Notify failure
         if: failure()
         uses: actions/github-script@v6
@@ -128,4 +104,3 @@ jobs:
             console.log(`   Check the logs above for details.`);
             
             // You can add more sophisticated failure notifications here
-
