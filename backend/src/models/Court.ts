@@ -10,6 +10,7 @@ export interface Court {
     surface: string; // Maps to surface_type
     is_public: boolean;
     cluster_id: string | null; // UUID for clustering
+    region: string | null; // Region identifier
     created_at: Date;
     updated_at: Date;
 }
@@ -40,6 +41,7 @@ export class CourtModel {
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 cluster_id,
+                region,
                 created_at, 
                 updated_at
             FROM courts 
@@ -60,6 +62,7 @@ export class CourtModel {
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 cluster_id,
+                region,
                 created_at, 
                 updated_at
             FROM courts 
@@ -72,8 +75,8 @@ export class CourtModel {
     static async create(courtData: CourtInput): Promise<Court> {
         const { name, type, lat, lng, surface, is_public } = courtData;
         const result = await pool.query(`
-            INSERT INTO courts (enriched_name, sport, centroid, surface_type, is_public)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6)
+            INSERT INTO courts (enriched_name, sport, centroid, surface_type, is_public, region)
+            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, 'sf_bay')
             RETURNING 
                 id, 
                 COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
@@ -84,6 +87,7 @@ export class CourtModel {
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 cluster_id,
+                region,
                 created_at, 
                 updated_at
         `, [name, type, lng, lat, surface, is_public]);
@@ -135,6 +139,7 @@ export class CourtModel {
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 cluster_id,
+                region,
                 created_at, 
                 updated_at
         `, values);
@@ -166,6 +171,7 @@ export class CourtModel {
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
                 cluster_id,
+                region,
                 created_at, 
                 updated_at
             FROM courts

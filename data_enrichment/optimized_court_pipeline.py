@@ -112,36 +112,59 @@ class OptimizedCourtPipeline:
             try:
                 # Extract coordinates from geometry
                 geometry = feature['geometry']
-                if geometry['type'] == 'Polygon' and geometry['coordinates']:
-                    # Get centroid coordinates
+                geometry_type = geometry['type']
+                
+                if geometry_type == 'Point' and geometry['coordinates']:
+                    # Point geometry - use coordinates directly
+                    total_lon, total_lat = geometry['coordinates']
+                    
+                elif geometry_type == 'Polygon' and geometry['coordinates']:
+                    # Polygon geometry - calculate centroid
                     ring = geometry['coordinates'][0]
-                    total_lon = sum(coord[0] for coord in ring) / len(ring)
-                    total_lat = sum(coord[1] for coord in ring) / len(ring)
                     
-                    # Get name from Photon (async with parallel API calls)
-                    photon_name, photon_data = await self.geocoding_provider.reverse_geocode(total_lat, total_lon)
+                    # Handle both [lon, lat] arrays and {lat: ..., lon: ...} objects
+                    total_lon = 0
+                    total_lat = 0
+                    for coord in ring:
+                        if isinstance(coord, dict):
+                            # Handle {lat: ..., lon: ...} format
+                            total_lon += coord['lon']
+                            total_lat += coord['lat']
+                        elif isinstance(coord, list) and len(coord) == 2:
+                            # Handle [lon, lat] format
+                            total_lon += coord[0]
+                            total_lat += coord[1]
+                        else:
+                            raise ValueError(f"Invalid coordinate format: {coord}")
                     
-                    if not photon_name:
-                        self.stats['geocoding_failed'] += 1
-                        return False, "Geocoding failed", None
+                    total_lon /= len(ring)
+                    total_lat /= len(ring)
                     
-                    # Calculate distance if we have the data
-                    distance_km = 0.0
-                    if photon_data and 'geometry' in photon_data:
-                        coords = photon_data['geometry'].get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance_km = self.geocoding_provider._calculate_distance(
-                            total_lat, total_lon, result_lat, result_lon
-                        )
-                    
-                    photon_data = {
-                        'name': photon_name,
-                        'distance_km': distance_km,
-                        'source': 'search_api'  # or 'reverse_geocoding' based on your logic
-                    }
                 else:
                     self.stats['geocoding_failed'] += 1
                     return False, "Invalid geometry for geocoding", None
+                
+                # Get name from Photon (async with parallel API calls)
+                photon_name, photon_data = await self.geocoding_provider.reverse_geocode(total_lat, total_lon)
+                
+                if not photon_name:
+                    self.stats['geocoding_failed'] += 1
+                    return False, "Geocoding failed", None
+                
+                # Calculate distance if we have the data
+                distance_km = 0.0
+                if photon_data and 'geometry' in photon_data:
+                    coords = photon_data['geometry'].get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance_km = self.geocoding_provider._calculate_distance(
+                        total_lat, total_lon, result_lat, result_lon
+                    )
+                
+                photon_data = {
+                    'name': photon_name,
+                    'distance_km': distance_km,
+                    'source': 'reverse_geocoding'
+                }
                     
             except Exception as e:
                 logger.error(json.dumps({

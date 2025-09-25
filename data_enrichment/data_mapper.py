@@ -29,16 +29,49 @@ class CourtDataMapper:
             'sand': 'other'
         }
     
+    def normalize_coordinates(self, coordinates: Any) -> Any:
+        """Normalize coordinates to [lon, lat] format for PostGIS"""
+        if isinstance(coordinates, dict):
+            # Handle {lat: ..., lon: ...} format
+            return [coordinates['lon'], coordinates['lat']]
+        elif isinstance(coordinates, list) and len(coordinates) == 2:
+            # Already in [lon, lat] format
+            return coordinates
+        elif isinstance(coordinates, list):
+            # Handle arrays of coordinates
+            return [self.normalize_coordinates(coord) for coord in coordinates]
+        else:
+            return coordinates
+
     def extract_geometry_data(self, geometry: Dict[str, Any]) -> Tuple[str, str]:
         """Extract geometry and centroid from GeoJSON geometry"""
         try:
-            # Convert geometry to GeoJSON string for PostGIS
-            geom_json = json.dumps(geometry)
+            # Normalize coordinates to [lon, lat] format for PostGIS
+            normalized_geometry = {
+                'type': geometry['type'],
+                'coordinates': self.normalize_coordinates(geometry['coordinates'])
+            }
             
-            # Calculate centroid from polygon coordinates
-            if geometry['type'] == 'Polygon' and geometry['coordinates']:
-                # Get the first ring (exterior ring)
-                ring = geometry['coordinates'][0]
+            # Convert geometry to GeoJSON string for PostGIS
+            geom_json = json.dumps(normalized_geometry)
+            
+            if geometry['type'] == 'Point' and geometry['coordinates']:
+                # Point geometry - use coordinates directly as centroid
+                normalized_coords = self.normalize_coordinates(geometry['coordinates'])
+                lon, lat = normalized_coords
+                
+                # Create centroid geometry (same as point for points)
+                centroid_geometry = {
+                    "type": "Point",
+                    "coordinates": [lon, lat]
+                }
+                centroid_json = json.dumps(centroid_geometry)
+                
+                return geom_json, centroid_json
+                
+            elif geometry['type'] == 'Polygon' and geometry['coordinates']:
+                # Get the first ring (exterior ring) - already normalized
+                ring = normalized_geometry['coordinates'][0]
                 
                 # Calculate centroid
                 total_lat = 0
@@ -46,8 +79,9 @@ class CourtDataMapper:
                 point_count = len(ring)
                 
                 for coord in ring:
-                    total_lon += coord[0]  # longitude
-                    total_lat += coord[1]  # latitude
+                    # Coordinates are now normalized to [lon, lat] format
+                    total_lon += coord[0]
+                    total_lat += coord[1]
                 
                 centroid_lon = total_lon / point_count
                 centroid_lat = total_lat / point_count

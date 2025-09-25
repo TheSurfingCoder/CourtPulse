@@ -69,10 +69,12 @@ class CourtDataValidator:
                     "Geometry must be a dictionary"
                 )
             
-            if geometry.get('type') != 'Polygon':
+            # Accept both Point and Polygon geometries
+            geometry_type = geometry.get('type')
+            if geometry_type not in ['Point', 'Polygon']:
                 return ValidationResult(
-                    False, ValidationLevel.WARNING,
-                    f"Expected Polygon geometry, got {geometry.get('type')}"
+                    False, ValidationLevel.ERROR,
+                    f"Unsupported geometry type: {geometry_type}. Must be Point or Polygon"
                 )
             
             if 'coordinates' not in geometry:
@@ -89,8 +91,8 @@ class CourtDataValidator:
                 f"GeoJSON validation error: {str(e)}"
             )
     
-    def validate_coordinates(self, coordinates: List[List[List[float]]]) -> ValidationResult:
-        """Validate coordinate arrays"""
+    def validate_coordinates(self, coordinates: List, geometry_type: str = "Polygon") -> ValidationResult:
+        """Validate coordinate arrays for different geometry types"""
         try:
             if not coordinates or not isinstance(coordinates, list):
                 return ValidationResult(
@@ -98,37 +100,78 @@ class CourtDataValidator:
                     "Invalid coordinates structure"
                 )
             
-            # Check if it's a valid polygon (array of rings)
-            if not isinstance(coordinates[0], list):
-                return ValidationResult(
-                    False, ValidationLevel.ERROR,
-                    "Coordinates must be array of rings"
-                )
+            if geometry_type == "Point":
+                # Validate point coordinates [lon, lat]
+                if not isinstance(coordinates, list) or len(coordinates) != 2:
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        "Point coordinates must be [lon, lat]"
+                    )
+                
+                lon, lat = coordinates
+                if not isinstance(lon, (int, float)) or not isinstance(lat, (int, float)):
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        "Point coordinates must be numbers"
+                    )
+                
+                if not (-180 <= lon <= 180):
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        f"Longitude out of range: {lon}"
+                    )
+                
+                if not (-90 <= lat <= 90):
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        f"Latitude out of range: {lat}"
+                    )
+                
+                return ValidationResult(True, ValidationLevel.INFO, "Point coordinates valid")
             
-            # Validate first ring (exterior ring)
-            ring = coordinates[0]
-            if len(ring) < 4:  # Polygon needs at least 4 points (closed)
-                return ValidationResult(
-                    False, ValidationLevel.ERROR,
-                    "Polygon must have at least 4 points"
-                )
-            
-            # Check if first and last points are the same (closed polygon)
-            if ring[0] != ring[-1]:
-                return ValidationResult(
-                    False, ValidationLevel.WARNING,
-                    "Polygon should be closed (first and last points should match)"
-                )
+            elif geometry_type == "Polygon":
+                # Check if it's a valid polygon (array of rings)
+                if not isinstance(coordinates[0], list):
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        "Polygon coordinates must be array of rings"
+                    )
+                
+                # Validate first ring (exterior ring)
+                ring = coordinates[0]
+                if len(ring) < 4:  # Polygon needs at least 4 points (closed)
+                    return ValidationResult(
+                        False, ValidationLevel.ERROR,
+                        "Polygon must have at least 4 points"
+                    )
+                
+                # Check if first and last points are the same (closed polygon)
+                if ring[0] != ring[-1]:
+                    return ValidationResult(
+                        False, ValidationLevel.WARNING,
+                        "Polygon should be closed (first and last points should match)"
+                    )
             
             # Validate individual coordinates
             for i, coord in enumerate(ring):
-                if not isinstance(coord, list) or len(coord) != 2:
+                # Handle both [lon, lat] arrays and {lat: ..., lon: ...} objects
+                if isinstance(coord, dict):
+                    # Handle {lat: ..., lon: ...} format
+                    if 'lat' not in coord or 'lon' not in coord:
+                        return ValidationResult(
+                            False, ValidationLevel.ERROR,
+                            f"Coordinate object missing lat/lon at position {i}: {coord}"
+                        )
+                    lat, lon = coord['lat'], coord['lon']
+                elif isinstance(coord, list) and len(coord) == 2:
+                    # Handle [lon, lat] format
+                    lon, lat = coord
+                else:
                     return ValidationResult(
                         False, ValidationLevel.ERROR,
-                        f"Invalid coordinate at position {i}: {coord}"
+                        f"Invalid coordinate format at position {i}: {coord}"
                     )
                 
-                lon, lat = coord
                 if not isinstance(lon, (int, float)) or not isinstance(lat, (int, float)):
                     return ValidationResult(
                         False, ValidationLevel.ERROR,
@@ -306,7 +349,8 @@ class CourtDataValidator:
         
         # 2. Coordinate validation
         geometry = feature['geometry']
-        coord_result = self.validate_coordinates(geometry['coordinates'])
+        geometry_type = geometry.get('type', 'Polygon')
+        coord_result = self.validate_coordinates(geometry['coordinates'], geometry_type)
         all_results.append(coord_result)
         
         if not coord_result.is_valid:
