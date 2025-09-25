@@ -39,22 +39,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
-const morgan_1 = __importDefault(require("morgan"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
+const pino_http_1 = __importDefault(require("pino-http"));
 const courts_js_1 = __importDefault(require("./src/routes/courts.js"));
+const logs_js_1 = __importDefault(require("./src/routes/logs.js"));
 const swagger_js_1 = require("./src/config/swagger.js");
 const errorHandler_js_1 = require("./src/middleware/errorHandler.js");
+const logger_js_1 = __importStar(require("../shared/logger.js"));
 //loads env variables from .env into process.env
 dotenv_1.default.config();
 // Import migration function
 async function runMigrations() {
     try {
-        console.log(JSON.stringify({
-            level: 'info',
-            message: 'Starting database migrations',
-            timestamp: new Date().toISOString()
-        }));
+        (0, logger_js_1.logLifecycleEvent)('database_migration_started', {
+            message: 'Starting database migrations'
+        });
         const { exec } = await Promise.resolve().then(() => __importStar(require('child_process')));
         const { promisify } = await Promise.resolve().then(() => __importStar(require('util')));
         const execAsync = promisify(exec);
@@ -71,21 +71,16 @@ async function runMigrations() {
         // Set DATABASE_URL environment variable for the migration command
         const env = { ...process.env, DATABASE_URL: databaseUrl };
         // Run migrations using node-pg-migrate
-        const { stdout } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
-        console.log(JSON.stringify({
-            level: 'info',
+        const { stdout } = await execAsync('npx node-pg-migrate up -c migrate.json', { env });
+        (0, logger_js_1.logLifecycleEvent)('database_migration_completed', {
             message: 'Database migrations completed successfully',
-            output: stdout,
-            timestamp: new Date().toISOString()
-        }));
+            output: stdout
+        });
     }
     catch (error) {
-        console.error(JSON.stringify({
-            level: 'error',
-            message: 'Database migration failed',
-            error: error instanceof Error ? error.message : 'Unknown error',
-            timestamp: new Date().toISOString()
-        }));
+        (0, logger_js_1.logError)(error instanceof Error ? error : new Error(String(error)), {
+            message: 'Database migration failed'
+        });
         // Don't exit the process - let the app start anyway
         // This allows the app to run even if migrations fail
     }
@@ -93,8 +88,21 @@ async function runMigrations() {
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 app.use((0, helmet_1.default)());
-app.use((0, cors_1.default)());
-app.use((0, morgan_1.default)('combined'));
+app.use((0, cors_1.default)({
+    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+// Custom middleware to skip pino-http for /api/logs
+app.use((req, res, next) => {
+    if (req.url === '/api/logs') {
+        // Skip pino-http for log forwarding endpoint
+        return next();
+    }
+    // Use pino-http for all other routes
+    return (0, pino_http_1.default)({ logger: logger_js_1.default })(req, res, next);
+});
 app.use(express_1.default.json());
 // Swagger API Documentation
 //When user visits http://localhost:5000/api-docs swagger UI loads with API docs
@@ -104,6 +112,7 @@ app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 app.use('/api/courts', courts_js_1.default);
+app.use('/api/logs', logs_js_1.default);
 // Error handling middleware (must be last)
 app.use(errorHandler_js_1.notFound);
 app.use(errorHandler_js_1.errorHandler);
@@ -113,29 +122,22 @@ async function startServer() {
     await runMigrations();
     // Start the server
     app.listen(PORT, () => {
-        console.log(JSON.stringify({
-            level: 'info',
+        (0, logger_js_1.logLifecycleEvent)('server_started', {
             message: 'Server started successfully',
             port: PORT,
-            environment: process.env.NODE_ENV || 'development',
-            timestamp: new Date().toISOString()
-        }));
-        console.log(JSON.stringify({
-            level: 'info',
+            environment: process.env.NODE_ENV || 'development'
+        });
+        (0, logger_js_1.logLifecycleEvent)('api_docs_available', {
             message: 'API documentation available',
-            url: `http://localhost:${PORT}/api-docs`,
-            timestamp: new Date().toISOString()
-        }));
+            url: `http://localhost:${PORT}/api-docs`
+        });
     });
 }
 // Start the application
 startServer().catch((error) => {
-    console.error(JSON.stringify({
-        level: 'error',
-        message: 'Failed to start server',
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-    }));
+    (0, logger_js_1.logError)(error instanceof Error ? error : new Error(String(error)), {
+        message: 'Failed to start server'
+    });
     process.exit(1);
 });
 //# sourceMappingURL=index.js.map

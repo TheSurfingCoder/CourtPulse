@@ -57,11 +57,7 @@ jobs:
       - name: Run database migrations
         run: npm run migrate
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_NAME: courtpulse_test
-          DB_USER: postgres
-          DB_PASSWORD: postgres
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/courtpulse_test
           NODE_ENV: test
 
       # Step 6: Run your tests

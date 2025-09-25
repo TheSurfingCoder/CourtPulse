@@ -2,51 +2,46 @@ import pool from '../../config/database';
 
 export interface Court {
     id: number;
-    name: string; // Maps to enriched_name or fallback_name
+    name: string; // Maps to individual_court_name or fallback
+    cluster_group_name: string | null; // Maps to photon_name (cluster group name)
     type: string; // Maps to sport
     lat: number; // From centroid
     lng: number; // From centroid
-    address: string;
     surface: string; // Maps to surface_type
     is_public: boolean;
+    cluster_id: string | null; // UUID for clustering
+    region: string | null; // Region identifier
     created_at: Date;
     updated_at: Date;
 }
 
+
+export interface CourtInput {
+    name: string;
+    type: string;
+    lat: number;
+    lng: number;
+    surface: string;
+    is_public: boolean;
+}
+
 export class CourtModel {
 
-    static async findAll(): Promise<Court[]> {
-        const result = await pool.query(`
-            SELECT
-                id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
-                sport as type,
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,  
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
-                is_public, 
-                created_at, 
-                updated_at
-            FROM courts
-            WHERE centroid IS NOT NULL
-            ORDER BY created_at DESC
-        `);
-        
-        return result.rows;
-    }
+
 
     static async findById(id: number): Promise<Court | null> {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
+                region,
                 created_at, 
                 updated_at
             FROM courts 
@@ -59,60 +54,65 @@ export class CourtModel {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
-                address, 
-                COALESCE(surface_type::text, surface) as surface, 
+                COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public, 
+                cluster_id,
+                region,
                 created_at, 
                 updated_at
             FROM courts 
             WHERE sport = $1 AND centroid IS NOT NULL
-            ORDER BY COALESCE(enriched_name, fallback_name, 'Unknown Court')
+            ORDER BY COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court')
         `, [type]);
         return result.rows;
     }
 
-    static async create(courtData: Omit<Court, 'id' | 'created_at' | 'updated_at'>): Promise<Court> {
-        const { name, type, location, address, surface, is_public } = courtData;
+    static async create(courtData: CourtInput): Promise<Court> {
+        const { name, type, lat, lng, surface, is_public } = courtData;
         const result = await pool.query(`
-            INSERT INTO courts (name, type, location, address, surface, is_public)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7)
+            INSERT INTO courts (enriched_name, sport, centroid, surface_type, is_public, region)
+            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, 'sf_bay')
             RETURNING 
-                id, name, type, 
-                ST_X(location) as lat, 
-                ST_Y(location) as lng,
-                address, surface, is_public, 
-                created_at, updated_at
-        `, [name, type, location.lng, location.lat, address, surface, is_public]);
+                id, 
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                sport as type, 
+                ST_X(centroid::geometry) as lat, 
+                ST_Y(centroid::geometry) as lng,
+                COALESCE(surface_type::text, 'Unknown') as surface, 
+                is_public, 
+                cluster_id,
+                region,
+                created_at, 
+                updated_at
+        `, [name, type, lng, lat, surface, is_public]);
         return result.rows[0];
     }
 
-    static async update(id: number, courtData: Partial<Omit<Court, 'id' | 'created_at' | 'updated_at'>>): Promise<Court | null> {
+    static async update(id: number, courtData: Partial<CourtInput>): Promise<Court | null> {
         const fields = [];
         const values = [];
         let paramCount = 1;
 
         if (courtData.name) {
-            fields.push(`name = $${paramCount++}`);
+            fields.push(`enriched_name = $${paramCount++}`);
             values.push(courtData.name);
         }
         if (courtData.type) {
-            fields.push(`type = $${paramCount++}`);
+            fields.push(`sport = $${paramCount++}`);
             values.push(courtData.type);
         }
-        if (courtData.location) {
-            fields.push(`location = ST_SetSRID(ST_MakePoint($${paramCount++}, $${paramCount++}), 4326)`);
-            values.push(courtData.location.lng, courtData.location.lat);
-        }
-        if (courtData.address) {
-            fields.push(`address = $${paramCount++}`);
-            values.push(courtData.address);
+        if (courtData.lat !== undefined && courtData.lng !== undefined) {
+            fields.push(`centroid = ST_SetSRID(ST_MakePoint($${paramCount++}, $${paramCount++}), 4326)`);
+            values.push(courtData.lng, courtData.lat);
         }
         if (courtData.surface) {
-            fields.push(`surface = $${paramCount++}`);
+            fields.push(`surface_type = $${paramCount++}`);
             values.push(courtData.surface);
         }
         if (courtData.is_public !== undefined) {
@@ -130,11 +130,18 @@ export class CourtModel {
             SET ${fields.join(', ')}
             WHERE id = $${paramCount}
             RETURNING 
-                id, name, type, 
-                ST_X(location) as lat, 
-                ST_Y(location) as lng,
-                address, surface, is_public, 
-                created_at, updated_at
+                id, 
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                sport as type, 
+                ST_X(centroid::geometry) as lat, 
+                ST_Y(centroid::geometry) as lng,
+                COALESCE(surface_type::text, 'Unknown') as surface, 
+                is_public, 
+                cluster_id,
+                region,
+                created_at, 
+                updated_at
         `, values);
 
         return result.rows[0] || null;
@@ -143,6 +150,76 @@ export class CourtModel {
     static async delete(id: number): Promise<boolean> {
         const result = await pool.query('DELETE FROM courts WHERE id = $1', [id]);
         return (result.rowCount ?? 0) > 0;
+    }
+
+    static async searchCourts(filters: {
+        bbox?: [number, number, number, number];
+        sport?: string;
+        surface_type?: string;
+        is_public?: boolean;
+        zoom?: number;
+    }): Promise<Court[]> {
+        // Build dynamic query with filters
+        let query = `
+            SELECT
+                id, 
+                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                sport as type,
+                ST_Y(centroid::geometry) as lat, 
+                ST_X(centroid::geometry) as lng,  
+                COALESCE(surface_type::text, 'Unknown') as surface, 
+                is_public, 
+                cluster_id,
+                region,
+                created_at, 
+                updated_at
+            FROM courts
+            WHERE centroid IS NOT NULL
+        `;
+        
+        const queryParams: any[] = [];
+        let paramIndex = 1;
+        
+        // Add bbox filter (viewport-based query)
+        if (filters.bbox && filters.bbox.length === 4) {
+            const [west, south, east, north] = filters.bbox;
+            query += ` AND ST_Within(centroid::geometry, ST_MakeEnvelope($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, 4326))`;
+            queryParams.push(west, south, east, north);
+            paramIndex += 4;
+        }
+        
+        // Add sport filter
+        if (filters.sport) {
+            query += ` AND sport = $${paramIndex}`;
+            queryParams.push(filters.sport);
+            paramIndex++;
+        }
+        
+        // Add surface_type filter
+        if (filters.surface_type) {
+            query += ` AND surface_type = $${paramIndex}`;
+            queryParams.push(filters.surface_type);
+            paramIndex++;
+        }
+        
+        // Add is_public filter
+        if (filters.is_public !== undefined) {
+            query += ` AND is_public = $${paramIndex}`;
+            queryParams.push(filters.is_public);
+            paramIndex++;
+        }
+        
+        query += ` ORDER BY created_at DESC`;
+        
+        // Add zoom-based limit (optional performance optimization)
+        if (filters.zoom && filters.zoom > 15) {
+            // For very high zoom levels, limit results to prevent overload
+            query += ` LIMIT 1000`;
+        }
+        
+        const result = await pool.query(query, queryParams);
+        return result.rows;
     }
 
 }

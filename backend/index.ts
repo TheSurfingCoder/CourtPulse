@@ -1,13 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
+import pinoHttp from 'pino-http';
 
 import courtRoutes from './src/routes/courts.js';
+import logRoutes from './src/routes/logs.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
+import logger, { logEvent, logError, logLifecycleEvent } from '../shared/logger.js';
 
 //loads env variables from .env into process.env
 dotenv.config();
@@ -15,11 +17,9 @@ dotenv.config();
 // Import migration function
 async function runMigrations() {
   try {
-    console.log(JSON.stringify({
-      level: 'info',
-      message: 'Starting database migrations',
-      timestamp: new Date().toISOString()
-    }));
+    logLifecycleEvent('database_migration_started', {
+      message: 'Starting database migrations'
+    });
 
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
@@ -42,22 +42,17 @@ async function runMigrations() {
     const env = { ...process.env, DATABASE_URL: databaseUrl };
 
     // Run migrations using node-pg-migrate
-    const { stdout } = await execAsync('npx node-pg-migrate up -m database/migrations -j sql', { env });
+    const { stdout } = await execAsync('npx node-pg-migrate up -c migrate.json', { env });
 
-    console.log(JSON.stringify({
-      level: 'info',
+    logLifecycleEvent('database_migration_completed', {
       message: 'Database migrations completed successfully',
-      output: stdout,
-      timestamp: new Date().toISOString()
-    }));
+      output: stdout
+    });
 
   } catch (error) {
-    console.error(JSON.stringify({
-      level: 'error',
-      message: 'Database migration failed',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    }));
+    logError(error instanceof Error ? error : new Error(String(error)), {
+      message: 'Database migration failed'
+    });
 
     // Don't exit the process - let the app start anyway
     // This allows the app to run even if migrations fail
@@ -68,8 +63,23 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
-app.use(cors());
-app.use(morgan('combined'));
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Custom middleware to skip pino-http for /api/logs
+app.use((req, res, next) => {
+  if (req.url === '/api/logs') {
+    // Skip pino-http for log forwarding endpoint
+    return next();
+  }
+  // Use pino-http for all other routes
+  return pinoHttp({ logger })(req, res, next);
+});
+
 app.use(express.json());
 
 // Swagger API Documentation
@@ -82,6 +92,7 @@ app.get('/health', (req: express.Request, res: express.Response) => {
   });
 
 app.use('/api/courts', courtRoutes);
+app.use('/api/logs', logRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);
@@ -94,30 +105,23 @@ async function startServer() {
 
   // Start the server
   app.listen(PORT, () => {
-    console.log(JSON.stringify({
-      level: 'info',
+    logLifecycleEvent('server_started', {
       message: 'Server started successfully',
       port: PORT,
-      environment: process.env.NODE_ENV || 'development',
-      timestamp: new Date().toISOString()
-    }));
-    console.log(JSON.stringify({
-      level: 'info',
+      environment: process.env.NODE_ENV || 'development'
+    });
+    logLifecycleEvent('api_docs_available', {
       message: 'API documentation available',
-      url: `http://localhost:${PORT}/api-docs`,
-      timestamp: new Date().toISOString()
-    }));
+      url: `http://localhost:${PORT}/api-docs`
+    });
   });
 }
 
 // Start the application
 startServer().catch((error) => {
-  console.error(JSON.stringify({
-    level: 'error',
-    message: 'Failed to start server',
-    error: error instanceof Error ? error.message : 'Unknown error',
-    timestamp: new Date().toISOString()
-  }));
+  logError(error instanceof Error ? error : new Error(String(error)), {
+    message: 'Failed to start server'
+  });
   process.exit(1);
 });
 

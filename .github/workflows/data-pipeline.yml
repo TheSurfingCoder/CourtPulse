@@ -1,0 +1,122 @@
+name: Data Pipeline
+
+# Trigger on pull requests to develop and main branches
+on:
+  pull_request:
+    branches: [develop, main]
+  # Also keep manual trigger for production use
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Region to process'
+        required: true
+        type: choice
+        options:
+          - sf_bay
+          - nyc
+          - london
+      scope:
+        description: 'Processing scope'
+        required: true
+        type: choice
+        options:
+          - incremental
+          - full_refresh
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  data-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          cd data_enrichment
+          pip install -r requirements.txt
+      
+      - name: Create database backup
+        run: |
+          # Create backup before processing
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          python scripts/create_backup.py \
+            --environment $ENVIRONMENT \
+            --region $REGION
+      
+      - name: Run data pipeline
+        run: |
+          cd data_enrichment
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          SCOPE="${{ github.event.inputs.scope || 'incremental' }}"
+          python run_optimized_pipeline.py \
+            --data-file export.geojson \
+            --region $REGION \
+            --scope $SCOPE \
+            --environment $ENVIRONMENT \
+            --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+      
+      - name: Validate data quality
+        run: |
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          python scripts/validate_data_quality.py \
+            --environment $ENVIRONMENT \
+            --region $REGION
+      
+      - name: Notify success
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const region = '${{ github.event.inputs.region }}';
+            const environment = '${{ github.event.inputs.environment }}';
+            
+            console.log(`✅ Data pipeline completed successfully!`);
+            console.log(`   Region: ${region}`);
+            console.log(`   Environment: ${environment}`);
+            
+            // You can add more sophisticated success notifications here
+      
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          # Use inputs for manual trigger, defaults for PR trigger
+          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
+          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          python scripts/rollback.py \
+            --environment $ENVIRONMENT \
+            --region $REGION
+      
+      - name: Notify failure
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const region = '${{ github.event.inputs.region }}';
+            const environment = '${{ github.event.inputs.environment }}';
+            
+            console.log(`❌ Data pipeline failed!`);
+            console.log(`   Region: ${region}`);
+            console.log(`   Environment: ${environment}`);
+            console.log(`   Check the logs above for details.`);
+            
+            // You can add more sophisticated failure notifications here

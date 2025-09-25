@@ -41,13 +41,14 @@ describe('CourtModel', () => {
       mockPool.query.mockResolvedValue({ rows: mockCourts });
 
       // Act: Call the actual method we're testing
-      const result = await CourtModel.findAll();
+      const result = await CourtModel.findByType('basketball');
 
       // Assert: Check that we got the expected result
       expect(result).toEqual(mockCourts);
       // Assert: Check that the database was called with a SELECT query
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('SELECT')
+        expect.stringContaining('SELECT'),
+        ['basketball']
       );
     });
 
@@ -57,7 +58,7 @@ describe('CourtModel', () => {
       mockPool.query.mockRejectedValue(error);
 
       // Act & Assert: Check that the method throws the expected error
-      await expect(CourtModel.findAll()).rejects.toThrow('Database connection failed');
+      await expect(CourtModel.findByType('basketball')).rejects.toThrow('Database connection failed');
     });
   });
 
@@ -110,7 +111,8 @@ describe('CourtModel', () => {
       const courtData = {
         name: 'New Court',
         type: 'tennis',
-        location: { lat: 40.7589, lng: -73.9851 },
+        lat: 40.7589,
+        lng: -73.9851,
         address: 'New Address',
         surface: 'clay',
         is_public: true
@@ -128,7 +130,7 @@ describe('CourtModel', () => {
       // Assert: Check the database was called with INSERT query and correct parameters
       expect(mockPool.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO courts'),
-        ['New Court', 'tennis', -73.9851, 40.7589, 'New Address', 'clay', true]
+        ['New Court', 'tennis', -73.9851, 40.7589, 'clay', true]
       );
     });
   });
@@ -173,7 +175,7 @@ describe('CourtModel', () => {
       expect(result).toEqual(mockCourts);
       // Assert: Check the database was called with correct query and parameters
       expect(mockPool.query).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE type = $1'),
+        expect.stringContaining('WHERE sport = $1'),
         ['basketball']
       );
     });

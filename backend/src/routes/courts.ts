@@ -1,46 +1,89 @@
 import express from 'express';
 import { CourtModel } from '../models/Court';
+import { logEvent, logError, logBusinessEvent } from '../../../shared/logger.js';
+import { searchRateLimit } from '../middleware/rateLimiter';
 
 const router = express.Router();
 
-// GET /api/courts - Get all courts
-router.get('/', async (req: express.Request, res: express.Response) => {
+// GET /api/courts/search - Search courts with viewport and filters
+router.get('/search', searchRateLimit, async (req: express.Request, res: express.Response) => {
   try {
-    const courts = await CourtModel.findAll();
+    const { bbox, zoom, sport, surface_type, is_public } = req.query;
     
-    console.log(JSON.stringify({
-      level: 'info',
-      message: 'Successfully fetched courts',
-      count: courts.length,
+    // Validate zoom level (must be > 11 for search)
+    const zoomLevel = parseFloat(zoom as string);
+    if (zoomLevel <= 11) {
+      return res.status(400).json({
+        success: false,
+        message: 'Zoom level must be greater than 11 to search courts'
+      });
+    }
+    
+    // Parse bbox parameter
+    let parsedBbox: [number, number, number, number] | undefined;
+    if (bbox) {
+      const bboxArray = (bbox as string).split(',').map(coord => parseFloat(coord));
+      if (bboxArray.length === 4 && bboxArray.every(coord => !isNaN(coord))) {
+        parsedBbox = bboxArray as [number, number, number, number];
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid bbox format. Expected: west,south,east,north'
+        });
+      }
+    }
+    
+    // Parse filters
+    const filters: any = {
+      bbox: parsedBbox,
+      zoom: zoomLevel,
+      sport: sport as string,
+      surface_type: surface_type as string,
+      is_public: is_public !== undefined ? is_public === 'true' : undefined
+    };
+    
+    // Remove undefined values
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === undefined) {
+        delete filters[key];
+      }
+    });
+    
+    const courts = await CourtModel.searchCourts(filters);
+    
+    logBusinessEvent('courts_search_completed', {
+      filters: filters,
+      resultCount: courts.length,
       request: {
         method: req.method,
-        url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+        url: req.url,
+        query: req.query
+      }
+    });
     
     return res.json({
       success: true,
       count: courts.length,
-      data: courts
+      data: courts,
+      filters: filters
     });
   } catch (error) {
     console.error(JSON.stringify({
-      level: 'error',
-      message: 'Failed to fetch courts',
+      event: 'courts_search_error',
+      timestamp: new Date().toISOString(),
       error: {
         message: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined
       },
       request: {
         method: req.method,
-        url: req.url
-      },
-      timestamp: new Date().toISOString()
+        url: req.url,
+        query: req.query
+      }
     }));
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch courts',
+      message: 'Failed to search courts',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -103,7 +146,7 @@ router.get('/type/:type', async (req: express.Request, res: express.Response) =>
 // POST /api/courts - Create new court
 router.post('/', async (req: express.Request, res: express.Response) => {
   try {
-    const { name, type, location, address, surface, is_public } = req.body;
+    const { name, type, location, surface, is_public } = req.body;
 
     // Basic validation
     if (!name || !type || !location || !location.lat || !location.lng) {
@@ -116,23 +159,21 @@ router.post('/', async (req: express.Request, res: express.Response) => {
     const court = await CourtModel.create({
       name,
       type,
-      location,
-      address,
-      surface,
+      lat: location.lat,
+      lng: location.lng,
+      surface: surface || 'Unknown',
       is_public: is_public ?? true
     });
 
-    console.log(JSON.stringify({
-      level: 'info',
+    logBusinessEvent('court_created', {
       message: 'Successfully created court',
       courtId: court.id,
       courtName: court.name,
       request: {
         method: req.method,
         url: req.url
-      },
-      timestamp: new Date().toISOString()
-    }));
+      }
+    });
 
     return res.status(201).json({
       success: true,
