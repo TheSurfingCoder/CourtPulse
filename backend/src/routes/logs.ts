@@ -26,12 +26,12 @@ router.post('/', async (req: express.Request, res: express.Response) => {
       });
     }
     
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (error) {
     logError(error instanceof Error ? error : new Error(String(error)), {
       message: 'Failed to process frontend log'
     });
-    res.status(500).json({ success: false });
+    return res.status(500).json({ success: false });
   }
 });
 

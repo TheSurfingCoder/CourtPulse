@@ -5,7 +5,7 @@
     "lib": ["ES2022"],
     "types": ["jest", "node"],
     "outDir": "./dist",
-    "rootDir": "./",
+    "rootDir": "../",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

@@ -656,42 +656,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   
 
-  // DEBUGGING: Don't unmount the map during loading - this was causing the flickering!
-  // if (loading) {
-  //   logEvent('map_loading_state', {
-  //     state: 'loading'
-  //   });
-  //   
-  //   return (
-  //     <div className={`flex items-center justify-center h-96 bg-gray-100 rounded-lg ${className}`}>
-  //       <div className="text-center">
-  //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-  //         <p className="text-gray-600">Loading courts map...</p>
-  //       </div>
-  //     </div>
-  //   );
-  // }
-
-  if (error) {
-    // Map error state
-    
-    return (
-      <div className={`flex items-center justify-center h-96 bg-red-50 rounded-lg border border-red-200 ${className}`}>
-        <div className="text-center">
-          <div className="text-red-600 text-xl mb-4">⚠️</div>
-          <h3 className="text-red-800 font-semibold mb-2">Error loading map</h3>
-          <p className="text-red-600 mb-4">{error}</p>
-          <button 
-            onClick={fetchCourtsWithFilters}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Map style configuration based on current map type
   const mapStyle = useMemo(() => {
     const maptilerApiKey = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
@@ -740,6 +704,42 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     };
     return streetStyle;
   }, [mapType]);
+
+  // DEBUGGING: Don't unmount the map during loading - this was causing the flickering!
+  // if (loading) {
+  //   logEvent('map_loading_state', {
+  //     state: 'loading'
+  //   });
+  //   
+  //   return (
+  //     <div className={`flex items-center justify-center h-96 bg-gray-100 rounded-lg ${className}`}>
+  //       <div className="text-center">
+  //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+  //         <p className="text-gray-600">Loading courts map...</p>
+  //       </div>
+  //     </div>
+  //   );
+  // }
+
+  if (error) {
+    // Map error state
+    
+    return (
+      <div className={`flex items-center justify-center h-96 bg-red-50 rounded-lg border border-red-200 ${className}`}>
+        <div className="text-center">
+          <div className="text-red-600 text-xl mb-4">⚠️</div>
+          <h3 className="text-red-800 font-semibold mb-2">Error loading map</h3>
+          <p className="text-red-600 mb-4">{error}</p>
+          <button 
+            onClick={fetchCourtsWithFilters}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Handle map type change
   const handleMapTypeChange = (newMapType: 'streets' | 'satellite') => {
