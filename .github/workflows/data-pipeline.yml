@@ -55,10 +55,13 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          DATABASE_URL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}"
           cd data_enrichment
           python scripts/create_backup.py \
             --environment $ENVIRONMENT \
             --region $REGION
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
       - name: Run data pipeline
         run: |
@@ -73,6 +76,8 @@ jobs:
             --scope $SCOPE \
             --environment $ENVIRONMENT \
             --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
       - name: Validate data quality
         run: |
@@ -83,11 +88,14 @@ jobs:
           python scripts/validate_data_quality.py \
             --environment $ENVIRONMENT \
             --region $REGION
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
       - name: Notify success
         if: success()
         uses: actions/github-script@v6
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const region = '${{ github.event.inputs.region }}';
             const environment = '${{ github.event.inputs.environment }}';
@@ -108,11 +116,14 @@ jobs:
           python scripts/rollback.py \
             --environment $ENVIRONMENT \
             --region $REGION
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
       - name: Notify failure
         if: failure()
         uses: actions/github-script@v6
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const region = '${{ github.event.inputs.region }}';
             const environment = '${{ github.event.inputs.environment }}';
