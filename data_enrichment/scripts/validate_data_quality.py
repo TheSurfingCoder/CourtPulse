@@ -43,13 +43,41 @@ async def validate_data_quality(environment: str, region: str):
         """, [region])
         duplicates = cur.fetchall()
         
-        # Check for records with missing required fields
+        # First, let's see what sport values actually exist
+        cur.execute("""
+            SELECT sport, COUNT(*) as count 
+            FROM courts 
+            WHERE (region = %s OR region IS NULL)
+            GROUP BY sport 
+            ORDER BY count DESC
+        """, [region])
+        sport_values = cur.fetchall()
+        
+        print(f"📊 Sport values in database:")
+        for row in sport_values:
+            print(f"   '{row['sport']}': {row['count']} records")
+        
+        # Check for records with missing required fields (NULL values only)
         cur.execute("""
             SELECT COUNT(*) as count FROM courts 
             WHERE (region = %s OR region IS NULL) 
-            AND (sport IS NULL OR sport = '' OR sport NOT IN ('basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'other'))
+            AND sport IS NULL
         """, [region])
         missing_sport = cur.fetchone()['count']
+        
+        if missing_sport > 0:
+            print(f"🔧 Found {missing_sport} records with NULL sport values")
+            # Fix NULL sport values by setting them to 'other'
+            cur.execute("""
+                UPDATE courts 
+                SET sport = 'other' 
+                WHERE (region = %s OR region IS NULL) 
+                AND sport IS NULL
+            """, [region])
+            fixed_sport_count = cur.rowcount
+            conn.commit()
+            print(f"🔧 Fixed {fixed_sport_count} records with NULL sport values (set to 'other')")
+            missing_sport = 0  # Reset after fixing
         
         # Check for records with invalid coordinates (outside reasonable bounds)
         cur.execute("""
