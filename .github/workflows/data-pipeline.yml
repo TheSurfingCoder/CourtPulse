@@ -28,7 +28,6 @@ on:
         description: 'Maximum features to process (leave empty for all)'
         required: false
         type: number
-        default: 100
       test_mode:
         description: 'Run in test mode (limits to 50 features)'
         required: false
@@ -104,7 +103,7 @@ jobs:
           python run_full_pipeline.py \
             --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }} \
             --batch-size $BATCH_SIZE \
-            --max-features $MAX_FEATURES \
+            ${{ github.event.inputs.max_features && format('--max-features {0}', github.event.inputs.max_features) || '' }} \
             ${{ github.event.inputs.test_mode == 'true' && '--test-mode' || '' }}
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
