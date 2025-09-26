@@ -1,5 +1,5 @@
 import express from 'express';
-import { logEvent, logError, logBusinessEvent } from '../../../shared/logger.js';
+import { logEvent, logError, logBusinessEvent } from '../../logger';
 
 const router = express.Router();
 

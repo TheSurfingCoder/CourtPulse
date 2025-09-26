@@ -1,7 +1,7 @@
 // backend/config/database.ts
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
-import { logEvent, logError, logLifecycleEvent } from '../../shared/logger.js';
+import { logEvent, logError, logLifecycleEvent } from '../logger';
 
 // In test environment, load from .env.test
 if (process.env.NODE_ENV === 'test') {

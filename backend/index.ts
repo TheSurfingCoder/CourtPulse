@@ -9,7 +9,7 @@ import courtRoutes from './src/routes/courts.js';
 import logRoutes from './src/routes/logs.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
-import logger, { logEvent, logError, logLifecycleEvent } from '../shared/logger.js';
+import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 
 //loads env variables from .env into process.env
 dotenv.config();

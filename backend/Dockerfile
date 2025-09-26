@@ -8,7 +8,7 @@ COPY backend/package*.json ./
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
-# Copy entire project (needed for shared directory)
+# Copy entire project
 COPY . .
 
 # Build the TypeScript code (before removing dev dependencies)
@@ -27,6 +27,6 @@ USER nextjs
 
 EXPOSE 5000
 
-# Start from backend directory
+# Start from backend directory where dist is located
 WORKDIR /app/backend
-CMD ["npm", "start"]
+CMD ["node", "dist/index.js"]

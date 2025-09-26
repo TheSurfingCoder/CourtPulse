@@ -1,6 +1,6 @@
 import express from 'express';
 import { CourtModel } from '../models/Court';
-import { logEvent, logError, logBusinessEvent } from '../../../shared/logger.js';
+import { logEvent, logError, logBusinessEvent } from '../../logger';
 import { searchRateLimit } from '../middleware/rateLimiter';
 
 const router = express.Router();
