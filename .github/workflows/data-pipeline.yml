@@ -91,12 +91,21 @@ jobs:
           TEST_MODE="${{ github.event.inputs.test_mode }}"
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
+          
+          # Debug: Print the actual values being used
+          echo "🔍 Debug - Workflow Input Values:"
+          echo "  Environment: $ENVIRONMENT"
+          echo "  Region: $REGION"
+          echo "  Batch Size: $BATCH_SIZE"
+          echo "  Max Features: $MAX_FEATURES"
+          echo "  Test Mode: $TEST_MODE"
+          echo "  Test Mode Type: $(echo $TEST_MODE | od -c)"
           # Run the clustered pipeline for better API efficiency
           python run_full_pipeline.py \
             --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }} \
             --batch-size $BATCH_SIZE \
             --max-features $MAX_FEATURES \
-            ${{ github.event.inputs.test_mode && '--test-mode' || '' }}
+            ${{ github.event.inputs.test_mode == 'true' && '--test-mode' || '' }}
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
