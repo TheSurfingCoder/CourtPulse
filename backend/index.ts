@@ -63,8 +63,39 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
+// CORS configuration with environment-based origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://courtpulse-staging.vercel.app',
+  'https://courtpulse.vercel.app'
+];
+
+// Add production domain if specified in environment
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      logEvent('cors_request_allowed', {
+        origin,
+        allowedOrigins
+      });
+      return callback(null, true);
+    } else {
+      logError(new Error('CORS request blocked'), {
+        origin,
+        allowedOrigins,
+        message: 'Origin not in allowed list'
+      });
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
