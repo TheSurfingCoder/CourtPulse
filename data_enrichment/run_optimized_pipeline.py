@@ -31,7 +31,8 @@ async def run_optimized_pipeline(connection_string: str,
                                 concurrent_features: int = 20,
                                 db_batch_size: int = 100, 
                                 max_api_connections: int = 50,
-                                max_features: int = None):
+                                max_features: int = None,
+                                api_delay: float = 0.5):
     """Run the optimized pipeline with controlled parallelism"""
     
     logger.info(json.dumps({
@@ -49,7 +50,8 @@ async def run_optimized_pipeline(connection_string: str,
             connection_string=connection_string,
             concurrent_features=concurrent_features,
             db_batch_size=db_batch_size,
-            max_api_connections=max_api_connections
+            max_api_connections=max_api_connections,
+            api_delay=api_delay
         )
         
         # Process the dataset
@@ -151,6 +153,10 @@ def main():
     parser.add_argument('--test-mode', 
                        action='store_true',
                        help='Run in test mode with 50 features')
+    parser.add_argument('--api-delay', 
+                       type=float, 
+                       default=0.5,
+                       help='Delay between API calls in seconds (default: 0.5)')
     
     args = parser.parse_args()
     
@@ -173,7 +179,8 @@ def main():
                 concurrent_features=args.concurrent_features,
                 db_batch_size=args.db_batch_size,
                 max_api_connections=args.max_api_connections,
-                max_features=args.max_features
+                max_features=args.max_features,
+                api_delay=args.api_delay
             )
             
             # Check if pipeline was successful

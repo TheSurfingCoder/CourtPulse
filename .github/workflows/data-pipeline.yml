@@ -85,9 +85,12 @@ jobs:
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
-          # Run the optimized pipeline with correct arguments
+          # Run the pipeline sequentially to avoid API rate limiting
           python run_optimized_pipeline.py \
-            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }} \
+            --concurrent-features 1 \
+            --max-api-connections 1 \
+            --api-delay 1.0
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
           PGSSLMODE: require

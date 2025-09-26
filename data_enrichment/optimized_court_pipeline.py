@@ -33,11 +33,13 @@ class OptimizedCourtPipeline:
     def __init__(self, connection_string: str, 
                  concurrent_features: int = 20, 
                  db_batch_size: int = 100,
-                 max_api_connections: int = 50):
+                 max_api_connections: int = 50,
+                 api_delay: float = 0.5):
         self.connection_string = connection_string
         self.concurrent_features = concurrent_features
         self.db_batch_size = db_batch_size
         self.max_api_connections = max_api_connections
+        self.api_delay = api_delay
         
         # Initialize components
         self.validator = CourtDataValidator()
@@ -146,6 +148,10 @@ class OptimizedCourtPipeline:
                 
                 # Get name from Photon (async with parallel API calls)
                 photon_name, photon_data = await self.geocoding_provider.reverse_geocode(total_lat, total_lon)
+                
+                # Add delay to respect API rate limits
+                if self.api_delay > 0:
+                    await asyncio.sleep(self.api_delay)
                 
                 if not photon_name:
                     self.stats['geocoding_failed'] += 1
