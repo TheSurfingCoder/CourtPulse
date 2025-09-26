@@ -51,6 +51,14 @@ jobs:
           cd data_enrichment
           pip install -r requirements.txt
       
+      - name: Run database migrations
+        run: |
+          cd backend
+          npm install
+          npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+      
       - name: Create database backup
         run: |
           # Create backup before processing
