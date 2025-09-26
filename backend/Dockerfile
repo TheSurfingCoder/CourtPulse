@@ -2,20 +2,17 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files from backend
-COPY backend/package*.json ./
-
-# Install all dependencies (including dev dependencies for build)
-RUN npm ci
-
-# Copy entire project
+# Copy entire project first
 COPY . .
+
+# Install backend dependencies
+RUN cd backend && npm ci
 
 # Build the TypeScript code (before removing dev dependencies)
 RUN cd backend && npm run build
 
 # Remove dev dependencies to reduce image size
-RUN npm prune --production
+RUN cd backend && npm prune --production
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
