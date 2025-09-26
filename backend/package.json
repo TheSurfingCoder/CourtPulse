@@ -16,7 +16,7 @@
     "migrate:prod": "NODE_ENV=production node-pg-migrate up -c migrate.json",
     "migrate:up": "NODE_ENV=production node-pg-migrate up -c migrate.json",
     "migrate:down": "NODE_ENV=production node-pg-migrate down -c migrate.json",
-    "migrate:create": "node-pg-migrate create -c migrate.json"
+    "migrate:create": "node-pg-migrate create -c migrate.json --migration-file-language sql"
   },
   "dependencies": {
     "@types/express-rate-limit": "^5.1.3",
