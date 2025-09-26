@@ -1,12 +1,7 @@
 name: Data Pipeline
 
-# Trigger on pushes to develop and pull requests to main
+# Manual trigger only - run on-demand for both dev and prod
 on:
-  push:
-    branches: [develop]
-  pull_request:
-    branches: [main]
-  # Also keep manual trigger for production use
   workflow_dispatch:
     inputs:
       region:
@@ -17,13 +12,6 @@ on:
           - sf_bay
           - nyc
           - london
-      scope:
-        description: 'Processing scope'
-        required: true
-        type: choice
-        options:
-          - incremental
-          - full_refresh
       environment:
         description: 'Target environment'
         required: true
@@ -31,6 +19,21 @@ on:
         options:
           - staging
           - production
+      batch_size:
+        description: 'Batch size for processing'
+        required: false
+        type: number
+        default: 50
+      max_features:
+        description: 'Maximum features to process (leave empty for all)'
+        required: false
+        type: number
+        default: 100
+      test_mode:
+        description: 'Run in test mode (limits to 50 features)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   data-pipeline:
@@ -59,14 +62,14 @@ jobs:
           DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           DATABASE_URL="$DATABASE_URL_WITH_SSL" npm run migrate
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
       
       - name: Create database backup
         run: |
           # Create backup before processing
-          # Use inputs for manual trigger, defaults for PR trigger
-          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
-          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Use manual trigger inputs
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
@@ -74,32 +77,36 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
       
       - name: Run data pipeline
         run: |
           cd data_enrichment
-          # Use inputs for manual trigger, defaults for PR trigger
-          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
-          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Use manual trigger inputs
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          REGION="${{ github.event.inputs.region }}"
+          BATCH_SIZE="${{ github.event.inputs.batch_size }}"
+          MAX_FEATURES="${{ github.event.inputs.max_features }}"
+          TEST_MODE="${{ github.event.inputs.test_mode }}"
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
-          # Run the pipeline sequentially to avoid API rate limiting
-          python run_optimized_pipeline.py \
-            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }} \
-            --concurrent-features 1 \
-            --max-api-connections 1 \
-            --api-delay 1.0
+          # Run the clustered pipeline for better API efficiency
+          python run_full_pipeline.py \
+            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }} \
+            --batch-size $BATCH_SIZE \
+            --max-features $MAX_FEATURES \
+            ${{ github.event.inputs.test_mode && '--test-mode' || '' }}
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
       
       - name: Validate data quality
+        id: validate-data-quality
         run: |
-          # Use inputs for manual trigger, defaults for PR trigger
-          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
-          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Use manual trigger inputs
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
@@ -107,7 +114,25 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          PGSSLMODE: require
+        continue-on-error: true
+      
+      - name: Auto-rollback on quality failure
+        if: failure() && steps.validate-data-quality.outcome == 'failure'
+        run: |
+          # Use manual trigger inputs
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          REGION="${{ github.event.inputs.region }}"
+          cd data_enrichment
+          # Set SSL environment variable for psycopg2
+          export PGSSLMODE=require
+          echo "🔄 Data quality validation failed - initiating automatic rollback"
+          python scripts/rollback.py \
+            --environment $ENVIRONMENT \
+            --region $REGION
+        env:
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
       
       - name: Notify success
@@ -128,9 +153,9 @@ jobs:
       - name: Rollback on failure
         if: failure()
         run: |
-          # Use inputs for manual trigger, defaults for PR trigger
-          ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
-          REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Use manual trigger inputs
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
@@ -138,7 +163,7 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
       
       - name: Notify failure

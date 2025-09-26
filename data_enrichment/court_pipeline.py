@@ -471,6 +471,14 @@ class CourtProcessingPipeline:
                 }))
                 # Continue even if cluster metadata fails
             
+            # Add individual court names for clustered courts
+            logger.info(json.dumps({
+                'event': 'adding_individual_court_names',
+                'message': 'Starting individual court name assignment'
+            }))
+            
+            individual_names_added = self.add_individual_court_names()
+            
             self.stats['end_time'] = datetime.now()
             processing_time = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
             
@@ -485,6 +493,7 @@ class CourtProcessingPipeline:
                 'skipped': self.stats['skipped'],
                 'clusters_created': self.stats['clusters_created'],
                 'api_calls_saved': self.stats['api_calls_saved'],
+                'individual_names_added': individual_names_added,
                 'processing_time_seconds': processing_time,
                 'features_per_second': round(self.stats['total_processed'] / processing_time, 2) if processing_time > 0 else 0,
                 'success_rate': round((self.stats['successful'] / self.stats['total_processed']) * 100, 2) if self.stats['total_processed'] > 0 else 0,
@@ -508,6 +517,92 @@ class CourtProcessingPipeline:
         finally:
             # Clean up database connections
             self.db_manager.close_all_connections()
+    
+    def add_individual_court_names(self) -> int:
+        """Add individual court names for clustered courts"""
+        try:
+            conn = self.db_manager.get_connection()
+            cursor = conn.cursor()
+            
+            # Add individual_court_name column if it doesn't exist
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'courts' AND column_name = 'individual_court_name'
+            """)
+            
+            if not cursor.fetchone():
+                cursor.execute("""
+                    ALTER TABLE courts 
+                    ADD COLUMN individual_court_name VARCHAR(255)
+                """)
+                logger.info("Added individual_court_name column to courts table")
+            
+            # Clean existing photon names by removing court counts
+            cursor.execute("""
+                UPDATE courts 
+                SET photon_name = REGEXP_REPLACE(photon_name, '\\s*\\(\\d+\\s+Courts?\\)', '', 'g')
+                WHERE photon_name LIKE '%(% Courts)' OR photon_name LIKE '%(% Court)'
+            """)
+            cleaned_count = cursor.rowcount
+            logger.info(f"Cleaned {cleaned_count} photon_name values")
+            
+            # Get all clusters with more than 1 court
+            cursor.execute("""
+                SELECT cluster_id, COUNT(*) as court_count
+                FROM courts 
+                WHERE cluster_id IS NOT NULL
+                GROUP BY cluster_id
+                HAVING COUNT(*) > 1
+                ORDER BY cluster_id
+            """)
+            
+            clusters = cursor.fetchall()
+            logger.info(f"Found {len(clusters)} clusters with multiple courts")
+            
+            total_updated = 0
+            
+            for cluster_id, court_count in clusters:
+                # Get all courts in this cluster, ordered by id for consistent naming
+                cursor.execute("""
+                    SELECT id, osm_id, photon_name
+                    FROM courts 
+                    WHERE cluster_id = %s
+                    ORDER BY id
+                """, (cluster_id,))
+                
+                courts = cursor.fetchall()
+                
+                # Assign individual court names
+                for i, (court_id, osm_id, photon_name) in enumerate(courts, 1):
+                    individual_name = f"Court {i}"
+                    
+                    cursor.execute("""
+                        UPDATE courts 
+                        SET individual_court_name = %s
+                        WHERE id = %s
+                    """, (individual_name, court_id))
+                    
+                    total_updated += 1
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            logger.info(json.dumps({
+                'event': 'individual_court_names_added',
+                'total_updated': total_updated,
+                'clusters_processed': len(clusters)
+            }))
+            
+            return total_updated
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'individual_court_names_error',
+                'error': str(e)
+            }))
+            return 0
 
 # Example usage
 if __name__ == "__main__":
