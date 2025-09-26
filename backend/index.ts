@@ -76,26 +76,21 @@ if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL);
 }
 
+// CORS debugging middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  logEvent('cors_request_received', {
+    origin,
+    allowedOrigins,
+    isAllowed: allowedOrigins.includes(origin || ''),
+    method: req.method,
+    url: req.url
+  });
+  next();
+});
+
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      logEvent('cors_request_allowed', {
-        origin,
-        allowedOrigins
-      });
-      return callback(null, true);
-    } else {
-      logError(new Error('CORS request blocked'), {
-        origin,
-        allowedOrigins,
-        message: 'Origin not in allowed list'
-      });
-      return callback(new Error('Not allowed by CORS'), false);
-    }
-  },
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
