@@ -67,14 +67,15 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
-          # Add SSL parameters for cloud databases
-          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/create_backup.py \
+          # Set SSL environment variable for psycopg2
+          export PGSSLMODE=require
+          python scripts/create_backup.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          PGSSLMODE: require
       
       - name: Run data pipeline
         run: |
@@ -82,31 +83,30 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
-          SCOPE="${{ github.event.inputs.scope || 'incremental' }}"
-          # Add SSL parameters for cloud databases
-          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
-          DATABASE_URL="$DATABASE_URL_WITH_SSL" python run_optimized_pipeline.py \
-            --data-file export.geojson \
-            --region $REGION \
-            --scope $SCOPE \
-            --environment $ENVIRONMENT \
-            --database-url ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          # Set SSL environment variable for psycopg2
+          export PGSSLMODE=require
+          # Run the optimized pipeline with correct arguments
+          python run_optimized_pipeline.py \
+            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }} \
+            --test-mode
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          PGSSLMODE: require
       
       - name: Validate data quality
         run: |
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
-          # Add SSL parameters for cloud databases
-          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/validate_data_quality.py \
+          # Set SSL environment variable for psycopg2
+          export PGSSLMODE=require
+          python scripts/validate_data_quality.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          PGSSLMODE: require
       
       - name: Notify success
         if: success()
@@ -129,14 +129,15 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
-          # Add SSL parameters for cloud databases
-          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/rollback.py \
+          # Set SSL environment variable for psycopg2
+          export PGSSLMODE=require
+          python scripts/rollback.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
+          PGSSLMODE: require
       
       - name: Notify failure
         if: failure()
