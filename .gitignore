@@ -9,6 +9,11 @@ yarn-error.log*
 out/
 build/
 
+# TypeScript compiled output
+dist/
+*.js.map
+*.d.ts.map
+
 # Environment variables
 .env
 .env.local
