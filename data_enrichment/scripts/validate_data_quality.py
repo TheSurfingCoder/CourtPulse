@@ -47,7 +47,7 @@ async def validate_data_quality(environment: str, region: str):
         cur.execute("""
             SELECT COUNT(*) as count FROM courts 
             WHERE (region = %s OR region IS NULL) 
-            AND (sport IS NULL OR sport = '')
+            AND (sport IS NULL OR sport = '' OR sport NOT IN ('basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'other'))
         """, [region])
         missing_sport = cur.fetchone()['count']
         
