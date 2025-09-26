@@ -227,8 +227,8 @@ class PhotonGeocodingProvider:
         
         return True
     
-    def _is_nearby_result(self, feature: Dict[str, Any], target_lat: float, target_lon: float, max_distance_km: float = 0.198) -> bool:
-        """Check if result is within acceptable distance (650 feet = 0.198 km)"""
+    def _is_nearby_result(self, feature: Dict[str, Any], target_lat: float, target_lon: float, max_distance_km: float = 0.152) -> bool:
+        """Check if result is within acceptable distance (500 feet = 0.152 km)"""
         try:
             coords = feature.get('geometry', {}).get('coordinates', [0, 0])
             result_lon, result_lat = coords[0], coords[1]  # GeoJSON format

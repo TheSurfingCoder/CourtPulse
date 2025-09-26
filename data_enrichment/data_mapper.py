@@ -160,6 +160,45 @@ class CourtDataMapper:
             }))
             return "sports court"
     
+    def determine_public_access(self, properties: Dict[str, Any]) -> Optional[bool]:
+        """Determine if a court is public based on OSM access tags"""
+        try:
+            # Check fee status - if fee is "no", it's likely public
+            fee = properties.get('fee', '').lower()
+            if fee == 'no':
+                return True
+            
+            # Check access restrictions
+            access = properties.get('access', '').lower()
+            if access in ['private', 'no', 'restricted']:
+                return False
+            if access in ['yes', 'public', 'permissive']:
+                return True
+            
+            # Check leisure type - parks and playgrounds are typically public
+            leisure = properties.get('leisure', '').lower()
+            if leisure in ['park', 'playground', 'pitch']:
+                return True
+            if leisure in ['sports_centre', 'fitness_centre']:
+                # Sports centers can be private, check other indicators
+                # If we have fee info, use it
+                if fee == 'yes':
+                    return False
+                # Otherwise, we don't know
+                return None
+            
+            # If we have no clear indicators, return None (unknown)
+            return None
+            
+        except Exception as e:
+            logger.warning(json.dumps({
+                'event': 'public_access_determination_error',
+                'osm_id': properties.get('osm_id', 'unknown'),
+                'error': str(e)
+            }))
+            # Return None on error (unknown)
+            return None
+    
     def map_photon_data(self, photon_name: str, photon_distance_km: float, 
                        photon_source: str) -> Dict[str, Any]:
         """Map Photon API response to database format"""
@@ -187,7 +226,8 @@ class CourtDataMapper:
                 'geom': geom_json,
                 'centroid': centroid_json,
             'fallback_name': self.generate_fallback_name(properties),
-            'surface_type': self.determine_surface_type(properties)
+            'surface_type': self.determine_surface_type(properties),
+            'is_public': self.determine_public_access(properties)
             }
             
             # Add Photon data if available

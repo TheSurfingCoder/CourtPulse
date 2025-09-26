@@ -105,9 +105,10 @@ class CoordinateClusterer:
             cluster = [court]
             processed.add(i)
             
-            # Find all other courts within the distance threshold
-            for j, other_court in enumerate(courts[i+1:], i+1):
-                if j in processed:
+            # Find all other unprocessed courts within the distance threshold
+            # Check ALL courts, not just those after the current one
+            for j, other_court in enumerate(courts):
+                if j in processed or j == i:
                     continue
                     
                 distance = self._calculate_distance(
