@@ -2,17 +2,17 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files from backend
+COPY backend/package*.json ./
 
 # Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
-# Copy source code
+# Copy entire project (needed for shared directory)
 COPY . .
 
-# Build the TypeScript code
-RUN npm run build
+# Build the TypeScript code (before removing dev dependencies)
+RUN cd backend && npm run build
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
@@ -27,4 +27,6 @@ USER nextjs
 
 EXPOSE 5000
 
+# Start from backend directory
+WORKDIR /app/backend
 CMD ["npm", "start"]
