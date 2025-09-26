@@ -87,8 +87,7 @@ jobs:
           export PGSSLMODE=require
           # Run the optimized pipeline with correct arguments
           python run_optimized_pipeline.py \
-            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }} \
-            --test-mode
+            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
           PGSSLMODE: require
