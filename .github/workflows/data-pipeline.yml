@@ -55,7 +55,9 @@ jobs:
         run: |
           cd backend
           npm install
-          npm run migrate
+          # Add SSL parameters to DATABASE_URL for cloud databases
+          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
+          DATABASE_URL="$DATABASE_URL_WITH_SSL" npm run migrate
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}
       
@@ -65,9 +67,10 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
-          DATABASE_URL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}"
+          # Add SSL parameters for cloud databases
+          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          python scripts/create_backup.py \
+          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/create_backup.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
@@ -80,7 +83,9 @@ jobs:
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
           SCOPE="${{ github.event.inputs.scope || 'incremental' }}"
-          python run_optimized_pipeline.py \
+          # Add SSL parameters for cloud databases
+          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
+          DATABASE_URL="$DATABASE_URL_WITH_SSL" python run_optimized_pipeline.py \
             --data-file export.geojson \
             --region $REGION \
             --scope $SCOPE \
@@ -94,8 +99,10 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Add SSL parameters for cloud databases
+          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          python scripts/validate_data_quality.py \
+          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/validate_data_quality.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
@@ -122,8 +129,10 @@ jobs:
           # Use inputs for manual trigger, defaults for PR trigger
           ENVIRONMENT="${{ github.event.inputs.environment || 'staging' }}"
           REGION="${{ github.event.inputs.region || 'sf_bay' }}"
+          # Add SSL parameters for cloud databases
+          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
           cd data_enrichment
-          python scripts/rollback.py \
+          DATABASE_URL="$DATABASE_URL_WITH_SSL" python scripts/rollback.py \
             --environment $ENVIRONMENT \
             --region $REGION
         env:
