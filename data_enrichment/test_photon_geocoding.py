@@ -60,6 +60,19 @@ class PhotonGeocodingProvider:
                 }))
                 return reverse_name, reverse_data
             
+            # Final fallback: search for schools specifically
+            school_name, school_data = self._try_school_search(lat, lon)
+            
+            if school_name:
+                logger.info(json.dumps({
+                    'event': 'school_search_fallback_used',
+                    'name': school_name,
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'court_count': court_count,
+                    'reason': 'reverse_geocoding_did_not_find_high_quality_name'
+                }))
+                return school_name, school_data
+            
             # Final fallback
             logger.warning(json.dumps({
                 'event': 'geocoding_completely_failed',
@@ -242,10 +255,80 @@ class PhotonGeocodingProvider:
             }))
             return None, None
     
+    def _try_school_search(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Try searching for schools as final fallback"""
+        try:
+            params = {
+                'q': 'school',
+                'lat': lat,
+                'lon': lon,
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 18
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return None, None
+            
+            # Filter results by distance and quality
+            valid_results = []
+            for feature in features:
+                # Check if result is within acceptable distance (500 feet = 0.152 km)
+                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):
+                    name = self._extract_name(feature)
+                    if name and self._is_high_quality_name(name):
+                        # Calculate distance for sorting
+                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                        result_lon, result_lat = coords[0], coords[1]
+                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                        
+                        valid_results.append({
+                            'name': name,
+                            'feature': feature,
+                            'distance': distance
+                        })
+            
+            if not valid_results:
+                return None, None
+            
+            # Sort by distance and return the closest valid result
+            closest_result = min(valid_results, key=lambda x: x['distance'])
+            
+            logger.info(json.dumps({
+                'event': 'school_search_successful',
+                'name': closest_result['name'],
+                'distance_km': round(closest_result['distance'], 3),
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_valid_results': len(valid_results)
+            }))
+            
+            return closest_result['name'], closest_result['feature']
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'school_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return None, None
+    
     def _is_high_quality_name(self, name: str) -> bool:
         """Check if a name is high quality (not just a street address)"""
         if not name or len(name.strip()) < 3:
             return False
+        
+        name_lower = name.lower()
+        
+        # Always accept school names, even if classified as 'house' in Photon
+        school_keywords = ['school', 'academy', 'college', 'university', 'institute']
+        for keyword in school_keywords:
+            if keyword in name_lower:
+                return True
         
         # Skip generic street names and numbers
         skip_patterns = [
@@ -254,7 +337,6 @@ class PhotonGeocodingProvider:
             'st ', ' st', 'ave ', ' ave', 'blvd ', ' blvd'
         ]
         
-        name_lower = name.lower()
         for pattern in skip_patterns:
             if pattern in name_lower:
                 return False
