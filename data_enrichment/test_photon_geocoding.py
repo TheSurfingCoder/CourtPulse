@@ -178,9 +178,14 @@ class PhotonGeocodingProvider:
             return None, None
     
     def _try_reverse_geocoding(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Try reverse geocoding as fallback"""
+        """Try reverse geocoding as fallback with distance filtering"""
         try:
-            params = {'lon': lon, 'lat': lat}
+            # Add parameters for better results
+            params = {
+                'lon': lon, 
+                'lat': lat,
+                'limit': 5  # Get more results to choose from
+            }
             
             response = requests.get(f"{self.base_url}/reverse", params=params, timeout=10)
             response.raise_for_status()
@@ -190,11 +195,44 @@ class PhotonGeocodingProvider:
             if not features:
                 return None, None
             
-            # Extract name from the first feature
-            feature = features[0]
-            name = self._extract_name(feature)
+            # Filter results by distance and quality
+            valid_results = []
+            for feature in features:
+                # Check if result is within acceptable distance (500 feet = 0.152 km)
+                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):
+                    name = self._extract_name(feature)
+                    if name and self._is_high_quality_name(name):
+                        # Calculate distance for sorting
+                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                        result_lon, result_lat = coords[0], coords[1]
+                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                        
+                        valid_results.append({
+                            'name': name,
+                            'feature': feature,
+                            'distance': distance
+                        })
             
-            return name, feature
+            if not valid_results:
+                logger.info(json.dumps({
+                    'event': 'reverse_geocoding_no_valid_results',
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'total_features': len(features)
+                }))
+                return None, None
+            
+            # Sort by distance and return the closest valid result
+            closest_result = min(valid_results, key=lambda x: x['distance'])
+            
+            logger.info(json.dumps({
+                'event': 'reverse_geocoding_successful',
+                'name': closest_result['name'],
+                'distance_km': round(closest_result['distance'], 3),
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_valid_results': len(valid_results)
+            }))
+            
+            return closest_result['name'], closest_result['feature']
             
         except Exception as e:
             logger.error(json.dumps({
