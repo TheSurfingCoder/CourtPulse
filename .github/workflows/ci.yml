@@ -78,3 +78,26 @@ jobs:
         run: npm run build
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      # Step 8: Create PR from develop to main (only on develop pushes)
+      - name: Create PR from develop to main
+        if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: .
+          base: main
+          head: develop
+          title: "Release: Merge develop to main"
+          body: |
+            This PR merges the latest changes from develop to main.
+            
+            **Changes included:**
+            - All commits from develop branch
+            - Ready for production release
+            
+            **Next steps:**
+            - Review and merge this PR
+            - GitHub Actions will automatically create a release
+          draft: false
+          delete-branch: false
