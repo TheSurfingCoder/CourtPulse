@@ -3,9 +3,9 @@ name: Basic CI
 # This runs when you push code or create a pull request
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ develop ]
 
 jobs:
   test-and-build:
