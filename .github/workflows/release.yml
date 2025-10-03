@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop
 
 jobs:
   release:
@@ -30,5 +29,6 @@ jobs:
         with:
           # Create GitHub releases instead of npm publishing
           publish: echo "Skipping npm publish - this is a personal project"
+          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
