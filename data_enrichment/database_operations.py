@@ -113,13 +113,13 @@ class CourtDatabaseOperations:
             INSERT INTO courts (
                 osm_id, sport, hoops, geom, centroid, 
                 photon_name, photon_distance_km, photon_source,
-                fallback_name, surface_type
+                fallback_name, surface_type, is_public
             ) VALUES (
                 %(osm_id)s, %(sport)s, %(hoops)s, 
                 ST_GeomFromGeoJSON(%(geom)s), 
                 ST_Centroid(ST_GeomFromGeoJSON(%(geom)s))::GEOGRAPHY,
                 %(photon_name)s, %(photon_distance_km)s, %(photon_source)s,
-                %(fallback_name)s, %(surface_type)s
+                %(fallback_name)s, %(surface_type)s, %(is_public)s
             )
             ON CONFLICT (osm_id) DO UPDATE SET
                 sport = EXCLUDED.sport,
@@ -131,6 +131,7 @@ class CourtDatabaseOperations:
                 photon_source = EXCLUDED.photon_source,
                 fallback_name = EXCLUDED.fallback_name,
                 surface_type = EXCLUDED.surface_type,
+                is_public = EXCLUDED.is_public,
                 updated_at = NOW()
             RETURNING id, osm_id;
             """

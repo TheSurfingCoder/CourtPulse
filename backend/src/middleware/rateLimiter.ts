@@ -1,5 +1,5 @@
 import rateLimit from 'express-rate-limit';
-import { logEvent, logBusinessEvent } from '../../../shared/logger.js';
+import { logEvent, logBusinessEvent } from '../../logger';
 
 // Rate limiter for search endpoints
 export const searchRateLimit = rateLimit({

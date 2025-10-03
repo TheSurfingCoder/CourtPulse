@@ -76,3 +76,5 @@ jobs:
       # Step 7: Build your project to make sure it compiles
       - name: Build project
         run: npm run build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

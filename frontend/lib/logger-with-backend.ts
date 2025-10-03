@@ -46,15 +46,7 @@ const baseConfig = {
 
 const developmentConfig = {
   ...baseConfig,
-  transport: {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'SYS:standard',
-      ignore: 'pid,hostname',
-      singleLine: false,
-    },
-  },
+  // Removed pino-pretty transport to avoid worker thread conflicts with Sentry
 };
 
 // Create logger based on environment

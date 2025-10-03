@@ -9,7 +9,7 @@ import courtRoutes from './src/routes/courts.js';
 import logRoutes from './src/routes/logs.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
-import logger, { logEvent, logError, logLifecycleEvent } from '../shared/logger.js';
+import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 
 //loads env variables from .env into process.env
 dotenv.config();
@@ -63,8 +63,34 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
+// CORS configuration with environment-based origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://courtpulse-staging.vercel.app',
+  'https://courtpulse.vercel.app'
+];
+
+// Add production domain if specified in environment
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+// CORS debugging middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  logEvent('cors_request_received', {
+    origin,
+    allowedOrigins,
+    isAllowed: allowedOrigins.includes(origin || ''),
+    method: req.method,
+    url: req.url
+  });
+  next();
+});
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
