@@ -1,11 +1,19 @@
+import * as Sentry from '@sentry/nextjs';
 import React from 'react'
 import type { Metadata } from 'next'
 import '../styles/globals.css'
 
-export const metadata: Metadata = {
-  title: 'CourtPulse - Find Sports Courts Near You',
-  description: 'Discover and explore sports courts near you with CourtPulse',
+export function generateMetadata(): Metadata {
+  return {
+    title: 'CourtPulse - Find Sports Courts Near You',
+    description: 'Discover and explore sports courts near you with CourtPulse',
+    other: {
+      ...Sentry.getTraceData()
+    }
+  };
 }
+
+
 
 export default function RootLayout({
   children,

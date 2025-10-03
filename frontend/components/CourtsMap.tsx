@@ -508,7 +508,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     
     try {
       onLoadingChange(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
       
       // Calculate bounding box from current viewport
       const { bbox } = calculateBoundingBox(viewport);
@@ -618,9 +618,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
-      setError(errorMessage);
-      
+      // Don't set error state - just log it and continue with empty courts
       logEvent('fetch_courts_with_filters_error', {error: errorMessage});
+      
+      // Set empty courts array so map still renders
+      setCourts([]);
+      onNeedsNewSearchChange(false);
     } finally {
       onLoadingChange(false);
     }
@@ -721,25 +724,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   //   );
   // }
 
-  if (error) {
-    // Map error state
-    
-    return (
-      <div className={`flex items-center justify-center h-96 bg-red-50 rounded-lg border border-red-200 ${className}`}>
-        <div className="text-center">
-          <div className="text-red-600 text-xl mb-4">⚠️</div>
-          <h3 className="text-red-800 font-semibold mb-2">Error loading map</h3>
-          <p className="text-red-600 mb-4">{error}</p>
-          <button 
-            onClick={fetchCourtsWithFilters}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Don't block map rendering on API errors - just show empty map
+  // The map should always be visible, even without court data
 
   // Handle map type change
   const handleMapTypeChange = (newMapType: 'streets' | 'satellite') => {

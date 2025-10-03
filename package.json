@@ -27,9 +27,14 @@
     "type-check": "npm run type-check:backend && npm run type-check:frontend",
     "type-check:backend": "cd backend && npm run type-check",
     "type-check:frontend": "npm run type-check --workspace=frontend",
-    "migrate": "cd backend && npm run migrate"
+    "migrate": "cd backend && npm run migrate",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.29.7",
     "@types/pino": "^7.0.4",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
