@@ -1,5 +1,11 @@
 # @courtpulse/frontend
 
+## 1.1.2
+
+### Patch Changes
+
+- [#24](https://github.com/TheSurfingCoder/CourtPulse/pull/24) [`ac7bbc8`](https://github.com/TheSurfingCoder/CourtPulse/commit/ac7bbc8f4ec58df73cc82caddd307e7ff7dd4bb1) Thanks [@TheSurfingCoder](https://github.com/TheSurfingCoder)! - fixing ci pipeline to automatically create a PR when pushing to develop branch
+
 ## 1.1.1
 
 ### Patch Changes
