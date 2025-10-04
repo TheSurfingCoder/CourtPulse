@@ -12,7 +12,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # This makes Actions fetch all Git history so that Changesets can generate changelogs with the correct commits
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -24,11 +23,7 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Create Release Pull Request or GitHub Release
-        uses: changesets/action@v1
-        with:
-          # Create GitHub releases instead of npm publishing
-          publish: echo "Skipping npm publish - this is a personal project"
-          createGithubReleases: true
+      - name: Publish with Changesets
+        run: npx changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
