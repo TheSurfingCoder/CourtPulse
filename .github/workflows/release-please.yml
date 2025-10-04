@@ -4,6 +4,13 @@ name: release-please
 on:
   push:
     branches: [main]
+    # Only run when source code changes, not when Release Please updates version files
+    paths-ignore:
+      - '**/CHANGELOG.md'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/.release-please-manifest.json'
+  workflow_dispatch:
 
 permissions:
   contents: write

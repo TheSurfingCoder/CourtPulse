@@ -1,10 +1,10 @@
 {
-    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-    "separate-pull-requests": true,
-    "include-component-in-tag": true,
-    "include-v-in-tag": true,
-    "packages": {
-      "frontend": { "path": "frontend", "release-type": "node" },
-      "backend":  { "path": "backend",  "release-type": "node" }
-    }
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "separate-pull-requests": true,
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "packages": {
+    "frontend": { "path": "frontend", "release-type": "node" },
+    "backend":  { "path": "backend",  "release-type": "node" }
+  }
 }
