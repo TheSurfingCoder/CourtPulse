@@ -9,10 +9,8 @@ yarn-error.log*
 out/
 build/
 
-# TypeScript compiled output
-dist/
-*.js.map
-*.d.ts.map
+# TypeScript
+*.tsbuildinfo
 
 # Environment variables
 .env
@@ -20,7 +18,6 @@ dist/
 .env.development.local
 .env.test.local
 .env.production.local
-.secrets
 
 # Logs
 logs
@@ -74,3 +71,6 @@ development.ts
 development.js 
 .vercel
 data_enrichment/venv/
+
+# sentry example route
+.env.sentry-build-plugin
