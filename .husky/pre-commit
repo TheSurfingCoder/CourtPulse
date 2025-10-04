@@ -1,2 +1,1 @@
-# Run lint-staged to check only changed files
-npx lint-staged
+npm test
