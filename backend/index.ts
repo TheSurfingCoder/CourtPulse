@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
+import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
 import logRoutes from './src/routes/logs.js';
@@ -13,6 +14,13 @@ import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 
 //loads env variables from .env into process.env
 dotenv.config();
+
+// Initialize Sentry
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'development',
+  tracesSampleRate: (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') ? 0.1 : 1.0,
+});
 
 // Import migration function
 async function runMigrations() {
@@ -108,6 +116,8 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// Sentry request handler is automatically set up by Sentry.init()
+
 // Swagger API Documentation
 //When user visits http://localhost:5000/api-docs swagger UI loads with API docs
 //Developers can see all endpoints, test them, and understand API
@@ -123,6 +133,9 @@ app.use('/api/logs', logRoutes);
 // Error handling middleware (must be last)
 app.use(notFound);
 app.use(errorHandler);
+
+// Sentry error handler must be registered after all controllers
+Sentry.setupExpressErrorHandler(app);
 
 // Start the server with migrations
 async function startServer() {

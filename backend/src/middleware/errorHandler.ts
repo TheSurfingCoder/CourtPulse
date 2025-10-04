@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import * as Sentry from '@sentry/node';
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -27,7 +28,7 @@ export const errorHandler = (
   let error = { ...err };
   error.message = err.message;
 
-  // Log error for debugging
+  // Log error for debugging (existing structured logging)
   console.error(JSON.stringify({
     level: 'error',
     message: 'Request error occurred',
@@ -44,6 +45,20 @@ export const errorHandler = (
     },
     timestamp: new Date().toISOString()
   }));
+
+  // Send error to Sentry with context
+  Sentry.withScope((scope: Sentry.Scope) => {
+    scope.setTag('errorType', err.name);
+    scope.setContext('request', {
+      method: req.method,
+      url: req.url,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      headers: req.headers
+    });
+    scope.setLevel('error');
+    Sentry.captureException(err);
+  });
 
   // Handle specific error types
   if (err.name === 'ValidationError') {

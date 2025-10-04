@@ -1,4 +1,5 @@
 import pino from 'pino';
+import * as Sentry from '@sentry/node';
 
 // Environment-based configuration
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -53,6 +54,7 @@ export const logEvent = (event: string, data: Record<string, any> = {}) => {
 };
 
 export const logError = (error: Error, context: Record<string, any> = {}) => {
+  // Existing structured logging
   logger.error({
     event: 'error',
     error: {
@@ -63,6 +65,22 @@ export const logError = (error: Error, context: Record<string, any> = {}) => {
     timestamp: new Date().toISOString(),
     ...context,
   });
+
+  // Send critical errors to Sentry (in production, staging, or for specific error types)
+  const isStaging = process.env.NODE_ENV === 'staging';
+  const shouldSendToSentry = isProduction || isStaging || 
+    error.name === 'DatabaseError' || 
+    error.name === 'ValidationError' ||
+    error.message.includes('rate limit') ||
+    error.message.includes('connection');
+
+  if (shouldSendToSentry) {
+    Sentry.withScope((scope: Sentry.Scope) => {
+      scope.setContext('errorContext', context);
+      scope.setLevel('error');
+      Sentry.captureException(error);
+    });
+  }
 };
 
 export const logBusinessEvent = (event: string, data: Record<string, any> = {}) => {
