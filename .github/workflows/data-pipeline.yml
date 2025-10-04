@@ -1,6 +1,6 @@
 name: Data Pipeline
 
-# Manual trigger only - run on-demand for both dev and prod
+# Manual trigger only
 on:
   workflow_dispatch:
     inputs:
