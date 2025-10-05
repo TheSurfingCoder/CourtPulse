@@ -4,7 +4,8 @@
   "description": "CourtPulse - similar to Surfline.com but for all sports",
   "private": true,
   "workspaces": [
-    "frontend"
+    "frontend",
+    "backend"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -42,6 +43,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.1.6"
   },
+  "packageManager": "npm@9.0.0",
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
