@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.1.0...backend-v1.2.0) (2025-10-05)
+
+
+### Features
+
+* configure Sentry for frontend and backend with environment-based setup ([b2043f8](https://github.com/TheSurfingCoder/CourtPulse/commit/b2043f88f1fd58129359aed7508eff6124c50975))
+* improve court display and clean up git tracking ([1fd9ad7](https://github.com/TheSurfingCoder/CourtPulse/commit/1fd9ad744846a57dbd629a4a0b3ec7bcbac4b682))
+* **root:** got sentry all set up for error monitoring ([d1a7e3a](https://github.com/TheSurfingCoder/CourtPulse/commit/d1a7e3ac9ebae7abecd4cbc7efe467d68a21fa77))
+
+
+### Bug Fixes
+
+* fixed issues with prod database ([a82c2f4](https://github.com/TheSurfingCoder/CourtPulse/commit/a82c2f4c1cf3d5b6b0625928b3909967bc6e3d9f))
+* fixed issues with prod database ([064f1b1](https://github.com/TheSurfingCoder/CourtPulse/commit/064f1b19eb275bca0c7eb243ed4960b1d7274015))
+* **pipeline:** made schools top priority in pipeline ([0804a37](https://github.com/TheSurfingCoder/CourtPulse/commit/0804a3732c0e3cd35daf8a2945915f2d1cb699b2))
+* remove runMigrations function to avoid conflict with pre-deploy command ([594aa8b](https://github.com/TheSurfingCoder/CourtPulse/commit/594aa8b9f07cf4655805671a1b15fa1384435722))
+
 ## [1.1.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.0.1...backend-v1.1.0) (2025-10-04)
 
 
