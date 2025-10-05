@@ -1,5 +1,14 @@
 # @courtpulse/frontend
 
+## [1.3.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.2.0...frontend-v1.3.0) (2025-10-05)
+
+
+### Features
+
+* configure Sentry for frontend and backend with environment-based setup ([b2043f8](https://github.com/TheSurfingCoder/CourtPulse/commit/b2043f88f1fd58129359aed7508eff6124c50975))
+* display individual court names in popup ([d807ae6](https://github.com/TheSurfingCoder/CourtPulse/commit/d807ae6c04995fe3fc09cc6fcf9219ca22993c41))
+* **root:** got sentry all set up for error monitoring ([d1a7e3a](https://github.com/TheSurfingCoder/CourtPulse/commit/d1a7e3ac9ebae7abecd4cbc7efe467d68a21fa77))
+
 ## [1.2.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.1.1...frontend-v1.2.0) (2025-10-04)
 
 

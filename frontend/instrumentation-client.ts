@@ -9,6 +9,9 @@ Sentry.init({
   
   // Environment-based configuration
   environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+  
+  // Explicit release identifier for frontend client-side
+  release: `client@${process.env.npm_package_version || '1.2.0'}`,
 
   // Add optional integrations for additional features
   integrations: [
