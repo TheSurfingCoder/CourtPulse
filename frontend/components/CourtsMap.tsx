@@ -152,7 +152,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   };
 
   // Helper function to find cache hit based on coverage area
-  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
+  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }, shouldLog: boolean = true) => {
     // Round search bbox to same precision as cache keys
     const roundedSearchBbox: [number, number, number, number] = searchBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
     
@@ -176,15 +176,17 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           return true;
         });
         
-        // Log partial cache hit
-        logEvent('coverage_cache_hit', {
-          cacheKey: cacheKey,
-          searchBbox: searchBbox,
-          cacheBbox: cacheBbox,
-          originalCourtCount: cachedCourts.length,
-          filteredCourtCount: filteredCourts.length,
-          filters: filters
-        });
+        // Log cache hit only when explicitly requested (for actual searches/filters, not viewport checks)
+        if (shouldLog && process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+          logEvent('coverage_cache_hit', {
+            cacheKey: cacheKey,
+            searchBbox: searchBbox,
+            cacheBbox: cacheBbox,
+            originalCourtCount: cachedCourts.length,
+            filteredCourtCount: filteredCourts.length,
+            filters: filters
+          });
+        }
         
         return filteredCourts;
       }
@@ -200,7 +202,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     if (!lastSearchedArea.current) return false;
     
     // Check if we have cached data that can cover this area
-    const cachedResult = findCacheHit(currentBbox, currentFilters);
+    const cachedResult = findCacheHit(currentBbox, currentFilters, false); // Don't log for viewport checks
     if (cachedResult) {
       return false; // No need to search - we have this area cached
     }
@@ -802,7 +804,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         attributionControl={false}
         logoPosition="bottom-left"
       >
-        {mapLoaded && clusters && clusters.map((cluster) => {
+        {mapLoaded && clusters && clusters.map((cluster, index) => {
           const isCluster = cluster.properties.cluster;
           const pointCount = cluster.properties.point_count || 1;
           const displayName = isCluster 
@@ -811,9 +813,12 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
             
           const markerSize = isCluster ? 40 : 30;
           
+          // Create a unique key using coordinates and index as fallback
+          const uniqueKey = cluster.id || `cluster-${cluster.geometry.coordinates[0]}-${cluster.geometry.coordinates[1]}-${index}`;
+          
           return (
             <Marker
-              key={cluster.id}
+              key={uniqueKey}
               longitude={cluster.geometry.coordinates[0]}
               latitude={cluster.geometry.coordinates[1]}
               onClick={() => handleClusterClick(cluster)}
