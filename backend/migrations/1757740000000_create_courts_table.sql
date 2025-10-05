@@ -132,19 +132,79 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Add comments for documentation
+-- Add comments for documentation (only if columns exist)
 COMMENT ON TABLE courts IS 'Sports courts and recreational facilities';
 COMMENT ON COLUMN courts.id IS 'Unique identifier for the court';
 COMMENT ON COLUMN courts.address IS 'Physical address of the court';
 COMMENT ON COLUMN courts.surface IS 'Playing surface type (asphalt, concrete, etc.)';
 COMMENT ON COLUMN courts.is_public IS 'Whether the court is publicly accessible';
-COMMENT ON COLUMN courts.source IS 'Data source for this court (e.g., osm, user, google, other)';
-COMMENT ON COLUMN courts.osm_id IS 'OpenStreetMap object ID (e.g., way/28283137)';
-COMMENT ON COLUMN courts.google_place_id IS 'Google Places API place_id for enriched data';
-COMMENT ON COLUMN courts.geom IS 'PostGIS polygon geometry from OSM data';
-COMMENT ON COLUMN courts.sport IS 'Sport type played at this court';
-COMMENT ON COLUMN courts.hoops IS 'Number of basketball hoops (for basketball courts)';
-COMMENT ON COLUMN courts.fallback_name IS 'Fallback name from OSM data when no specific name exists';
-COMMENT ON COLUMN courts.enriched_name IS 'Enriched name from Google Places API or other sources';
-COMMENT ON COLUMN courts.surface_type IS 'Type of playing surface';
-COMMENT ON COLUMN courts.centroid IS 'Calculated center point from polygon geometry';
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'source') THEN
+        COMMENT ON COLUMN courts.source IS 'Data source for this court (e.g., osm, user, google, other)';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'osm_id') THEN
+        COMMENT ON COLUMN courts.osm_id IS 'OpenStreetMap object ID (e.g., way/28283137)';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'google_place_id') THEN
+        COMMENT ON COLUMN courts.google_place_id IS 'Google Places API place_id for enriched data';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'geom') THEN
+        COMMENT ON COLUMN courts.geom IS 'PostGIS polygon geometry from OSM data';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'sport') THEN
+        COMMENT ON COLUMN courts.sport IS 'Sport type played at this court';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'hoops') THEN
+        COMMENT ON COLUMN courts.hoops IS 'Number of basketball hoops (for basketball courts)';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'fallback_name') THEN
+        COMMENT ON COLUMN courts.fallback_name IS 'Fallback name from OSM data when no specific name exists';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'enriched_name') THEN
+        COMMENT ON COLUMN courts.enriched_name IS 'Enriched name from Google Places API or other sources';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'surface_type') THEN
+        COMMENT ON COLUMN courts.surface_type IS 'Type of playing surface';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'centroid') THEN
+        COMMENT ON COLUMN courts.centroid IS 'Calculated center point from polygon geometry';
+    END IF;
+END $$;
