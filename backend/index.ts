@@ -22,50 +22,6 @@ Sentry.init({
   tracesSampleRate: (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') ? 0.1 : 1.0,
 });
 
-// Import migration function
-async function runMigrations() {
-  try {
-    logLifecycleEvent('database_migration_started', {
-      message: 'Starting database migrations'
-    });
-
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
-
-    // Construct DATABASE_URL from individual environment variables
-    const dbHost = process.env.DB_HOST;
-    const dbPort = process.env.DB_PORT;
-    const dbName = process.env.DB_NAME;
-    const dbUser = process.env.DB_USER;
-    const dbPassword = process.env.DB_PASSWORD;
-
-    if (!dbHost || !dbPort || !dbName || !dbUser || !dbPassword) {
-      throw new Error('Missing required database environment variables');
-    }
-
-    const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
-    
-    // Set DATABASE_URL environment variable for the migration command
-    const env = { ...process.env, DATABASE_URL: databaseUrl };
-
-    // Run migrations using node-pg-migrate
-    const { stdout } = await execAsync('npx node-pg-migrate up -c migrate.json', { env });
-
-    logLifecycleEvent('database_migration_completed', {
-      message: 'Database migrations completed successfully',
-      output: stdout
-    });
-
-  } catch (error) {
-    logError(error instanceof Error ? error : new Error(String(error)), {
-      message: 'Database migration failed'
-    });
-
-    // Don't exit the process - let the app start anyway
-    // This allows the app to run even if migrations fail
-  }
-}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -137,11 +93,8 @@ app.use(errorHandler);
 // Sentry error handler must be registered after all controllers
 Sentry.setupExpressErrorHandler(app);
 
-// Start the server with migrations
+// Start the server
 async function startServer() {
-  // Run migrations first
-  await runMigrations();
-
   // Start the server
   app.listen(PORT, () => {
     logLifecycleEvent('server_started', {
