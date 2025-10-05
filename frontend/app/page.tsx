@@ -29,7 +29,7 @@ export default function Home() {
   const handleRefresh = () => {
     // Trigger a manual search in the CourtsMap component
     // This will be handled by the CourtsMap component's internal logic
-    console.log('Refresh triggered');
+    console.log('Refresh triggered - vercel.json test');
   };
 
   const handleLoadingChange = (loading: boolean) => {
