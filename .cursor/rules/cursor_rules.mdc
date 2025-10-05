@@ -15,3 +15,5 @@ Rule of thumb:
 -Log key business events (user signup, payment attempt, job completed).
 -Don’t log every single function call — that’s too noisy.
 -all changes MUST (no exceptions) be made on a feature branch. This feature branch then uses a staging called develop on github where i will merge this feature branch into the staging branch and eventually into main which is my prod branch
+
+

@@ -1,3 +1,4 @@
+//courts model
 import express from 'express';
 import { CourtModel } from '../models/Court';
 import { logEvent, logError, logBusinessEvent } from '../../logger';
