@@ -32,60 +32,108 @@ class PhotonGeocodingProvider:
     def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Main entry point for reverse geocoding
         
+        PRIORITIZED APPROACH: Search schools and playgrounds first, reverse geocoding as fallback
         Priority order:
-        1. School search (highest priority)
-        2. Park/playground search  
-        3. Reverse geocoding (lowest priority)
+        1. School search + Park/playground search (pick closest from these two)
+        2. Reverse geocoding (only if no schools/playgrounds found)
         """
         try:
             # Rate limiting
             self._rate_limit()
             
-            # Try school search first (highest priority)
-            school_name, school_data = self._try_school_search(lat, lon)
+            # Search priority endpoints (schools and playgrounds)
+            priority_results = []
             
-            if school_name:
+            # 1. School search
+            school_results = self._try_school_search_all_results(lat, lon)
+            if school_results:
+                priority_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
+            
+            # 2. Park/playground search
+            park_results = self._try_search_fallback_all_results(lat, lon)
+            if park_results:
+                priority_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
+            
+            # Filter priority results for high quality names
+            high_quality_priority = [
+                result for result in priority_results 
+                if self._is_high_quality_name(result['name'])
+            ]
+            
+            # Use high quality priority results if available, otherwise use all priority results
+            priority_to_consider = high_quality_priority if high_quality_priority else priority_results
+            
+            if priority_to_consider:
+                # Pick the closest result from schools/playgrounds
+                closest_result = min(priority_to_consider, key=lambda x: x['distance'])
+                
+                # Add court count to name if multiple courts
+                name = closest_result['name']
+                if court_count > 1:
+                    name = f"{name} ({court_count} Courts)"
+                
                 logger.info(json.dumps({
-                    'event': 'school_search_primary_successful',
-                    'name': school_name,
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count
-                }))
-                return school_name, school_data
-            
-            # Fallback to search API (parks/playgrounds)
-            search_name, search_data = self._try_search_fallback(lat, lon, court_count)
-            
-            if search_name and self._is_high_quality_name(search_name):
-                logger.info(json.dumps({
-                    'event': 'search_fallback_successful',
-                    'name': search_name,
+                    'event': 'priority_result_selected',
+                    'name': name,
+                    'endpoint': closest_result['endpoint'],
+                    'distance_km': round(closest_result['distance'], 3),
                     'coordinates': {'lat': lat, 'lon': lon},
                     'court_count': court_count,
-                    'reason': 'school_search_did_not_find_results'
+                    'total_priority_results': len(priority_results),
+                    'high_quality_priority_results': len(high_quality_priority),
+                    'reason': 'found_school_or_playground_result'
                 }))
-                return search_name, search_data
+                
+                return name, closest_result['data']
             
-            # Final fallback: reverse geocoding
-            reverse_name, reverse_data = self._try_reverse_geocoding(lat, lon)
-            
-            if reverse_name:
-                logger.info(json.dumps({
-                    'event': 'reverse_geocoding_fallback_used',
-                    'name': reverse_name,
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count,
-                    'reason': 'school_and_park_search_did_not_find_high_quality_name'
-                }))
-                return reverse_name, reverse_data
-            
-            # Final fallback
-            logger.warning(json.dumps({
-                'event': 'geocoding_completely_failed',
+            # Fallback: Try reverse geocoding if no schools/playgrounds found
+            logger.info(json.dumps({
+                'event': 'falling_back_to_reverse_geocoding',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count
+                'court_count': court_count,
+                'reason': 'no_school_or_playground_results_found'
             }))
-            return None, None
+            
+            reverse_results = self._try_reverse_geocoding_all_results(lat, lon)
+            if not reverse_results:
+                logger.warning(json.dumps({
+                    'event': 'geocoding_completely_failed',
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'court_count': court_count,
+                    'reason': 'no_results_from_any_endpoint'
+                }))
+                return None, None
+            
+            # Filter reverse geocoding results for high quality names
+            high_quality_reverse = [
+                result for result in reverse_results 
+                if self._is_high_quality_name(result['name'])
+            ]
+            
+            # Use high quality reverse results if available, otherwise use all reverse results
+            reverse_to_consider = high_quality_reverse if high_quality_reverse else reverse_results
+            
+            # Pick the closest reverse geocoding result
+            closest_result = min(reverse_to_consider, key=lambda x: x['distance'])
+            
+            # Add court count to name if multiple courts
+            name = closest_result['name']
+            if court_count > 1:
+                name = f"{name} ({court_count} Courts)"
+            
+            logger.info(json.dumps({
+                'event': 'reverse_geocoding_fallback_used',
+                'name': name,
+                'endpoint': 'reverse',
+                'distance_km': round(closest_result['distance'], 3),
+                'coordinates': {'lat': lat, 'lon': lon},
+                'court_count': court_count,
+                'total_reverse_results': len(reverse_results),
+                'high_quality_reverse_results': len(high_quality_reverse),
+                'reason': 'no_school_or_playground_results_found'
+            }))
+            
+            return name, closest_result['data']
             
         except Exception as e:
             logger.error(json.dumps({
@@ -96,8 +144,8 @@ class PhotonGeocodingProvider:
             }))
             return None, None
     
-    def _try_search_fallback(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Try to find nearby named places using search API"""
+    def _try_search_fallback_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby named places using search API and return all valid results"""
         try:
             # Define leisure types
             leisure_types = [
@@ -116,7 +164,7 @@ class PhotonGeocodingProvider:
                         'osm_tag': leisure_type['osm_tag'],
                         'location_bias_scale': 0.1,
                         'zoom': 20,
-                        'limit': 2
+                        'limit': 3  # Get more results to choose from
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
@@ -127,13 +175,13 @@ class PhotonGeocodingProvider:
                     if not features:
                         continue
                     
-                    # Find the best nearby result
+                    # Find all nearby results
                     for feature in features:
                         properties = feature.get('properties', {})
                         name = properties.get('name')
                         
-                        if name and self._is_high_quality_name(name):
-                            if self._is_nearby_result(feature, lat, lon):
+                        if name:
+                            if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
                                 # Calculate distance
                                 coords = feature.get('geometry', {}).get('coordinates', [0, 0])
                                 result_lon, result_lat = coords[0], coords[1]
@@ -152,7 +200,6 @@ class PhotonGeocodingProvider:
                                     'distance_km': round(distance, 3),
                                     'coordinates': {'lat': lat, 'lon': lon}
                                 }))
-                                break
                 
                 except Exception as e:
                     logger.error(json.dumps({
@@ -163,30 +210,13 @@ class PhotonGeocodingProvider:
                     }))
                     continue
             
-            if not all_nearby_results:
-                logger.info(json.dumps({
-                    'event': 'search_no_results',
-                    'coordinates': {'lat': lat, 'lon': lon}
-                }))
-                return None, None
-            
-            # Select the closest result
-            closest_result = min(all_nearby_results, key=lambda x: x['distance'])
-            
-            # Add court count to name if multiple courts
-            name = closest_result['name']
-            if court_count > 1:
-                name = f"{name} ({court_count} Courts)"
-            
             logger.info(json.dumps({
-                'event': 'search_successful',
-                'result': name,
-                'distance_km': closest_result['distance'],
+                'event': 'park_search_completed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'total_options': len(all_nearby_results)
+                'total_results': len(all_nearby_results)
             }))
             
-            return name, closest_result['data']
+            return all_nearby_results
             
         except Exception as e:
             logger.error(json.dumps({
@@ -194,10 +224,10 @@ class PhotonGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
-            return None, None
+            return []
     
-    def _try_reverse_geocoding(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Try reverse geocoding as fallback with distance filtering"""
+    def _try_reverse_geocoding_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try reverse geocoding and return all valid results"""
         try:
             # Add parameters for better results
             params = {
@@ -212,15 +242,15 @@ class PhotonGeocodingProvider:
             
             features = data.get('features', [])
             if not features:
-                return None, None
+                return []
             
             # Filter results by distance and quality
             valid_results = []
             for feature in features:
-                # Check if result is within acceptable distance (500 feet = 0.152 km)
-                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):
+                # Check if result is within acceptable distance (1000 feet = 0.305 km)
+                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
                     name = self._extract_name(feature)
-                    if name and self._is_high_quality_name(name):
+                    if name:
                         # Calculate distance for sorting
                         coords = feature.get('geometry', {}).get('coordinates', [0, 0])
                         result_lon, result_lat = coords[0], coords[1]
@@ -228,30 +258,18 @@ class PhotonGeocodingProvider:
                         
                         valid_results.append({
                             'name': name,
-                            'feature': feature,
+                            'data': feature,
                             'distance': distance
                         })
             
-            if not valid_results:
-                logger.info(json.dumps({
-                    'event': 'reverse_geocoding_no_valid_results',
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'total_features': len(features)
-                }))
-                return None, None
-            
-            # Sort by distance and return the closest valid result
-            closest_result = min(valid_results, key=lambda x: x['distance'])
-            
             logger.info(json.dumps({
-                'event': 'reverse_geocoding_successful',
-                'name': closest_result['name'],
-                'distance_km': round(closest_result['distance'], 3),
+                'event': 'reverse_geocoding_completed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'total_valid_results': len(valid_results)
+                'total_results': len(valid_results),
+                'total_features': len(features)
             }))
             
-            return closest_result['name'], closest_result['feature']
+            return valid_results
             
         except Exception as e:
             logger.error(json.dumps({
@@ -259,10 +277,10 @@ class PhotonGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
-            return None, None
+            return []
     
-    def _try_school_search(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Try searching for schools as final fallback"""
+    def _try_school_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try searching for schools and return all valid results"""
         try:
             params = {
                 'q': 'school',
@@ -279,15 +297,15 @@ class PhotonGeocodingProvider:
             
             features = data.get('features', [])
             if not features:
-                return None, None
+                return []
             
             # Filter results by distance and quality
             valid_results = []
             for feature in features:
-                # Check if result is within acceptable distance (500 feet = 0.152 km)
-                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):
+                # Check if result is within acceptable distance (1000 feet = 0.305 km)
+                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
                     name = self._extract_name(feature)
-                    if name and self._is_high_quality_name(name):
+                    if name:
                         # Calculate distance for sorting
                         coords = feature.get('geometry', {}).get('coordinates', [0, 0])
                         result_lon, result_lat = coords[0], coords[1]
@@ -295,25 +313,17 @@ class PhotonGeocodingProvider:
                         
                         valid_results.append({
                             'name': name,
-                            'feature': feature,
+                            'data': feature,
                             'distance': distance
                         })
             
-            if not valid_results:
-                return None, None
-            
-            # Sort by distance and return the closest valid result
-            closest_result = min(valid_results, key=lambda x: x['distance'])
-            
             logger.info(json.dumps({
-                'event': 'school_search_successful',
-                'name': closest_result['name'],
-                'distance_km': round(closest_result['distance'], 3),
+                'event': 'school_search_completed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'total_valid_results': len(valid_results)
+                'total_results': len(valid_results)
             }))
             
-            return closest_result['name'], closest_result['feature']
+            return valid_results
             
         except Exception as e:
             logger.error(json.dumps({
@@ -321,7 +331,52 @@ class PhotonGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
+            return []
+    
+    def _try_school_search(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Try searching for schools as final fallback (legacy method for backward compatibility)"""
+        results = self._try_school_search_all_results(lat, lon)
+        if not results:
             return None, None
+        
+        # Filter for high quality names and return the closest
+        high_quality_results = [r for r in results if self._is_high_quality_name(r['name'])]
+        results_to_consider = high_quality_results if high_quality_results else results
+        
+        closest_result = min(results_to_consider, key=lambda x: x['distance'])
+        return closest_result['name'], closest_result['data']
+    
+    def _try_search_fallback(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Try to find nearby named places using search API (legacy method for backward compatibility)"""
+        results = self._try_search_fallback_all_results(lat, lon)
+        if not results:
+            return None, None
+        
+        # Filter for high quality names and return the closest
+        high_quality_results = [r for r in results if self._is_high_quality_name(r['name'])]
+        results_to_consider = high_quality_results if high_quality_results else results
+        
+        closest_result = min(results_to_consider, key=lambda x: x['distance'])
+        
+        # Add court count to name if multiple courts
+        name = closest_result['name']
+        if court_count > 1:
+            name = f"{name} ({court_count} Courts)"
+        
+        return name, closest_result['data']
+    
+    def _try_reverse_geocoding(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Try reverse geocoding as fallback with distance filtering (legacy method for backward compatibility)"""
+        results = self._try_reverse_geocoding_all_results(lat, lon)
+        if not results:
+            return None, None
+        
+        # Filter for high quality names and return the closest
+        high_quality_results = [r for r in results if self._is_high_quality_name(r['name'])]
+        results_to_consider = high_quality_results if high_quality_results else results
+        
+        closest_result = min(results_to_consider, key=lambda x: x['distance'])
+        return closest_result['name'], closest_result['data']
     
     def _is_high_quality_name(self, name: str) -> bool:
         """Check if a name is high quality (not just a street address)"""
@@ -353,8 +408,8 @@ class PhotonGeocodingProvider:
         
         return True
     
-    def _is_nearby_result(self, feature: Dict[str, Any], target_lat: float, target_lon: float, max_distance_km: float = 0.152) -> bool:
-        """Check if result is within acceptable distance (500 feet = 0.152 km)"""
+    def _is_nearby_result(self, feature: Dict[str, Any], target_lat: float, target_lon: float, max_distance_km: float = 0.305) -> bool:
+        """Check if result is within acceptable distance (1000 feet = 0.305 km)"""
         try:
             coords = feature.get('geometry', {}).get('coordinates', [0, 0])
             result_lon, result_lat = coords[0], coords[1]  # GeoJSON format

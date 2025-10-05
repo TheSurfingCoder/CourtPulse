@@ -24,14 +24,22 @@ const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
 // CORS configuration with environment-based origins
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
+const allowedOrigins: string[] = [];
+
+// Add origins from CORS_ORIGIN environment variable (comma-separated)
+if (process.env.CORS_ORIGIN) {
+  const corsOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+  allowedOrigins.push(...corsOrigins);
+}
+
+// Add production origins (always included)
+const productionOrigins = [
   'https://courtpulse-staging.vercel.app',
   'https://courtpulse.vercel.app'
 ];
+allowedOrigins.push(...productionOrigins);
 
-// Add production domain if specified in environment
+// Legacy support for FRONTEND_URL
 if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL);
 }

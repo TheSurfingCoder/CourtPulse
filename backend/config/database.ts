@@ -20,7 +20,7 @@ const pool = new Pool(
     : {
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT || '5432'),
-        database: process.env.DB_NAME || 'courtpulse',
+        database: process.env.DB_NAME || 'courtpulse-dev',
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || 'password',
         ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
@@ -33,7 +33,7 @@ pool.on('connect', () => {
     message: 'Database connection established',
     environment: process.env.NODE_ENV || 'development',
     connectionMethod: process.env.DATABASE_URL ? 'DATABASE_URL' : 'individual_env_vars',
-    database: process.env.DB_NAME || 'courtpulse'
+    database: process.env.DB_NAME || 'courtpulse-dev'
   });
 });
 
