@@ -21,6 +21,8 @@ dotenv.config();
 const app = express(); 
 const PORT = process.env.PORT || 5000;
 
+// Test comment for vercel.json optimization
+
 app.use(helmet());
 // CORS configuration with environment-based origins
 const allowedOrigins: string[] = [];
