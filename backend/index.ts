@@ -1,3 +1,6 @@
+// Import this first!
+import "./instrument";
+// Now import other modules
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -14,13 +17,6 @@ import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 
 //loads env variables from .env into process.env
 dotenv.config();
-
-// Initialize Sentry
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV || 'development',
-  tracesSampleRate: (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') ? 0.1 : 1.0,
-});
 
 
 const app = express();
@@ -72,8 +68,6 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Sentry request handler is automatically set up by Sentry.init()
-
 // Swagger API Documentation
 //When user visits http://localhost:5000/api-docs swagger UI loads with API docs
 //Developers can see all endpoints, test them, and understand API
@@ -86,12 +80,12 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 app.use('/api/courts', courtRoutes);
 app.use('/api/logs', logRoutes);
 
+// Sentry error handler must be registered before any other error-handling middlewares
+Sentry.setupExpressErrorHandler(app);
+
 // Error handling middleware (must be last)
 app.use(notFound);
 app.use(errorHandler);
-
-// Sentry error handler must be registered after all controllers
-Sentry.setupExpressErrorHandler(app);
 
 // Start the server
 async function startServer() {
