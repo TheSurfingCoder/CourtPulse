@@ -11,7 +11,6 @@ import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
 import logRoutes from './src/routes/logs.js';
-import testRoutes from './src/routes/sentry-test.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 import logger, { logEvent, logError, logLifecycleEvent } from './logger';
@@ -80,7 +79,6 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 
 app.use('/api/courts', courtRoutes);
 app.use('/api/logs', logRoutes);
-app.use('/api/test', testRoutes);
 
 // Sentry error handler must be registered before any other error-handling middlewares
 Sentry.setupExpressErrorHandler(app);

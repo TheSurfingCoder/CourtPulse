@@ -4,7 +4,6 @@ import CourtsMap from '../components/CourtsMap';
 import Header from '../components/Header';
 import FilterBar from '../components/FilterBar';
 import RateLimitModal from '../components/RateLimitModal';
-import SentryTest from '../components/SentryTest';
 import { useState } from 'react';
 
 export default function Home() {
@@ -26,7 +25,6 @@ export default function Home() {
     retryAfter: 60
   });
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
-  const [showSentryTest, setShowSentryTest] = useState(false);
 
   const handleRefresh = () => {
     // Trigger a manual search in the CourtsMap component
@@ -106,29 +104,6 @@ export default function Home() {
         />
       </main>
       
-      {/* Sentry Test Panel - Show in all environments for testing */}
-      {true && (
-        <div className="fixed bottom-4 right-4 z-50">
-          {showSentryTest ? (
-            <div>
-              <SentryTest />
-              <button
-                onClick={() => setShowSentryTest(false)}
-                className="mt-2 w-full px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Hide Test Panel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowSentryTest(true)}
-              className="px-3 py-2 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
-            >
-              🐛 Test Sentry
-            </button>
-          )}
-        </div>
-      )}
       
       <RateLimitModal 
         isOpen={rateLimitModal.isOpen}

@@ -9,6 +9,9 @@ Sentry.init({
   // Environment-based configuration
   environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
   
+  // Explicit release identifier for backend
+  release: `backend@${process.env.npm_package_version || '1.1.0'}`,
+  
   // Adds request headers and IP for users, for more info visit:
   // https://docs.sentry.io/platforms/javascript/guides/node/configuration/options/#sendDefaultPii
   sendDefaultPii: true,

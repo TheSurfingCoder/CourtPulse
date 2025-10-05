@@ -11,8 +11,8 @@ Sentry.init({
   // Environment-based configuration
   environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
 
-  //determines the release of the code that is being deployed. This will show up in the Sentry dashboard.
-  release: process.env.npm_package_version,
+  // Explicit release identifier for frontend edge-side
+  release: `frontend@${process.env.npm_package_version || '1.2.0'}`,
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
