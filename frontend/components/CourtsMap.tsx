@@ -856,9 +856,16 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
             anchor="bottom"
           >
             <div className="p-3 min-w-[300px] max-w-[400px]">
-              <h3 className="font-semibold text-lg mb-2">
+              <h3 className="font-semibold text-lg mb-1">
                 {selectedCluster.properties.cluster_group_name}
               </h3>
+              
+              {/* Show individual court name if available */}
+              {selectedCluster.properties.name && selectedCluster.properties.name !== selectedCluster.properties.cluster_group_name && (
+                <p className="text-sm text-gray-600 mb-2 font-medium">
+                  {selectedCluster.properties.name}
+                </p>
+              )}
               
               <div className="space-y-2 text-sm mb-3">
                 <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>

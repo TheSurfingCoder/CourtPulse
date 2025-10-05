@@ -74,3 +74,14 @@ data_enrichment/venv/
 
 # sentry example route
 .env.sentry-build-plugin
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Backend build artifacts
+backend/dist/
+backend/coverage/

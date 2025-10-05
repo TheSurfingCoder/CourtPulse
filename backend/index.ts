@@ -1,9 +1,13 @@
+// Import this first!
+import "./instrument.js";
+// Now import other modules
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import pinoHttp from 'pino-http';
+import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
 import logRoutes from './src/routes/logs.js';
@@ -14,50 +18,6 @@ import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 //loads env variables from .env into process.env
 dotenv.config();
 
-// Import migration function
-async function runMigrations() {
-  try {
-    logLifecycleEvent('database_migration_started', {
-      message: 'Starting database migrations'
-    });
-
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
-
-    // Construct DATABASE_URL from individual environment variables
-    const dbHost = process.env.DB_HOST;
-    const dbPort = process.env.DB_PORT;
-    const dbName = process.env.DB_NAME;
-    const dbUser = process.env.DB_USER;
-    const dbPassword = process.env.DB_PASSWORD;
-
-    if (!dbHost || !dbPort || !dbName || !dbUser || !dbPassword) {
-      throw new Error('Missing required database environment variables');
-    }
-
-    const databaseUrl = `postgresql://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`;
-    
-    // Set DATABASE_URL environment variable for the migration command
-    const env = { ...process.env, DATABASE_URL: databaseUrl };
-
-    // Run migrations using node-pg-migrate
-    const { stdout } = await execAsync('npx node-pg-migrate up -c migrate.json', { env });
-
-    logLifecycleEvent('database_migration_completed', {
-      message: 'Database migrations completed successfully',
-      output: stdout
-    });
-
-  } catch (error) {
-    logError(error instanceof Error ? error : new Error(String(error)), {
-      message: 'Database migration failed'
-    });
-
-    // Don't exit the process - let the app start anyway
-    // This allows the app to run even if migrations fail
-  }
-}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -120,15 +80,15 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 app.use('/api/courts', courtRoutes);
 app.use('/api/logs', logRoutes);
 
+// Sentry error handler must be registered before any other error-handling middlewares
+Sentry.setupExpressErrorHandler(app);
+
 // Error handling middleware (must be last)
 app.use(notFound);
 app.use(errorHandler);
 
-// Start the server with migrations
+// Start the server
 async function startServer() {
-  // Run migrations first
-  await runMigrations();
-
   // Start the server
   app.listen(PORT, () => {
     logLifecycleEvent('server_started', {

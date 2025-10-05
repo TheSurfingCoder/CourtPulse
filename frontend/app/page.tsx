@@ -104,6 +104,7 @@ export default function Home() {
         />
       </main>
       
+      
       <RateLimitModal 
         isOpen={rateLimitModal.isOpen}
         onClose={closeRateLimitModal}

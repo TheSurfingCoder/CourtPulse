@@ -9,6 +9,7 @@ export interface Court {
     lng: number; // From centroid
     surface: string; // Maps to surface_type
     is_public: boolean;
+    school: boolean; // True when court name was derived from a school
     cluster_id: string | null; // UUID for clustering
     region: string | null; // Region identifier
     created_at: Date;
@@ -39,7 +40,8 @@ export class CourtModel {
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public, 
+                is_public,
+                school,
                 cluster_id,
                 region,
                 created_at, 
@@ -60,7 +62,8 @@ export class CourtModel {
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public, 
+                is_public,
+                school,
                 cluster_id,
                 region,
                 created_at, 
@@ -85,7 +88,8 @@ export class CourtModel {
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public, 
+                is_public,
+                school,
                 cluster_id,
                 region,
                 created_at, 
@@ -137,7 +141,8 @@ export class CourtModel {
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public, 
+                is_public,
+                school,
                 cluster_id,
                 region,
                 created_at, 
@@ -169,7 +174,8 @@ export class CourtModel {
                 ST_Y(centroid::geometry) as lat, 
                 ST_X(centroid::geometry) as lng,  
                 COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public, 
+                is_public,
+                school,
                 cluster_id,
                 region,
                 created_at, 
