@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.4.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.3.0...frontend-v1.4.0) (2025-10-05)
+
+
+### Features
+
+* implement endpoint optimization and improve court naming ([97c64f0](https://github.com/TheSurfingCoder/CourtPulse/commit/97c64f0198d80195d7a27ce956fd9867c4a29f0a))
+* implement endpoint optimization and improve court naming ([20766d4](https://github.com/TheSurfingCoder/CourtPulse/commit/20766d4b9047ae3d8440fd3fb92137ea22525f96))
+
 ## [1.3.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.2.0...frontend-v1.3.0) (2025-10-05)
 
 
