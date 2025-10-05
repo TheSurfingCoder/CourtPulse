@@ -18,10 +18,7 @@ import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 //loads env variables from .env into process.env
 dotenv.config();
 
-// Test comment for Vercel optimization testing
-
-
-const app = express();
+const app = express(); 
 const PORT = process.env.PORT || 5000;
 
 app.use(helmet());
