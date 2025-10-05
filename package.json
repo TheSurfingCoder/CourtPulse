@@ -4,8 +4,7 @@
   "description": "CourtPulse - similar to Surfline.com but for all sports",
   "private": true,
   "workspaces": [
-    "frontend",
-    "backend"
+    "frontend"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
