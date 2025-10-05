@@ -45,31 +45,90 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- Convert columns to use ENUMs
--- First drop the default, then convert, then set the default
-ALTER TABLE courts ALTER COLUMN source DROP DEFAULT;
-ALTER TABLE courts ALTER COLUMN source TYPE court_source_enum USING source::court_source_enum;
-ALTER TABLE courts ALTER COLUMN source SET DEFAULT 'osm'::court_source_enum;
+-- Convert columns to use ENUMs (only if they exist)
+-- First check if source column exists and convert it
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'source') THEN
+        ALTER TABLE courts ALTER COLUMN source DROP DEFAULT;
+        ALTER TABLE courts ALTER COLUMN source TYPE court_source_enum USING source::court_source_enum;
+        ALTER TABLE courts ALTER COLUMN source SET DEFAULT 'osm'::court_source_enum;
+    END IF;
+END $$;
 
-ALTER TABLE courts ALTER COLUMN sport TYPE sport_type USING sport::sport_type;
-ALTER TABLE courts ALTER COLUMN surface_type TYPE surface_type_enum USING surface_type::surface_type_enum;
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'sport') THEN
+        ALTER TABLE courts ALTER COLUMN sport TYPE sport_type USING sport::sport_type;
+    END IF;
+END $$;
 
--- Create indexes
-CREATE INDEX IF NOT EXISTS idx_courts_source ON courts (source);
-CREATE INDEX IF NOT EXISTS idx_courts_osm_id ON courts (osm_id);
-CREATE INDEX IF NOT EXISTS idx_courts_google_place_id ON courts (google_place_id);
-CREATE INDEX IF NOT EXISTS idx_courts_sport ON courts (sport);
-CREATE INDEX IF NOT EXISTS idx_courts_surface_type ON courts (surface_type);
-CREATE INDEX IF NOT EXISTS idx_courts_geom ON courts USING GIST (geom);
-CREATE INDEX IF NOT EXISTS idx_courts_centroid ON courts USING GIST (centroid);
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'surface_type') THEN
+        ALTER TABLE courts ALTER COLUMN surface_type TYPE surface_type_enum USING surface_type::surface_type_enum;
+    END IF;
+END $$;
 
--- Add constraints
+-- Create indexes (only if columns exist)
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'source') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_source ON courts (source);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'osm_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_osm_id ON courts (osm_id);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'google_place_id') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_google_place_id ON courts (google_place_id);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'sport') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_sport ON courts (sport);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'surface_type') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_surface_type ON courts (surface_type);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'geom') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_geom ON courts USING GIST (geom);
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'centroid') THEN
+        CREATE INDEX IF NOT EXISTS idx_courts_centroid ON courts USING GIST (centroid);
+    END IF;
+END $$;
+
+-- Add constraints (only if columns exist)
 DO $$ BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'chk_hoops_positive'
-    ) THEN
-        ALTER TABLE courts ADD CONSTRAINT chk_hoops_positive CHECK (hoops IS NULL OR hoops > 0);
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courts' AND column_name = 'hoops') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conname = 'chk_hoops_positive'
+        ) THEN
+            ALTER TABLE courts ADD CONSTRAINT chk_hoops_positive CHECK (hoops IS NULL OR hoops > 0);
+        END IF;
     END IF;
 END $$;
 
