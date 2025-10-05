@@ -199,13 +199,31 @@ class CourtDataMapper:
             # Return None on error (unknown)
             return None
     
+    def _is_school_name(self, name: str) -> bool:
+        """Check if a name indicates a school-based location"""
+        if not name:
+            return False
+        
+        name_lower = name.lower()
+        school_keywords = ['school', 'academy', 'college', 'university', 'institute', 'high school', 'elementary', 'middle school']
+        
+        for keyword in school_keywords:
+            if keyword in name_lower:
+                return True
+        
+        return False
+    
     def map_photon_data(self, photon_name: str, photon_distance_km: float, 
                        photon_source: str) -> Dict[str, Any]:
         """Map Photon API response to database format"""
+        # Determine if this is a school-based name
+        is_school = self._is_school_name(photon_name)
+        
         return {
             'photon_name': photon_name,
             'photon_distance_km': round(photon_distance_km, 6),  # Round to 6 decimal places
-            'photon_source': photon_source
+            'photon_source': photon_source,
+            'school': is_school
         }
     
     def map_court_to_db_format(self, feature: Dict[str, Any], 
@@ -242,7 +260,8 @@ class CourtDataMapper:
                 court_data.update({
                     'photon_name': court_data['fallback_name'],
                     'photon_distance_km': None,
-                    'photon_source': 'fallback'
+                    'photon_source': 'fallback',
+                    'school': False
                 })
             
             logger.debug(json.dumps({

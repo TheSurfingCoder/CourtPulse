@@ -30,24 +30,43 @@ class PhotonGeocodingProvider:
         }))
     
     def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Main entry point for reverse geocoding"""
+        """Main entry point for reverse geocoding
+        
+        Priority order:
+        1. School search (highest priority)
+        2. Park/playground search  
+        3. Reverse geocoding (lowest priority)
+        """
         try:
             # Rate limiting
             self._rate_limit()
             
-            # Try search API first
+            # Try school search first (highest priority)
+            school_name, school_data = self._try_school_search(lat, lon)
+            
+            if school_name:
+                logger.info(json.dumps({
+                    'event': 'school_search_primary_successful',
+                    'name': school_name,
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'court_count': court_count
+                }))
+                return school_name, school_data
+            
+            # Fallback to search API (parks/playgrounds)
             search_name, search_data = self._try_search_fallback(lat, lon, court_count)
             
             if search_name and self._is_high_quality_name(search_name):
                 logger.info(json.dumps({
-                    'event': 'search_primary_successful',
+                    'event': 'search_fallback_successful',
                     'name': search_name,
                     'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count
+                    'court_count': court_count,
+                    'reason': 'school_search_did_not_find_results'
                 }))
                 return search_name, search_data
             
-            # Fallback to reverse geocoding
+            # Final fallback: reverse geocoding
             reverse_name, reverse_data = self._try_reverse_geocoding(lat, lon)
             
             if reverse_name:
@@ -56,22 +75,9 @@ class PhotonGeocodingProvider:
                     'name': reverse_name,
                     'coordinates': {'lat': lat, 'lon': lon},
                     'court_count': court_count,
-                    'reason': 'search_did_not_find_high_quality_name'
+                    'reason': 'school_and_park_search_did_not_find_high_quality_name'
                 }))
                 return reverse_name, reverse_data
-            
-            # Final fallback: search for schools specifically
-            school_name, school_data = self._try_school_search(lat, lon)
-            
-            if school_name:
-                logger.info(json.dumps({
-                    'event': 'school_search_fallback_used',
-                    'name': school_name,
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count,
-                    'reason': 'reverse_geocoding_did_not_find_high_quality_name'
-                }))
-                return school_name, school_data
             
             # Final fallback
             logger.warning(json.dumps({
