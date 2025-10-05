@@ -1,5 +1,5 @@
 // Import this first!
-import "./instrument";
+import "./instrument.js";
 // Now import other modules
 import express from 'express';
 import cors from 'cors';

@@ -106,8 +106,8 @@ export default function Home() {
         />
       </main>
       
-      {/* Sentry Test Panel - Only show in development */}
-      {process.env.NODE_ENV === 'development' && (
+      {/* Sentry Test Panel - Show in all environments for testing */}
+      {true && (
         <div className="fixed bottom-4 right-4 z-50">
           {showSentryTest ? (
             <div>
