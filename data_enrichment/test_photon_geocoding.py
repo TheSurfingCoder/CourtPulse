@@ -35,32 +35,50 @@ class PhotonGeocodingProvider:
         
         PRIORITIZED APPROACH: Search by OSM tags first, address search for distant results
         Priority order:
-        1. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers (FIRST)
-        2. Schools (osm_tag=amenity:school, 500 ft) - catches all school buildings
-        3. Parks/Playgrounds (osm_tag=leisure:park/playground, 1000 ft)
-        4. If closest result >300ft away → Search for nearby addresses (residential/commercial)
+        1. Sports clubs (osm_tag=club:sport, 1000 ft) - tennis clubs, athletic clubs (FIRST - most specific)
+        2. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers
+        3. Community centres (osm_tag=amenity:community_centre, 1000 ft) - JCC, etc.
+        4. Schools/Universities (osm_tag=amenity:school/university, 500 ft) - educational institutions
+        5. Places of worship (osm_tag=amenity:place_of_worship, 500 ft) - churches with courts
+        6. Parks/Playgrounds (osm_tag=leisure:park/playground, 1000 ft)
+        7. If closest result >300ft away → Search for nearby addresses (residential/commercial)
         
         DISTANCE THRESHOLD LOGIC: If closest result is >300ft, search for addresses and prefer
-        residential addresses over schools for courts that are clearly on private property
+        residential addresses over distant facilities for courts on private property
         """
         try:
             # Rate limiting
             self._rate_limit()
             
-            # Search priority endpoints (sports centres, schools, and playgrounds)
+            # Search priority endpoints (sports facilities, schools, churches, and parks)
             priority_results = []
             
-            # 1. Sports centre search (FIRST - most specific for courts)
+            # 1. Sports club search (FIRST - most specific for courts)
+            sports_club_results = self._try_sports_club_search_all_results(lat, lon)
+            if sports_club_results:
+                priority_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
+            
+            # 2. Sports centre search (rec centers)
             sports_centre_results = self._try_sports_centre_search_all_results(lat, lon)
             if sports_centre_results:
                 priority_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
             
-            # 2. School search
+            # 3. Community centre search (JCC, etc.)
+            community_centre_results = self._try_community_centre_search_all_results(lat, lon)
+            if community_centre_results:
+                priority_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_centre_results])
+            
+            # 4. School search
             school_results = self._try_school_search_all_results(lat, lon)
             if school_results:
                 priority_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
             
-            # 3. Park/playground search
+            # 5. Place of worship search (churches with courts)
+            place_of_worship_results = self._try_place_of_worship_search_all_results(lat, lon)
+            if place_of_worship_results:
+                priority_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in place_of_worship_results])
+            
+            # 6. Park/playground search
             park_results = self._try_search_fallback_all_results(lat, lon)
             if park_results:
                 priority_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
@@ -355,6 +373,200 @@ class PhotonGeocodingProvider:
         except Exception as e:
             logger.error(json.dumps({
                 'event': 'sports_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_sports_club_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby sports clubs using search API and return all valid results"""
+        try:
+            # Search by osm_tag=club:sport to catch tennis clubs, athletic clubs, etc.
+            params = {
+                'q': 'club',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'club:sport',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 20
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Filter results by distance
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):  # 1000ft
+                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                        result_lon, result_lat = coords[0], coords[1]
+                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                        
+                        all_nearby_results.append({
+                            'name': name,
+                            'data': feature,
+                            'distance': distance
+                        })
+                        
+                        logger.info(json.dumps({
+                            'event': 'nearby_result_found',
+                            'name': name,
+                            'osm_type': 'club:sport',
+                            'distance_km': round(distance, 3),
+                            'coordinates': {'lat': lat, 'lon': lon}
+                        }))
+            
+            logger.info(json.dumps({
+                'event': 'sports_club_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'sports_club_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_community_centre_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby community centres using OSM tag search only"""
+        try:
+            # Only search by OSM tag - no name-based searches
+            # Note: Some facilities (like JCC SF) are poorly tagged as just 'building:yes'
+            # and won't be found. They'll get street names instead.
+            params = {
+                'q': 'community center',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'amenity:community_centre',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 20
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Filter results by distance
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):  # 1000ft
+                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                        result_lon, result_lat = coords[0], coords[1]
+                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                        
+                        all_nearby_results.append({
+                            'name': name,
+                            'data': feature,
+                            'distance': distance
+                        })
+                        
+                        logger.info(json.dumps({
+                            'event': 'nearby_result_found',
+                            'name': name,
+                            'osm_type': 'amenity:community_centre',
+                            'distance_km': round(distance, 3),
+                            'coordinates': {'lat': lat, 'lon': lon}
+                        }))
+            
+            logger.info(json.dumps({
+                'event': 'community_centre_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'community_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_place_of_worship_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby places of worship using search API and return all valid results"""
+        try:
+            # Search by osm_tag=amenity:place_of_worship to catch churches with courts
+            params = {
+                'q': 'church',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'amenity:place_of_worship',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 18
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Filter results by distance (500ft like schools)
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):  # 500ft
+                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                        result_lon, result_lat = coords[0], coords[1]
+                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                        
+                        all_nearby_results.append({
+                            'name': name,
+                            'data': feature,
+                            'distance': distance
+                        })
+                        
+                        logger.info(json.dumps({
+                            'event': 'nearby_result_found',
+                            'name': name,
+                            'osm_type': 'amenity:place_of_worship',
+                            'distance_km': round(distance, 3),
+                            'coordinates': {'lat': lat, 'lon': lon}
+                        }))
+            
+            logger.info(json.dumps({
+                'event': 'place_of_worship_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'place_of_worship_search_error',
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))

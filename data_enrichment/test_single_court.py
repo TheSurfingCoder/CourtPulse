@@ -32,22 +32,37 @@ def test_single_court(lat: float, lon: float, sport: str = 'basketball', hoops: 
     print()
     
     # Test each search method individually to show all attempts
-    print("🔍 1. Sports Centre Search (leisure:sports_centre, 1000ft radius):")
+    print("🔍 1. Sports Club Search (club:sport, 1000ft radius):")
+    sports_club_results = provider._try_sports_club_search_all_results(lat, lon)
+    for i, result in enumerate(sports_club_results, 1):
+        print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
+    
+    print(f"\n🔍 2. Sports Centre Search (leisure:sports_centre, 1000ft radius):")
     sports_centre_results = provider._try_sports_centre_search_all_results(lat, lon)
     for i, result in enumerate(sports_centre_results, 1):
         print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
     
-    print(f"\n🔍 2. School Search (amenity:school, 500ft radius):")
+    print(f"\n🔍 3. Community Centre Search (amenity:community_centre, 1000ft radius):")
+    community_centre_results = provider._try_community_centre_search_all_results(lat, lon)
+    for i, result in enumerate(community_centre_results, 1):
+        print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
+    
+    print(f"\n🔍 4. School Search (amenity:school, 500ft radius):")
     school_results = provider._try_school_search_all_results(lat, lon)
     for i, result in enumerate(school_results, 1):
         print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
     
-    print(f"\n🔍 3. Park/Playground Search (leisure:park/playground, 1000ft radius):")
+    print(f"\n🔍 5. Place of Worship Search (amenity:place_of_worship, 500ft radius):")
+    place_of_worship_results = provider._try_place_of_worship_search_all_results(lat, lon)
+    for i, result in enumerate(place_of_worship_results, 1):
+        print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
+    
+    print(f"\n🔍 6. Park/Playground Search (leisure:park/playground, 1000ft radius):")
     park_results = provider._try_search_fallback_all_results(lat, lon)
     for i, result in enumerate(park_results, 1):
         print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft)")
     
-    print(f"\n🔍 4. Building Search (all building types, 1000ft radius):")
+    print(f"\n🔍 7. Building Search (all building types, 1000ft radius):")
     building_results = provider._try_building_search_all_results(lat, lon)
     for i, result in enumerate(building_results, 1):
         building_type = "🏠 Residential" if result.get('is_residential', False) else "🏢 Commercial"
