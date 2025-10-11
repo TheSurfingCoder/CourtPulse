@@ -243,7 +243,7 @@ class CourtDataValidator:
         # Validate sport
         if 'sport' in properties:
             sport = properties['sport']
-            valid_sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'other']
+            valid_sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'pickleball', 'other']
             if sport not in valid_sports:
                 results.append(ValidationResult(
                     False, ValidationLevel.ERROR,

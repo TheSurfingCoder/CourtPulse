@@ -150,6 +150,8 @@ class CourtDataMapper:
                 return "soccer field"
             elif sport == 'volleyball':
                 return "volleyball court"
+            elif sport == 'pickleball':
+                return "pickleball court"
             else:
                 return f"{sport} court"
                 
@@ -296,7 +298,7 @@ class CourtDataMapper:
                 return False, f"Invalid OSM ID format: {osm_id}"
             
             # Validate sport
-            valid_sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'other']
+            valid_sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'handball', 'pickleball', 'other']
             if court_data['sport'] not in valid_sports:
                 return False, f"Invalid sport: {court_data['sport']}"
             

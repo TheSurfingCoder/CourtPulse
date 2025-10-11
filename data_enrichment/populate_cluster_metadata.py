@@ -151,7 +151,8 @@ class ClusterMetadataPopulator:
                     other_court['lat'], other_court['lon']
                 )
                 
-                if distance <= self.max_distance_km:
+                # Only cluster courts of the same sport
+                if distance <= self.max_distance_km and court['sport'] == other_court['sport']:
                     cluster_courts.append(other_court)
                     processed.add(j)
             
@@ -169,6 +170,7 @@ class ClusterMetadataPopulator:
                 'event': 'geographic_cluster_created',
                 'cluster_id': cluster_id,
                 'photon_name': photon_name,
+                'sport': cluster_courts[0]['sport'],
                 'cluster_size': len(cluster_courts),
                 'representative_osm_id': cluster_courts[0]['osm_id']
             }))

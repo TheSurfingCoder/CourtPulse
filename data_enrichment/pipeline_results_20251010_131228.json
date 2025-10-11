@@ -1,0 +1,17 @@
+{
+  "total_features": 50,
+  "total_processed": 50,
+  "successful": 50,
+  "validation_failed": 0,
+  "geocoding_failed": 0,
+  "database_failed": 0,
+  "skipped": 0,
+  "clusters_created": 37,
+  "api_calls_saved": 13,
+  "individual_names_added": 308,
+  "processing_time_seconds": 114.315708,
+  "features_per_second": 0.44,
+  "success_rate": 100.0,
+  "clustering_efficiency": 26.0,
+  "frontend_ready": true
+}
