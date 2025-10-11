@@ -9,7 +9,9 @@ on:
         required: true
         type: choice
         options:
+          - sf_city
           - sf_bay
+          - sf_bay_test
           - nyc
           - london
       environment:
