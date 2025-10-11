@@ -33,6 +33,15 @@ on:
         required: false
         type: boolean
         default: false
+      sports:
+        description: 'Sports to fetch (comma-separated)'
+        required: false
+        type: string
+        default: 'basketball,tennis,soccer,volleyball,pickleball'
+      test_bbox:
+        description: 'Test bounding box (south,west,north,east) - leave empty for full region'
+        required: false
+        type: string
 
 jobs:
   data-pipeline:
@@ -78,6 +87,32 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
           PGSSLMODE: require
+      
+      - name: Fetch court data from Overpass API
+        run: |
+          cd data_enrichment
+          # Use manual trigger inputs
+          SPORTS="${{ github.event.inputs.sports }}"
+          TEST_BBOX="${{ github.event.inputs.test_bbox }}"
+          REGION="${{ github.event.inputs.region }}"
+          
+          echo "🔍 Fetching court data from Overpass API"
+          echo "  Region: $REGION"
+          echo "  Sports: $SPORTS"
+          echo "  Test bbox: ${TEST_BBOX:-'(using full region)'}"
+          
+          # Build fetch command
+          if [ -n "$TEST_BBOX" ]; then
+            python fetch_courts_data.py \
+              --bbox "$TEST_BBOX" \
+              --sports "$SPORTS" \
+              --output export.geojson
+          else
+            python fetch_courts_data.py \
+              --region "$REGION" \
+              --sports "$SPORTS" \
+              --output export.geojson
+          fi
       
       - name: Run data pipeline
         run: |

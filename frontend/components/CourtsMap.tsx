@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import Map, { Marker, Popup } from 'react-map-gl/maplibre';
+import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { logEvent, logError, logBusinessEvent } from '../lib/logger-with-backend';
@@ -75,6 +75,9 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Ref for immediate court data updates (prevents flickering)
   const courtsRef = useRef<Court[]>([]);
   
+  // Ref for map instance to control centering and zooming
+  const mapRef = useRef<MapRef | null>(null);
+  
   const [viewport, setViewport] = useState(externalViewport); //updates on every mouse / zoom 
   
   // Debounced viewport for cluster calculations
@@ -91,6 +94,19 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Use external filters only - no internal state
   const filters = externalFilters!;
   const setFilters = onFiltersChange!;
+  
+  // Helper function to get sport-specific icon
+  const getSportIcon = (sportType: string): string => {
+    const icons: Record<string, string> = {
+      'basketball': '🏀',
+      'tennis': '🎾',
+      'soccer': '⚽',
+      'volleyball': '🏐',
+      'pickleball': '🏓',
+      'other': '🏟️'
+    };
+    return icons[sportType] || icons['other'];
+  };
   
   // Court data cache for performance optimization (caches raw API responses)
   // Cache key format: "west,south,east,north" (bbox only, no zoom)
@@ -633,21 +649,48 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Handle cluster clicks to show popup with cluster details
   const handleClusterClick = (cluster: any) => {
+    const [lng, lat] = cluster.geometry.coordinates;
+    
     if (cluster.properties.cluster && supercluster) {
-      // It's a cluster - don't show popup, just log the click
-      logEvent('cluster_clicked_no_popup', {
+      // It's a cluster - center and zoom in
+      logEvent('cluster_clicked', {
         clusterId: cluster.id,
-        pointCount: cluster.properties.point_count
+        pointCount: cluster.properties.point_count,
+        coordinates: { lng, lat }
       });
-      return; // Exit early for clusters
+      
+      // Zoom in on the cluster
+      if (mapRef.current) {
+        mapRef.current.flyTo({
+          center: [lng, lat],
+          zoom: viewport.zoom + 2, // Zoom in by 2 levels
+          duration: 1000 // 1 second smooth animation
+        });
+      }
     } else {
-      // It's an individual court - convert to Court object
+      // It's an individual court - center on it with a specific zoom level
+      logEvent('court_clicked', {
+        courtId: cluster.properties.id || cluster.id,
+        courtName: cluster.properties.name,
+        coordinates: { lng, lat }
+      });
+      
+      // Center on the individual court with a consistent zoom level
+      if (mapRef.current) {
+        mapRef.current.flyTo({
+          center: [lng, lat],
+          zoom: 18, // Specific zoom level for individual courts
+          duration: 1000 // 1 second smooth animation
+        });
+      }
+      
+      // Convert to Court object and show popup
       const courtDetail = {
         id: cluster.properties.id || cluster.id,
         name: cluster.properties.name || 'Unknown Court',
         type: cluster.properties.type || 'unknown',
-        lat: cluster.geometry.coordinates[1],
-        lng: cluster.geometry.coordinates[0],
+        lat: lat,
+        lng: lng,
         surface: cluster.properties.surface || 'Unknown',
         is_public: cluster.properties.is_public,
         cluster_group_name: cluster.properties.cluster_group_name || 'Unknown Group',
@@ -790,6 +833,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       </div>
 
       <Map
+        ref={mapRef}
         initialViewState={initialViewState}
         onMove={evt => setViewport(evt.viewState)}
         onLoad={() => {
@@ -841,7 +885,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
                 }}
                 title={displayName}
               >
-                {isCluster ? pointCount : '🏀'}
+                {isCluster ? pointCount : getSportIcon(cluster.properties.type)}
               </div>
             </Marker>
           );

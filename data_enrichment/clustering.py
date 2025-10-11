@@ -116,7 +116,8 @@ class CoordinateClusterer:
                     other_court.lat, other_court.lon
                 )
                 
-                if distance <= self.max_distance_km:
+                # Only cluster courts of the same sport
+                if distance <= self.max_distance_km and court.sport == other_court.sport:
                     cluster.append(other_court)
                     processed.add(j)
             
@@ -126,6 +127,7 @@ class CoordinateClusterer:
                 'event': 'cluster_created',
                 'cluster_id': len(clusters),
                 'cluster_size': len(cluster),
+                'sport': court.sport,
                 'representative_osm_id': court.osm_id,
                 'coordinates': {'lat': court.lat, 'lon': court.lon},
                 'max_distance_km': self.max_distance_km
@@ -180,6 +182,8 @@ class CoordinateClusterer:
                 return "soccer field"
             elif sport == 'volleyball':
                 return "volleyball court"
+            elif sport == 'pickleball':
+                return "pickleball court"
             else:
                 return f"{sport} court"
                 
