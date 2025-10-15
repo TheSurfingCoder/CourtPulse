@@ -14,6 +14,7 @@ import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from court_pipeline import CourtProcessingPipeline
+from test_photon_geocoding import PhotonGeocodingProvider
 
 # Configure logging
 logging.basicConfig(
@@ -82,6 +83,15 @@ def generate_final_report(results: dict):
     print(f"   Processing Time: {results['processing_time_seconds']:.2f} seconds")
     print(f"   Features per Second: {results['features_per_second']:.2f}")
     print()
+    
+    # Display optimization stats if available
+    if 'optimization_stats' in results:
+        opt_stats = results['optimization_stats']
+        print(f"🚀 Geocoding Optimization:")
+        print(f"   Bounding Box Matches: {opt_stats['bounding_box_percentage']:.1f}%")
+        print(f"   Distance-Based Fallback: {opt_stats['distance_based_percentage']:.1f}%")
+        print(f"   Total API Calls: {opt_stats['total_requests']:,}")
+        print()
     print(f"⏱️  Time Breakdown:")
     print(f"   Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"   End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -101,6 +111,141 @@ def generate_final_report(results: dict):
     
     print(f"📄 Detailed results saved to: {results_file}")
     print("="*80)
+
+def test_single_way(way_id: str, connection_string: str):
+    """Test geocoding for a single way using the production pipeline logic"""
+    
+    print("="*80)
+    print("🎯 TESTING SINGLE WAY WITH PRODUCTION PIPELINE")
+    print("="*80)
+    print(f"📍 Way ID: {way_id}")
+    print("="*80)
+    
+    try:
+        # Load the way from export.geojson
+        with open('export.geojson', 'r') as f:
+            geojson_data = json.load(f)
+        
+        # Find the specific way
+        target_way = None
+        for feature in geojson_data.get('features', []):
+            properties = feature.get('properties', {})
+            if properties.get('osm_id') == way_id:
+                target_way = feature
+                break
+        
+        if not target_way:
+            print(f"❌ Way {way_id} not found in export.geojson")
+            return
+        
+        # Extract coordinates
+        geometry = target_way.get('geometry', {})
+        if geometry.get('type') == 'Polygon':
+            # Get centroid of polygon
+            coords = geometry.get('coordinates', [[]])[0]
+            if coords:
+                lons = [coord[0] for coord in coords]
+                lats = [coord[1] for coord in coords]
+                lat = sum(lats) / len(lats)
+                lon = sum(lons) / len(lons)
+            else:
+                print("❌ No coordinates found in polygon")
+                return
+        else:
+            print(f"❌ Unsupported geometry type: {geometry.get('type')}")
+            return
+        
+        # Extract properties
+        properties = target_way.get('properties', {})
+        sport = properties.get('sport', 'basketball')
+        hoops = properties.get('hoops', 1)
+        
+        print(f"📍 Coordinates: {lat}, {lon}")
+        print(f"🏀 Sport: {sport}")
+        print(f"🎯 Hoops: {hoops}")
+        print()
+        
+        # Test with production geocoding provider
+        provider = PhotonGeocodingProvider()
+        court_count = int(hoops) if hoops else 1
+        
+        print("🔄 Running production geocoding...")
+        start_time = datetime.now()
+        
+        name, data = provider.reverse_geocode(lat, lon, court_count)
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        print()
+        print("="*80)
+        print("📊 RESULTS:")
+        print("="*80)
+        
+        if name:
+            print(f"✅ Name: {name}")
+            print(f"📊 Data available: {data is not None}")
+            print(f"⏱️  Duration: {duration:.2f} seconds")
+            
+            # Show optimization stats if available
+            if data and 'optimization_stats' in data:
+                stats = data['optimization_stats']
+                print(f"🚀 Bounding Box: {stats['bounding_box_percentage']:.1f}%")
+                print(f"📏 Distance-based: {stats['distance_based_percentage']:.1f}%")
+                print(f"📞 Total API calls: {stats['total_requests']}")
+        else:
+            print("❌ No name found")
+        
+        print("="*80)
+        
+        # Generate pipeline results JSON for single way test
+        if name and data:
+            # Get optimization stats
+            optimization_stats = provider.get_optimization_stats()
+            
+            # Create mock pipeline results
+            pipeline_results = {
+                'timestamp': datetime.now().isoformat(),
+                'way_id': way_id,
+                'coordinates': {'lat': lat, 'lon': lon},
+                'sport': sport,
+                'hoops': hoops,
+                'geocoding_result': {
+                    'name': name,
+                    'data': data
+                },
+                'performance': {
+                    'duration_seconds': duration,
+                    'features_per_second': 1.0 / duration if duration > 0 else 0
+                },
+                'optimization_stats': optimization_stats,
+                'success': True,
+                'total_features': 1,
+                'processed_features': 1,
+                'success_rate': 100.0,
+                'frontend_ready': True
+            }
+            
+            # Save to file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'pipeline_results_single_way_{timestamp}.json'
+            
+            with open(filename, 'w') as f:
+                json.dump(pipeline_results, f, indent=2)
+            
+            print(f"📄 Pipeline results saved to: {filename}")
+            print(f"   Features/second: {pipeline_results['performance']['features_per_second']:.3f}")
+            print(f"   Bounding Box: {optimization_stats['bounding_box_percentage']:.1f}%")
+            print(f"   Distance-based: {optimization_stats['distance_based_percentage']:.1f}%")
+        
+    except Exception as e:
+        logger.error(json.dumps({
+            'event': 'single_way_test_error',
+            'way_id': way_id,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }))
+        print(f"❌ Error testing way {way_id}: {e}")
 
 def main():
     """Main function with command line argument parsing"""
@@ -129,6 +274,9 @@ def main():
     parser.add_argument('--test-mode', 
                        action='store_true',
                        help='Run in test mode with limited features')
+    parser.add_argument('--test-way', 
+                       type=str,
+                       help='Test a single way (e.g., "way/917299397")')
     
     args = parser.parse_args()
     
@@ -136,6 +284,12 @@ def main():
     if args.test_mode:
         args.max_features = 50
         print("🧪 Running in TEST MODE - Limited to 50 features")
+    
+    # Handle single way test
+    if args.test_way:
+        print(f"🎯 Testing single way: {args.test_way}")
+        test_single_way(args.test_way, args.connection_string)
+        return
     
     print("🚀 Starting Court Data Processing Pipeline")
     print(f"   Batch Size: {args.batch_size}")

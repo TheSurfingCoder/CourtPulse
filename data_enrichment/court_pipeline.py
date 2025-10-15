@@ -482,6 +482,9 @@ class CourtProcessingPipeline:
             self.stats['end_time'] = datetime.now()
             processing_time = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
             
+            # Get optimization stats from geocoding provider
+            optimization_stats = self.geocoding_provider.get_optimization_stats()
+            
             # Final statistics
             final_stats = {
                 'total_features': total_features,
@@ -498,7 +501,8 @@ class CourtProcessingPipeline:
                 'features_per_second': round(self.stats['total_processed'] / processing_time, 2) if processing_time > 0 else 0,
                 'success_rate': round((self.stats['successful'] / self.stats['total_processed']) * 100, 2) if self.stats['total_processed'] > 0 else 0,
                 'clustering_efficiency': round((self.stats['api_calls_saved'] / total_features) * 100, 1) if total_features > 0 else 0,
-                'frontend_ready': True
+                'frontend_ready': True,
+                'optimization_stats': optimization_stats
             }
             
             logger.info(json.dumps({
