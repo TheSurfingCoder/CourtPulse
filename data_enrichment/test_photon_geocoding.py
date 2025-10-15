@@ -33,131 +33,58 @@ class PhotonGeocodingProvider:
     def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Main entry point for reverse geocoding
         
-        PRIORITIZED APPROACH: Search by OSM tags first, address search for distant results
-        Priority order:
-        1. Sports clubs (osm_tag=club:sport, 1000 ft) - tennis clubs, athletic clubs (FIRST - most specific)
-        2. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers
+        CLOSEST RESULT APPROACH: Search all priority OSM tags and pick the closest result
+        Priority order (all results collected, then closest selected):
+        1. Sports clubs (osm_tag=club:sport, 1000 ft) - tennis clubs, athletic clubs
+        2. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers  
         3. Community centres (osm_tag=amenity:community_centre, 1000 ft) - JCC, etc.
         4. Schools/Universities (osm_tag=amenity:school/university, 500 ft) - educational institutions
         5. Places of worship (osm_tag=amenity:place_of_worship, 500 ft) - churches with courts
         6. Parks/Playgrounds (osm_tag=leisure:park/playground, 1000 ft)
-        7. If closest result >300ft away → Search for nearby addresses (residential/commercial)
         
-        DISTANCE THRESHOLD LOGIC: If closest result is >300ft, search for addresses and prefer
-        residential addresses over distant facilities for courts on private property
+        NO ADDRESS FALLBACK: Only use OSM-tagged facilities, never street addresses
         """
         try:
             # Rate limiting
             self._rate_limit()
             
-            # Search priority endpoints (sports facilities, schools, churches, and parks)
-            priority_results = []
+            # Collect all results from priority searches
+            all_results = []
             
-            # 1. Sports club search (FIRST - most specific for courts)
+            # 1. Sports club search (1000ft radius)
             sports_club_results = self._try_sports_club_search_all_results(lat, lon)
             if sports_club_results:
-                priority_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
+                all_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
             
-            # 2. Sports centre search (rec centers)
+            # 2. Sports centre search (1000ft radius)
             sports_centre_results = self._try_sports_centre_search_all_results(lat, lon)
             if sports_centre_results:
-                priority_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
+                all_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
             
-            # 3. Community centre search (JCC, etc.)
+            # 3. Community centre search (1000ft radius)
             community_centre_results = self._try_community_centre_search_all_results(lat, lon)
             if community_centre_results:
-                priority_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_centre_results])
+                all_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_centre_results])
             
-            # 4. School search
+            # 4. School search (500ft radius)
             school_results = self._try_school_search_all_results(lat, lon)
             if school_results:
-                priority_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
+                all_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
             
-            # 5. Place of worship search (churches with courts)
+            # 5. Place of worship search (500ft radius)
             place_of_worship_results = self._try_place_of_worship_search_all_results(lat, lon)
             if place_of_worship_results:
-                priority_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in place_of_worship_results])
+                all_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in place_of_worship_results])
             
-            # 6. Park/playground search
+            # 6. Park/playground search (1000ft radius)
             park_results = self._try_search_fallback_all_results(lat, lon)
             if park_results:
-                priority_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
+                all_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
             
-            if priority_results:
-                # Sort by distance first
-                sorted_results = sorted(priority_results, key=lambda x: x['distance'])
-                
-                # Pick the closest result as initial candidate
+            if all_results:
+                # Sort by distance and pick the closest result
+                sorted_results = sorted(all_results, key=lambda x: x['distance'])
                 closest_result = sorted_results[0]
-                closest_distance = closest_result['distance']
-                
-                # Store original closest result for potential fallback
-                original_closest_result = closest_result
-                
-                # DISTANCE THRESHOLD LOGIC: If closest result is >300ft away, search for buildings
-                distance_threshold_km = 0.091  # 300ft in km
-                if closest_distance > distance_threshold_km:
-                    logger.info(json.dumps({
-                        'event': 'distance_threshold_exceeded',
-                        'coordinates': {'lat': lat, 'lon': lon},
-                        'closest_distance_km': round(closest_distance, 3),
-                        'threshold_km': distance_threshold_km,
-                        'original_result': original_closest_result['name'],
-                        'reason': 'searching_for_nearby_buildings'
-                    }))
-                    
-                    # Search for nearby buildings (residential, commercial, etc.)
-                    building_results = self._try_building_search_all_results(lat, lon)
-                    
-                    if building_results:
-                        # We got building results! Check for residential
-                        residential_buildings = [r for r in building_results if r.get('is_residential', False)]
-                        
-                        if residential_buildings:
-                            closest_building = residential_buildings[0]
-                            
-                            # Only use building if it's closer than original
-                            if closest_building['distance'] < closest_distance:
-                                closest_result = {**closest_building, 'endpoint': 'residential_building'}
-                                logger.info(json.dumps({
-                                    'event': 'residential_building_selected',
-                                    'name': closest_result['name'],
-                                    'distance_km': round(closest_result['distance'], 3),
-                                    'original_result': original_closest_result['name'],
-                                    'reason': 'closer_than_priority_result'
-                                }))
-                            else:
-                                logger.info(json.dumps({
-                                    'event': 'building_search_fallback',
-                                    'reason': 'building_not_closer',
-                                    'building_distance_km': round(closest_building['distance'], 3),
-                                    'original_distance_km': round(closest_distance, 3),
-                                    'using_result': original_closest_result['name']
-                                }))
-                                # Keep original closest_result
-                        else:
-                            logger.info(json.dumps({
-                                'event': 'building_search_fallback',
-                                'reason': 'no_residential_buildings_found',
-                                'total_building_results': len(building_results),
-                                'using_result': original_closest_result['name']
-                            }))
-                            # Keep original closest_result
-                    else:
-                        logger.info(json.dumps({
-                            'event': 'building_search_fallback',
-                            'reason': 'no_building_results',
-                            'using_result': original_closest_result['name']
-                        }))
-                        # Keep original closest_result
-                
-                # Check if there's a high quality name within 50m of the closest
-                for result in sorted_results[1:]:
-                    if result['distance'] - closest_result['distance'] > 0.05:  # More than 50m difference
-                        break
-                    if self._is_high_quality_name(result['name']) and not self._is_high_quality_name(closest_result['name']):
-                        closest_result = result
-                        break
                 
                 # Add court count to name if multiple courts
                 name = closest_result['name']
@@ -165,60 +92,25 @@ class PhotonGeocodingProvider:
                     name = f"{name} ({court_count} Courts)"
                 
                 logger.info(json.dumps({
-                    'event': 'priority_result_selected',
+                    'event': 'closest_result_selected',
                     'name': name,
                     'endpoint': closest_result['endpoint'],
                     'distance_km': round(closest_result['distance'], 3),
                     'coordinates': {'lat': lat, 'lon': lon},
                     'court_count': court_count,
-                    'total_priority_results': len(priority_results),
+                    'total_results': len(all_results),
                     'is_high_quality': self._is_high_quality_name(closest_result['name']),
                     'reason': 'closest_priority_result'
                 }))
                 
                 return name, closest_result['data']
             
-            # No priority results found - try building search as final fallback
-            logger.info(json.dumps({
-                'event': 'no_priority_results_trying_building_search',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'reason': 'no_schools_parks_or_sports_centres_found'
-            }))
-            
-            building_results = self._try_building_search_all_results(lat, lon)
-            if building_results:
-                # Prefer residential over commercial
-                residential_buildings = [r for r in building_results if r.get('is_residential', False)]
-                
-                if residential_buildings:
-                    closest_building = residential_buildings[0]
-                else:
-                    # No residential, use any address
-                    closest_building = building_results[0]
-                
-                name = closest_building['name']
-                if court_count > 1:
-                    name = f"{name} ({court_count} Courts)"
-                
-                logger.info(json.dumps({
-                    'event': 'address_only_result_selected',
-                    'name': name,
-                    'distance_km': round(closest_building['distance'], 3),
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count,
-                    'is_residential': closest_building.get('is_residential', False),
-                    'reason': 'no_priority_results_found'
-                }))
-                
-                return name, closest_building.get('data')
-            
-            # Absolutely no results from any search - geocoding failed
+            # No results from any priority search - geocoding failed
             logger.warning(json.dumps({
-                'event': 'geocoding_completely_failed',
+                'event': 'geocoding_failed',
                 'coordinates': {'lat': lat, 'lon': lon},
                 'court_count': court_count,
-                'reason': 'no_results_from_any_search'
+                'reason': 'no_priority_results_found'
             }))
             return None, None
             
@@ -262,31 +154,30 @@ class PhotonGeocodingProvider:
                     if not features:
                         continue
                     
-                    # Find all nearby results
+                    # Collect all results within search radius (no distance filtering)
                     for feature in features:
                         properties = feature.get('properties', {})
                         name = properties.get('name')
                         
                         if name:
-                            if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
-                                # Calculate distance
-                                coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                                result_lon, result_lat = coords[0], coords[1]
-                                distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                                
-                                all_nearby_results.append({
-                                    'name': name,
-                                    'data': feature,
-                                    'distance': distance
-                                })
-                                
-                                logger.info(json.dumps({
-                                    'event': 'nearby_result_found',
-                                    'name': name,
-                                    'leisure_type': leisure_type['osm_tag'],
-                                    'distance_km': round(distance, 3),
-                                    'coordinates': {'lat': lat, 'lon': lon}
-                                }))
+                            # Calculate distance
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            all_nearby_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance
+                            })
+                            
+                            logger.info(json.dumps({
+                                'event': 'result_found',
+                                'name': name,
+                                'leisure_type': leisure_type['osm_tag'],
+                                'distance_km': round(distance, 3),
+                                'coordinates': {'lat': lat, 'lon': lon}
+                            }))
                 
                 except Exception as e:
                     logger.error(json.dumps({
@@ -335,32 +226,31 @@ class PhotonGeocodingProvider:
             if not features:
                 return []
             
-            # Filter results by distance
+            # Collect all results within search radius (no distance filtering)
             all_nearby_results = []
             for feature in features:
                 properties = feature.get('properties', {})
                 name = properties.get('name')
                 
                 if name:
-                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
-                        # Calculate distance
-                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                        
-                        all_nearby_results.append({
-                            'name': name,
-                            'data': feature,
-                            'distance': distance
-                        })
-                        
-                        logger.info(json.dumps({
-                            'event': 'nearby_result_found',
-                            'name': name,
-                            'osm_type': 'leisure:sports_centre',
-                            'distance_km': round(distance, 3),
-                            'coordinates': {'lat': lat, 'lon': lon}
-                        }))
+                    # Calculate distance
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'leisure:sports_centre',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
             
             logger.info(json.dumps({
                 'event': 'sports_centre_search_completed',
@@ -400,31 +290,30 @@ class PhotonGeocodingProvider:
             if not features:
                 return []
             
-            # Filter results by distance
+            # Collect all results within search radius (no distance filtering)
             all_nearby_results = []
             for feature in features:
                 properties = feature.get('properties', {})
                 name = properties.get('name')
                 
                 if name:
-                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):  # 1000ft
-                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                        
-                        all_nearby_results.append({
-                            'name': name,
-                            'data': feature,
-                            'distance': distance
-                        })
-                        
-                        logger.info(json.dumps({
-                            'event': 'nearby_result_found',
-                            'name': name,
-                            'osm_type': 'club:sport',
-                            'distance_km': round(distance, 3),
-                            'coordinates': {'lat': lat, 'lon': lon}
-                        }))
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'club:sport',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
             
             logger.info(json.dumps({
                 'event': 'sports_club_search_completed',
@@ -466,31 +355,30 @@ class PhotonGeocodingProvider:
             if not features:
                 return []
             
-            # Filter results by distance
+            # Collect all results within search radius (no distance filtering)
             all_nearby_results = []
             for feature in features:
                 properties = feature.get('properties', {})
                 name = properties.get('name')
                 
                 if name:
-                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):  # 1000ft
-                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                        
-                        all_nearby_results.append({
-                            'name': name,
-                            'data': feature,
-                            'distance': distance
-                        })
-                        
-                        logger.info(json.dumps({
-                            'event': 'nearby_result_found',
-                            'name': name,
-                            'osm_type': 'amenity:community_centre',
-                            'distance_km': round(distance, 3),
-                            'coordinates': {'lat': lat, 'lon': lon}
-                        }))
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'amenity:community_centre',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
             
             logger.info(json.dumps({
                 'event': 'community_centre_search_completed',
@@ -530,31 +418,30 @@ class PhotonGeocodingProvider:
             if not features:
                 return []
             
-            # Filter results by distance (500ft like schools)
+            # Collect all results within search radius (no distance filtering)
             all_nearby_results = []
             for feature in features:
                 properties = feature.get('properties', {})
                 name = properties.get('name')
                 
                 if name:
-                    if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):  # 500ft
-                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                        
-                        all_nearby_results.append({
-                            'name': name,
-                            'data': feature,
-                            'distance': distance
-                        })
-                        
-                        logger.info(json.dumps({
-                            'event': 'nearby_result_found',
-                            'name': name,
-                            'osm_type': 'amenity:place_of_worship',
-                            'distance_km': round(distance, 3),
-                            'coordinates': {'lat': lat, 'lon': lon}
-                        }))
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'amenity:place_of_worship',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
             
             logger.info(json.dumps({
                 'event': 'place_of_worship_search_completed',
@@ -851,22 +738,20 @@ class PhotonGeocodingProvider:
                     
                     features = data.get('features', [])
                     
-                    # Filter results by distance and quality
+                    # Collect all results within search radius (no distance filtering)
                     for feature in features:
-                        # Check if result is within acceptable distance (500 feet = 0.152 km)
-                        if self._is_nearby_result(feature, lat, lon, max_distance_km=0.152):
-                            name = self._extract_name(feature)
-                            if name:
-                                # Calculate distance for sorting
-                                coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                                result_lon, result_lat = coords[0], coords[1]
-                                distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                                
-                                all_valid_results.append({
-                                    'name': name,
-                                    'data': feature,
-                                    'distance': distance
-                                })
+                        name = self._extract_name(feature)
+                        if name:
+                            # Calculate distance for sorting
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            all_valid_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance
+                            })
                     
                     time.sleep(self.delay)  # Rate limiting between searches
                     
