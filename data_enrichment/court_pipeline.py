@@ -482,6 +482,9 @@ class CourtProcessingPipeline:
             self.stats['end_time'] = datetime.now()
             processing_time = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
             
+            # Get optimization stats from geocoding provider
+            optimization_stats = self.geocoding_provider.get_optimization_stats()
+            
             # Final statistics
             final_stats = {
                 'total_features': total_features,
@@ -498,7 +501,8 @@ class CourtProcessingPipeline:
                 'features_per_second': round(self.stats['total_processed'] / processing_time, 2) if processing_time > 0 else 0,
                 'success_rate': round((self.stats['successful'] / self.stats['total_processed']) * 100, 2) if self.stats['total_processed'] > 0 else 0,
                 'clustering_efficiency': round((self.stats['api_calls_saved'] / total_features) * 100, 1) if total_features > 0 else 0,
-                'frontend_ready': True
+                'frontend_ready': True,
+                'optimization_stats': optimization_stats
             }
             
             logger.info(json.dumps({
@@ -547,34 +551,50 @@ class CourtProcessingPipeline:
             cleaned_count = cursor.rowcount
             logger.info(f"Cleaned {cleaned_count} photon_name values")
             
-            # Get all clusters with more than 1 court
+            # Clear individual_court_name for single-court clusters
             cursor.execute("""
-                SELECT cluster_id, COUNT(*) as court_count
+                UPDATE courts 
+                SET individual_court_name = NULL
+                WHERE cluster_id IN (
+                    SELECT cluster_id 
+                    FROM courts 
+                    WHERE cluster_id IS NOT NULL
+                    GROUP BY cluster_id 
+                    HAVING COUNT(*) = 1
+                )
+            """)
+            cleared_count = cursor.rowcount
+            logger.info(f"Cleared {cleared_count} individual_court_name values for single-court clusters")
+            
+            # Get all location-sport combinations that have multiple courts total
+            # This handles cases where a location has multiple clusters of the same sport
+            cursor.execute("""
+                SELECT photon_name, sport, COUNT(*) as total_courts
                 FROM courts 
-                WHERE cluster_id IS NOT NULL
-                GROUP BY cluster_id
+                WHERE cluster_id IS NOT NULL AND photon_name IS NOT NULL
+                GROUP BY photon_name, sport
                 HAVING COUNT(*) > 1
-                ORDER BY cluster_id
+                ORDER BY photon_name, sport
             """)
             
-            clusters = cursor.fetchall()
-            logger.info(f"Found {len(clusters)} clusters with multiple courts")
+            location_sports = cursor.fetchall()
+            logger.info(f"Found {len(location_sports)} location-sport combinations with multiple courts")
             
             total_updated = 0
             
-            for cluster_id, court_count in clusters:
-                # Get all courts in this cluster, ordered by id for consistent naming
+            for photon_name, sport, total_courts in location_sports:
+                # Get all courts for this location-sport combination, ordered by id
                 cursor.execute("""
-                    SELECT id, osm_id, photon_name
+                    SELECT id, osm_id, cluster_id
                     FROM courts 
-                    WHERE cluster_id = %s
+                    WHERE photon_name = %s AND sport = %s
                     ORDER BY id
-                """, (cluster_id,))
+                """, (photon_name, sport))
                 
                 courts = cursor.fetchall()
                 
-                # Assign individual court names
-                for i, (court_id, osm_id, photon_name) in enumerate(courts, 1):
+                # Assign sequential individual court names across ALL clusters
+                for i, (court_id, osm_id, cluster_id) in enumerate(courts, 1):
                     individual_name = f"Court {i}"
                     
                     cursor.execute("""
@@ -592,7 +612,7 @@ class CourtProcessingPipeline:
             logger.info(json.dumps({
                 'event': 'individual_court_names_added',
                 'total_updated': total_updated,
-                'clusters_processed': len(clusters)
+                'location_sports_processed': len(location_sports)
             }))
             
             return total_updated

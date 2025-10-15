@@ -3,6 +3,7 @@ Synchronous Photon geocoding provider for court data enrichment
 """
 
 import requests
+from requests.exceptions import HTTPError
 import json
 import logging
 import math
@@ -23,6 +24,11 @@ class PhotonGeocodingProvider:
         self.delay = delay
         self.last_request_time = 0
         
+        # Track optimization metrics
+        self.bounding_box_count = 0
+        self.distance_based_count = 0
+        self.total_requests = 0
+        
         logger.info(json.dumps({
             'event': 'photon_provider_initialized',
             'base_url': base_url,
@@ -32,108 +38,103 @@ class PhotonGeocodingProvider:
     def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Main entry point for reverse geocoding
         
-        PRIORITIZED APPROACH: Search schools and playgrounds first, reverse geocoding as fallback
-        Priority order:
-        1. School search + Park/playground search (pick closest from these two)
-        2. Reverse geocoding (only if no schools/playgrounds found)
+        OPTIMIZED BOUNDING BOX APPROACH: Search facility types in priority order with early exit
+        Priority order (with bounding box checks for early exit):
+        1. Parks/Playgrounds (osm_tag=leisure:park/playground, 1000 ft) - most relevant for courts
+        2. Schools/Universities (osm_tag=amenity:school/university, 500 ft) - educational institutions
+        3. Community centres (osm_tag=amenity:community_centre, 1000 ft) - JCC, etc.
+        4. Sports clubs (osm_tag=club:sport, 1000 ft) - tennis clubs, athletic clubs
+        5. Places of worship (osm_tag=amenity:place_of_worship, 500 ft) - churches with courts
+        6. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers
+        
+        If no bounding box matches, fall back to distance-based selection from collected results
         """
         try:
             # Rate limiting
             self._rate_limit()
             
-            # Search priority endpoints (schools and playgrounds)
-            priority_results = []
+            # Collect all results for potential distance-based fallback
+            all_collected_results = []
             
-            # 1. School search
-            school_results = self._try_school_search_all_results(lat, lon)
-            if school_results:
-                priority_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
-            
-            # 2. Park/playground search
-            park_results = self._try_search_fallback_all_results(lat, lon)
+            # 1. Parks/Playgrounds (highest priority for courts)
+            park_results = self._try_search_with_bounding_box(lat, lon, 'park', [
+                {'osm_tag': 'leisure:park', 'q': 'park'},
+                {'osm_tag': 'leisure:playground', 'q': 'playground'}
+            ], 1000)
             if park_results:
-                priority_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
-            
-            # Filter priority results for high quality names
-            high_quality_priority = [
-                result for result in priority_results 
-                if self._is_high_quality_name(result['name'])
-            ]
-            
-            # Use high quality priority results if available, otherwise use all priority results
-            priority_to_consider = high_quality_priority if high_quality_priority else priority_results
-            
-            if priority_to_consider:
-                # Pick the closest result from schools/playgrounds
-                closest_result = min(priority_to_consider, key=lambda x: x['distance'])
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
                 
-                # Add court count to name if multiple courts
-                name = closest_result['name']
-                if court_count > 1:
-                    name = f"{name} ({court_count} Courts)"
-                
-                logger.info(json.dumps({
-                    'event': 'priority_result_selected',
-                    'name': name,
-                    'endpoint': closest_result['endpoint'],
-                    'distance_km': round(closest_result['distance'], 3),
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count,
-                    'total_priority_results': len(priority_results),
-                    'high_quality_priority_results': len(high_quality_priority),
-                    'reason': 'found_school_or_playground_result'
-                }))
-                
-                return name, closest_result['data']
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(park_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'park', 'bounding_box_match')
             
-            # Fallback: Try reverse geocoding if no schools/playgrounds found
+            # 2. Schools/Universities
+            school_results = self._try_school_search_with_bounding_box(lat, lon)
+            if school_results:
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
+                
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(school_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'school', 'bounding_box_match')
+            
+            # 3. Community centres
+            community_results = self._try_community_centre_search_with_bounding_box(lat, lon)
+            if community_results:
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_results])
+                
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(community_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'community_centre', 'bounding_box_match')
+            
+            # 4. Sports clubs
+            sports_club_results = self._try_sports_club_search_with_bounding_box(lat, lon)
+            if sports_club_results:
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
+                
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(sports_club_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'sports_club', 'bounding_box_match')
+            
+            # 5. Places of worship
+            worship_results = self._try_place_of_worship_search_with_bounding_box(lat, lon)
+            if worship_results:
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in worship_results])
+                
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(worship_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'place_of_worship', 'bounding_box_match')
+            
+            # 6. Sports centres
+            sports_centre_results = self._try_sports_centre_search_with_bounding_box(lat, lon)
+            if sports_centre_results:
+                # Add to collected results for potential fallback
+                all_collected_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
+                
+                # Check for bounding box match
+                bounding_box_result = self._check_bounding_box_results(sports_centre_results, lat, lon)
+                if bounding_box_result:
+                    return self._format_result(bounding_box_result, court_count, 'sports_centre', 'bounding_box_match')
+            
+            # Fallback: No bounding box matches, use collected results for distance-based selection
             logger.info(json.dumps({
-                'event': 'falling_back_to_reverse_geocoding',
+                'event': 'no_bounding_box_matches',
                 'coordinates': {'lat': lat, 'lon': lon},
                 'court_count': court_count,
-                'reason': 'no_school_or_playground_results_found'
+                'reason': 'falling_back_to_distance_based_selection',
+                'collected_results_count': len(all_collected_results)
             }))
             
-            reverse_results = self._try_reverse_geocoding_all_results(lat, lon)
-            if not reverse_results:
-                logger.warning(json.dumps({
-                    'event': 'geocoding_completely_failed',
-                    'coordinates': {'lat': lat, 'lon': lon},
-                    'court_count': court_count,
-                    'reason': 'no_results_from_any_endpoint'
-                }))
-                return None, None
-            
-            # Filter reverse geocoding results for high quality names
-            high_quality_reverse = [
-                result for result in reverse_results 
-                if self._is_high_quality_name(result['name'])
-            ]
-            
-            # Use high quality reverse results if available, otherwise use all reverse results
-            reverse_to_consider = high_quality_reverse if high_quality_reverse else reverse_results
-            
-            # Pick the closest reverse geocoding result
-            closest_result = min(reverse_to_consider, key=lambda x: x['distance'])
-            
-            # Add court count to name if multiple courts
-            name = closest_result['name']
-            if court_count > 1:
-                name = f"{name} ({court_count} Courts)"
-            
-            logger.info(json.dumps({
-                'event': 'reverse_geocoding_fallback_used',
-                'name': name,
-                'endpoint': 'reverse',
-                'distance_km': round(closest_result['distance'], 3),
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'total_reverse_results': len(reverse_results),
-                'high_quality_reverse_results': len(high_quality_reverse),
-                'reason': 'no_school_or_playground_results_found'
-            }))
-            
-            return name, closest_result['data']
+            return self._fallback_to_distance_based_selection_with_results(all_collected_results, lat, lon, court_count)
             
         except Exception as e:
             logger.error(json.dumps({
@@ -175,31 +176,49 @@ class PhotonGeocodingProvider:
                     if not features:
                         continue
                     
-                    # Find all nearby results
+                    # Collect all results within search radius (no distance filtering)
                     for feature in features:
                         properties = feature.get('properties', {})
                         name = properties.get('name')
                         
                         if name:
-                            if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
-                                # Calculate distance
-                                coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                                result_lon, result_lat = coords[0], coords[1]
-                                distance = self._calculate_distance(lat, lon, result_lat, result_lon)
-                                
-                                all_nearby_results.append({
-                                    'name': name,
-                                    'data': feature,
-                                    'distance': distance
-                                })
-                                
+                            # Calculate distance
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside park bounding box
+                            park_extent = properties.get('extent')
+                            is_inside_park = self._is_point_in_park_extent(lat, lon, park_extent)
+                            
+                            # If court is inside park, give it huge priority (almost zero distance)
+                            if is_inside_park:
+                                distance = 0.001  # Almost zero distance for courts inside parks
                                 logger.info(json.dumps({
-                                    'event': 'nearby_result_found',
+                                    'event': 'court_inside_park',
                                     'name': name,
                                     'leisure_type': leisure_type['osm_tag'],
-                                    'distance_km': round(distance, 3),
-                                    'coordinates': {'lat': lat, 'lon': lon}
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'park_extent': park_extent
                                 }))
+                            
+                            all_nearby_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_park': is_inside_park
+                            })
+                            
+                            logger.info(json.dumps({
+                                'event': 'result_found',
+                                'name': name,
+                                'leisure_type': leisure_type['osm_tag'],
+                                'distance_km': round(distance, 3),
+                                'is_inside_park': is_inside_park,
+                                'coordinates': {'lat': lat, 'lon': lon}
+                            }))
                 
                 except Exception as e:
                     logger.error(json.dumps({
@@ -221,6 +240,261 @@ class PhotonGeocodingProvider:
         except Exception as e:
             logger.error(json.dumps({
                 'event': 'search_fallback_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_sports_centre_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby sports centres using search API and return all valid results"""
+        try:
+            # Search by osm_tag=leisure:sports_centre to catch recreation centers
+            params = {
+                'q': 'sports',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'leisure:sports_centre',  # Search by OSM tag
+                'limit': 3,
+                'location_bias_scale': 0.1,
+                'zoom': 20
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Collect all results within search radius (no distance filtering)
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    # Calculate distance
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'leisure:sports_centre',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
+            
+            logger.info(json.dumps({
+                'event': 'sports_centre_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'sports_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_sports_club_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby sports clubs using search API and return all valid results"""
+        try:
+            # Search by osm_tag=club:sport to catch tennis clubs, athletic clubs, etc.
+            params = {
+                'q': 'club',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'club:sport',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 20
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Collect all results within search radius (no distance filtering)
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'club:sport',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
+            
+            logger.info(json.dumps({
+                'event': 'sports_club_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'sports_club_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_community_centre_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby community centres using OSM tag search only"""
+        try:
+            # Only search by OSM tag - no name-based searches
+            # Note: Some facilities (like JCC SF) are poorly tagged as just 'building:yes'
+            # and won't be found. They'll get street names instead.
+            params = {
+                'q': 'community center',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'amenity:community_centre',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 20
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Collect all results within search radius (no distance filtering)
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'amenity:community_centre',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
+            
+            logger.info(json.dumps({
+                'event': 'community_centre_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'community_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_place_of_worship_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby places of worship using search API and return all valid results"""
+        try:
+            # Search by osm_tag=amenity:place_of_worship to catch churches with courts
+            params = {
+                'q': 'church',
+                'lat': lat,
+                'lon': lon,
+                'osm_tag': 'amenity:place_of_worship',
+                'limit': 5,
+                'location_bias_scale': 0.1,
+                'zoom': 18
+            }
+            
+            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            features = data.get('features', [])
+            if not features:
+                return []
+            
+            # Collect all results within search radius (no distance filtering)
+            all_nearby_results = []
+            for feature in features:
+                properties = feature.get('properties', {})
+                name = properties.get('name')
+                
+                if name:
+                    coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                    result_lon, result_lat = coords[0], coords[1]
+                    distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                    
+                    all_nearby_results.append({
+                        'name': name,
+                        'data': feature,
+                        'distance': distance
+                    })
+                    
+                    logger.info(json.dumps({
+                        'event': 'result_found',
+                        'name': name,
+                        'osm_type': 'amenity:place_of_worship',
+                        'distance_km': round(distance, 3),
+                        'coordinates': {'lat': lat, 'lon': lon}
+                    }))
+            
+            logger.info(json.dumps({
+                'event': 'place_of_worship_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'place_of_worship_search_error',
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
@@ -279,51 +553,275 @@ class PhotonGeocodingProvider:
             }))
             return []
     
-    def _try_school_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
-        """Try searching for schools and return all valid results"""
+    def _try_building_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby buildings using address-based reverse geocoding with radius parameter"""
         try:
+            # Use radius parameter (supported by /reverse endpoint)
+            # 0.1 km = ~328 feet (tight radius for very local addresses)
             params = {
-                'q': 'school',
-                'lat': lat,
                 'lon': lon,
-                'limit': 5,
-                'location_bias_scale': 0.1,
-                'zoom': 18
+                'lat': lat,
+                'limit': 10,
+                'radius': 0.1  # Search within 0.1 km radius (328 feet)
             }
             
-            response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+            response = requests.get(f"{self.base_url}/reverse", params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
+            all_nearby_results = []
             features = data.get('features', [])
-            if not features:
-                return []
             
-            # Filter results by distance and quality
-            valid_results = []
             for feature in features:
-                # Check if result is within acceptable distance (1000 feet = 0.305 km)
-                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.305):
-                    name = self._extract_name(feature)
-                    if name:
-                        # Calculate distance for sorting
-                        coords = feature.get('geometry', {}).get('coordinates', [0, 0])
-                        result_lon, result_lat = coords[0], coords[1]
-                        distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.076):  # 250ft
+                    # Extract address information
+                    properties = feature.get('properties', {})
+                    
+                    # Look for address components
+                    housenumber = properties.get('housenumber')
+                    street = properties.get('street')
+                    name = properties.get('name')
+                    
+                    # Create address-based name (remove street numbers)
+                    address_name = None
+                    if street:
+                        # Always use just the street name, not the housenumber
+                        address_name = street
+                    elif name and ('Street' in name or 'Avenue' in name or 'Boulevard' in name):
+                        address_name = name
+                    
+                    if address_name:
+                        distance = self._calculate_distance(
+                            lat, lon,
+                            feature['geometry']['coordinates'][1],
+                            feature['geometry']['coordinates'][0]
+                        )
                         
-                        valid_results.append({
-                            'name': name,
+                        # Determine if it's likely residential based on context
+                        is_residential = self._is_likely_residential(properties)
+                        
+                        all_nearby_results.append({
+                            'name': address_name,
+                            'distance': distance,
                             'data': feature,
-                            'distance': distance
+                            'type': 'address',
+                            'is_residential': is_residential
                         })
+            
+            # Sort by distance
+            all_nearby_results.sort(key=lambda x: x['distance'])
+            
+            logger.info(json.dumps({
+                'event': 'address_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results),
+                'residential_results': len([r for r in all_nearby_results if r.get('is_residential', False)]),
+                'parameters': {'radius_km': 0.1, 'limit': 10}
+            }))
+            
+            return all_nearby_results
+        
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'address_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _is_likely_residential(self, properties: Dict[str, Any]) -> bool:
+        """Determine if a location is likely residential based on properties"""
+        # Check for residential indicators
+        name = properties.get('name', '').lower()
+        osm_key = properties.get('osm_key', '')
+        osm_value = properties.get('osm_value', '')
+        
+        # Residential indicators
+        residential_indicators = [
+            'apartment', 'condo', 'house', 'residential', 'home',
+            'street', 'avenue', 'boulevard', 'drive', 'lane', 'place', 'court'
+        ]
+        
+        # Non-residential indicators  
+        non_residential_indicators = [
+            'school', 'park', 'playground', 'office', 'commercial', 'business',
+            'hospital', 'church', 'library', 'gym', 'sports', 'center'
+        ]
+        
+        # Check name for residential indicators
+        if any(indicator in name for indicator in non_residential_indicators):
+            return False
+        
+        if any(indicator in name for indicator in residential_indicators):
+            return True
+        
+        # Check OSM tags
+        if osm_key == 'amenity' and osm_value in ['school', 'hospital', 'library', 'place_of_worship']:
+            return False
+        
+        if osm_key == 'leisure' and osm_value in ['park', 'playground', 'sports_centre']:
+            return False
+        
+        # Default to residential if it has an address
+        housenumber = properties.get('housenumber')
+        street = properties.get('street')
+        if housenumber and street:
+            return True
+        
+        return False
+    
+    def _try_residential_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try to find nearby residential buildings and return all valid results"""
+        try:
+            # Search for residential buildings (apartments, houses, condos)
+            residential_types = [
+                {'osm_tag': 'building:apartments', 'q': 'apartments'},
+                {'osm_tag': 'building:residential', 'q': 'residential'},
+                {'osm_tag': 'building:house', 'q': 'house'},
+                {'osm_tag': 'building:condominium', 'q': 'condo'}
+            ]
+            
+            all_nearby_results = []
+            
+            for building_type in residential_types:
+                try:
+                    params = {
+                        'q': building_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': building_type['osm_tag'],
+                        'location_bias_scale': 0.05,  # Very tight radius for residential
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    for feature in features:
+                        if self._is_nearby_result(feature, lat, lon, max_distance_km=0.061):  # 200ft
+                            name = self._extract_name_from_feature(feature)
+                            if name:
+                                distance = self._calculate_distance(
+                                    lat, lon,
+                                    feature['geometry']['coordinates'][1],
+                                    feature['geometry']['coordinates'][0]
+                                )
+                                all_nearby_results.append({
+                                    'name': name,
+                                    'distance': distance,
+                                    'data': feature,
+                                    'type': 'residential'
+                                })
+                    
+                    time.sleep(self.delay)  # Rate limiting
+                    
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'residential_search_error',
+                        'building_type': building_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            # Sort by distance
+            all_nearby_results.sort(key=lambda x: x['distance'])
+            
+            logger.info(json.dumps({
+                'event': 'residential_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_nearby_results)
+            }))
+            
+            return all_nearby_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'residential_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_school_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Try searching for schools and universities by OSM tag and return all valid results"""
+        try:
+            all_valid_results = []
+            
+            # Search for both schools and universities (multiple OSM tag types and query terms)
+            # Different query terms catch different school names (e.g., "academy" finds "International Studies Academy")
+            educational_tags = [
+                {'osm_tag': 'amenity:school', 'q': 'school'},
+                {'osm_tag': 'amenity:school', 'q': 'academy'},  # Catches schools named "...Academy"
+                {'osm_tag': 'building:school', 'q': 'school'},  # Some schools tagged as buildings
+                {'osm_tag': 'amenity:university', 'q': 'university'},
+                {'osm_tag': 'amenity:college', 'q': 'college'}
+            ]
+            
+            for edu_type in educational_tags:
+                try:
+                    params = {
+                        'q': edu_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': edu_type['osm_tag'],
+                        'limit': 15,  # Increased to catch more schools
+                        'location_bias_scale': 0.1,
+                        'zoom': 18
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    
+                    # Collect results within 500 feet (0.152 km) radius
+                    for feature in features:
+                        name = self._extract_name(feature)
+                        if name:
+                            # Calculate distance for filtering
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Only include results within 500 feet (0.152 km)
+                            if distance <= 0.152:
+                                all_valid_results.append({
+                                    'name': name,
+                                    'data': feature,
+                                    'distance': distance
+                                })
+                    
+                    time.sleep(self.delay)  # Rate limiting between searches
+                    
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'educational_search_error',
+                        'edu_type': edu_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            # Remove duplicates and sort by distance
+            seen_names = set()
+            unique_results = []
+            for result in sorted(all_valid_results, key=lambda x: x['distance']):
+                if result['name'] not in seen_names:
+                    seen_names.add(result['name'])
+                    unique_results.append(result)
             
             logger.info(json.dumps({
                 'event': 'school_search_completed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'total_results': len(valid_results)
+                'total_results': len(unique_results)
             }))
             
-            return valid_results
+            return unique_results
             
         except Exception as e:
             logger.error(json.dumps({
@@ -451,6 +949,725 @@ class PhotonGeocodingProvider:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
         
         return R * c
+    
+    def _is_point_in_park_extent(self, court_lat: float, court_lon: float, park_extent: List[float]) -> bool:
+        """Check if court is inside park's bounding box
+        
+        Args:
+            court_lat: Court latitude
+            court_lon: Court longitude  
+            park_extent: Park bounding box [min_lon, max_lat, max_lon, min_lat]
+        
+        Returns:
+            True if court is inside park bounding box
+        """
+        if not park_extent or len(park_extent) != 4:
+            return False
+            
+        min_lon, max_lat, max_lon, min_lat = park_extent
+        return (min_lat <= court_lat <= max_lat and 
+                min_lon <= court_lon <= max_lon)
+    
+    def _is_point_in_facility_extent(self, court_lat: float, court_lon: float, facility_extent: List[float]) -> bool:
+        """Check if court is inside facility's bounding box
+        
+        Args:
+            court_lat: Court latitude
+            court_lon: Court longitude  
+            facility_extent: Facility bounding box [min_lon, max_lat, max_lon, min_lat]
+        
+        Returns:
+            True if court is inside facility bounding box
+        """
+        if not facility_extent or len(facility_extent) != 4:
+            return False
+            
+        min_lon, max_lat, max_lon, min_lat = facility_extent
+        return (min_lat <= court_lat <= max_lat and 
+                min_lon <= court_lon <= max_lon)
+    
+    def _try_search_with_bounding_box(self, lat: float, lon: float, search_type: str, 
+                                     leisure_types: List[Dict[str, str]], radius_ft: int) -> List[Dict[str, Any]]:
+        """Generic search method with bounding box support"""
+        try:
+            all_results = []
+            
+            for leisure_type in leisure_types:
+                try:
+                    params = {
+                        'q': leisure_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': leisure_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside facility bounding box
+                            facility_extent = properties.get('extent')
+                            is_inside_facility = self._is_point_in_facility_extent(lat, lon, facility_extent)
+                            
+                            if is_inside_facility:
+                                distance = 0.001  # Almost zero distance for courts inside facilities
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_facility',
+                                    'name': name,
+                                    'search_type': search_type,
+                                    'leisure_type': leisure_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'facility_extent': facility_extent
+                                }))
+                            
+                            all_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_facility': is_inside_facility,
+                                'search_type': search_type,
+                                'leisure_type': leisure_type['osm_tag']
+                            })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'search_error',
+                        'search_type': search_type,
+                        'leisure_type': leisure_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': f'{search_type}_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': f'{search_type}_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _check_bounding_box_results(self, results: List[Dict[str, Any]], lat: float, lon: float) -> Optional[Dict[str, Any]]:
+        """Check if any results have bounding box matches and return the best one"""
+        bounding_box_results = [r for r in results if r.get('is_inside_facility', False)]
+        
+        if bounding_box_results:
+            # Sort by distance and return the closest bounding box match
+            sorted_results = sorted(bounding_box_results, key=lambda x: x['distance'])
+            return sorted_results[0]
+        
+        return None
+    
+    def _format_result(self, result: Dict[str, Any], court_count: int, endpoint: str, reason: str) -> Tuple[str, Dict[str, Any]]:
+        """Format the final result with proper naming and logging"""
+        name = result['name']
+        if court_count > 1:
+            name = f"{name} ({court_count} Courts)"
+        
+        # Track optimization metrics
+        optimization_type = "bounding_box" if reason == "bounding_box_match" else "distance_based"
+        
+        # Update counters
+        self.total_requests += 1
+        if optimization_type == "bounding_box":
+            self.bounding_box_count += 1
+        else:
+            self.distance_based_count += 1
+        
+        logger.info(json.dumps({
+            'event': 'result_selected',
+            'name': name,
+            'endpoint': endpoint,
+            'distance_km': round(result['distance'], 3),
+            'is_inside_facility': result.get('is_inside_facility', False),
+            'reason': reason,
+            'optimization_type': optimization_type,
+            'is_high_quality': self._is_high_quality_name(result['name']),
+            'optimization_stats': self.get_optimization_stats()
+        }))
+        
+        return name, result['data']
+    
+    def get_optimization_stats(self) -> Dict[str, Any]:
+        """Get optimization statistics"""
+        if self.total_requests == 0:
+            return {
+                'total_requests': 0,
+                'bounding_box_percentage': 0.0,
+                'distance_based_percentage': 0.0
+            }
+        
+        return {
+            'total_requests': self.total_requests,
+            'bounding_box_count': self.bounding_box_count,
+            'distance_based_count': self.distance_based_count,
+            'bounding_box_percentage': round((self.bounding_box_count / self.total_requests) * 100, 1),
+            'distance_based_percentage': round((self.distance_based_count / self.total_requests) * 100, 1)
+        }
+    
+    def _fallback_to_distance_based_selection_with_results(self, collected_results: List[Dict[str, Any]], lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Optimized fallback method: use collected results from bounding box phase for distance-based selection"""
+        if collected_results:
+            # Sort by distance and pick the closest result
+            sorted_results = sorted(collected_results, key=lambda x: x['distance'])
+            closest_result = sorted_results[0]
+            
+            logger.info(json.dumps({
+                'event': 'distance_based_selection_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'court_count': court_count,
+                'total_candidates': len(collected_results),
+                'selected_result': {
+                    'name': closest_result['name'],
+                    'endpoint': closest_result['endpoint'],
+                    'distance_km': round(closest_result['distance'], 3)
+                }
+            }))
+            
+            return self._format_result(closest_result, court_count, closest_result['endpoint'], 'distance_based_fallback')
+        
+        # No results from any priority search - geocoding failed
+        logger.warning(json.dumps({
+            'event': 'geocoding_failed',
+            'coordinates': {'lat': lat, 'lon': lon},
+            'court_count': court_count,
+            'reason': 'no_priority_results_found'
+        }))
+        return None, None
+
+    def _fallback_to_distance_based_selection(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Legacy fallback method: run all searches and use distance-based selection (DEPRECATED - use _fallback_to_distance_based_selection_with_results instead)"""
+        # Collect all results from priority searches
+        all_results = []
+        
+        # 1. Sports club search (1000ft radius)
+        sports_club_results = self._try_sports_club_search_all_results(lat, lon)
+        if sports_club_results:
+            all_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
+        
+        # 2. Sports centre search (1000ft radius)
+        sports_centre_results = self._try_sports_centre_search_all_results(lat, lon)
+        if sports_centre_results:
+            all_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
+        
+        # 3. Community centre search (1000ft radius)
+        community_centre_results = self._try_community_centre_search_all_results(lat, lon)
+        if community_centre_results:
+            all_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_centre_results])
+        
+        # 4. School search (500ft radius)
+        school_results = self._try_school_search_all_results(lat, lon)
+        if school_results:
+            all_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
+        
+        # 5. Place of worship search (500ft radius)
+        place_of_worship_results = self._try_place_of_worship_search_all_results(lat, lon)
+        if place_of_worship_results:
+            all_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in place_of_worship_results])
+        
+        # 6. Park/playground search (1000ft radius)
+        park_results = self._try_search_fallback_all_results(lat, lon)
+        if park_results:
+            all_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
+        
+        if all_results:
+            # Sort by distance and pick the closest result
+            sorted_results = sorted(all_results, key=lambda x: x['distance'])
+            closest_result = sorted_results[0]
+            
+            return self._format_result(closest_result, court_count, closest_result['endpoint'], 'distance_based_fallback')
+        
+        # No results from any priority search - geocoding failed
+        logger.warning(json.dumps({
+            'event': 'geocoding_failed',
+            'coordinates': {'lat': lat, 'lon': lon},
+            'court_count': court_count,
+            'reason': 'no_priority_results_found'
+        }))
+        return None, None
+    
+    def _try_school_search_with_bounding_box(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """School search with bounding box support"""
+        try:
+            all_results = []
+            
+            # Define school types - match the working old method
+            school_types = [
+                {'osm_tag': 'amenity:school', 'q': 'school'},
+                {'osm_tag': 'amenity:school', 'q': 'academy'},  # Catches schools named "...Academy"
+                {'osm_tag': 'building:school', 'q': 'school'},  # Some schools tagged as buildings
+                {'osm_tag': 'amenity:university', 'q': 'university'},
+                {'osm_tag': 'amenity:college', 'q': 'college'}
+            ]
+            
+            for school_type in school_types:
+                try:
+                    params = {
+                        'q': school_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': school_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 18,  # Broader search area like old method
+                        'limit': 3  # Test with limit 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside school bounding box
+                            school_extent = properties.get('extent')
+                            is_inside_school = self._is_point_in_facility_extent(lat, lon, school_extent)
+                            
+                            if is_inside_school:
+                                distance = 0.001  # Almost zero distance for courts inside schools
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_school',
+                                    'name': name,
+                                    'school_type': school_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'school_extent': school_extent
+                                }))
+                            
+                            # Only include results within 500 feet (0.152 km) or inside bounding box
+                            if distance <= 0.152 or is_inside_school:
+                                all_results.append({
+                                    'name': name,
+                                    'data': feature,
+                                    'distance': distance,
+                                    'is_inside_facility': is_inside_school,
+                                    'search_type': 'school',
+                                    'leisure_type': school_type['osm_tag']
+                                })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'school_search_error',
+                        'school_type': school_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': 'school_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'school_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_community_centre_search_with_bounding_box(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Community centre search with bounding box support"""
+        try:
+            all_results = []
+            
+            # Define community centre types
+            community_types = [
+                {'osm_tag': 'amenity:community_centre', 'q': 'community center'},
+                {'osm_tag': 'amenity:community_centre', 'q': 'community centre'}
+            ]
+            
+            for community_type in community_types:
+                try:
+                    params = {
+                        'q': community_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': community_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside community centre bounding box
+                            community_extent = properties.get('extent')
+                            is_inside_community = self._is_point_in_facility_extent(lat, lon, community_extent)
+                            
+                            if is_inside_community:
+                                distance = 0.001  # Almost zero distance for courts inside community centres
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_community_centre',
+                                    'name': name,
+                                    'community_type': community_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'community_extent': community_extent
+                                }))
+                            
+                            all_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_facility': is_inside_community,
+                                'search_type': 'community_centre',
+                                'leisure_type': community_type['osm_tag']
+                            })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'community_search_error',
+                        'community_type': community_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': 'community_centre_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'community_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_sports_club_search_with_bounding_box(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Sports club search with bounding box support"""
+        try:
+            all_results = []
+            
+            # Define sports club types
+            sports_types = [
+                {'osm_tag': 'club:sport', 'q': 'tennis club'},
+                {'osm_tag': 'club:sport', 'q': 'athletic club'},
+                {'osm_tag': 'club:sport', 'q': 'sports club'}
+            ]
+            
+            for sports_type in sports_types:
+                try:
+                    params = {
+                        'q': sports_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': sports_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside sports club bounding box
+                            sports_extent = properties.get('extent')
+                            is_inside_sports = self._is_point_in_facility_extent(lat, lon, sports_extent)
+                            
+                            if is_inside_sports:
+                                distance = 0.001  # Almost zero distance for courts inside sports clubs
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_sports_club',
+                                    'name': name,
+                                    'sports_type': sports_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'sports_extent': sports_extent
+                                }))
+                            
+                            all_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_facility': is_inside_sports,
+                                'search_type': 'sports_club',
+                                'leisure_type': sports_type['osm_tag']
+                            })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'sports_club_search_error',
+                        'sports_type': sports_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': 'sports_club_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'sports_club_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_place_of_worship_search_with_bounding_box(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Place of worship search with bounding box support"""
+        try:
+            all_results = []
+            
+            # Define worship types
+            worship_types = [
+                {'osm_tag': 'amenity:place_of_worship', 'q': 'church'},
+                {'osm_tag': 'amenity:place_of_worship', 'q': 'mosque'},
+                {'osm_tag': 'amenity:place_of_worship', 'q': 'synagogue'}
+            ]
+            
+            for worship_type in worship_types:
+                try:
+                    params = {
+                        'q': worship_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': worship_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside place of worship bounding box
+                            worship_extent = properties.get('extent')
+                            is_inside_worship = self._is_point_in_facility_extent(lat, lon, worship_extent)
+                            
+                            if is_inside_worship:
+                                distance = 0.001  # Almost zero distance for courts inside places of worship
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_place_of_worship',
+                                    'name': name,
+                                    'worship_type': worship_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'worship_extent': worship_extent
+                                }))
+                            
+                            all_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_facility': is_inside_worship,
+                                'search_type': 'place_of_worship',
+                                'leisure_type': worship_type['osm_tag']
+                            })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'worship_search_error',
+                        'worship_type': worship_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': 'place_of_worship_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'place_of_worship_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
+    
+    def _try_sports_centre_search_with_bounding_box(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Sports centre search with bounding box support"""
+        try:
+            all_results = []
+            
+            # Define sports centre types
+            sports_centre_types = [
+                {'osm_tag': 'leisure:sports_centre', 'q': 'sports center'},
+                {'osm_tag': 'leisure:sports_centre', 'q': 'recreation center'}
+            ]
+            
+            for sports_centre_type in sports_centre_types:
+                try:
+                    params = {
+                        'q': sports_centre_type['q'],
+                        'lat': lat,
+                        'lon': lon,
+                        'osm_tag': sports_centre_type['osm_tag'],
+                        'location_bias_scale': 0.1,
+                        'zoom': 20,
+                        'limit': 3
+                    }
+                    
+                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    features = data.get('features', [])
+                    if not features:
+                        continue
+                    
+                    for feature in features:
+                        properties = feature.get('properties', {})
+                        name = properties.get('name')
+                        
+                        if name:
+                            coords = feature.get('geometry', {}).get('coordinates', [0, 0])
+                            result_lon, result_lat = coords[0], coords[1]
+                            distance = self._calculate_distance(lat, lon, result_lat, result_lon)
+                            
+                            # Check if court is inside sports centre bounding box
+                            sports_centre_extent = properties.get('extent')
+                            is_inside_sports_centre = self._is_point_in_facility_extent(lat, lon, sports_centre_extent)
+                            
+                            if is_inside_sports_centre:
+                                distance = 0.001  # Almost zero distance for courts inside sports centres
+                                logger.info(json.dumps({
+                                    'event': 'court_inside_sports_centre',
+                                    'name': name,
+                                    'sports_centre_type': sports_centre_type['osm_tag'],
+                                    'original_distance_km': round(self._calculate_distance(lat, lon, result_lat, result_lon), 3),
+                                    'adjusted_distance_km': 0.001,
+                                    'coordinates': {'lat': lat, 'lon': lon},
+                                    'sports_centre_extent': sports_centre_extent
+                                }))
+                            
+                            all_results.append({
+                                'name': name,
+                                'data': feature,
+                                'distance': distance,
+                                'is_inside_facility': is_inside_sports_centre,
+                                'search_type': 'sports_centre',
+                                'leisure_type': sports_centre_type['osm_tag']
+                            })
+                
+                except Exception as e:
+                    logger.error(json.dumps({
+                        'event': 'sports_centre_search_error',
+                        'sports_centre_type': sports_centre_type['osm_tag'],
+                        'coordinates': {'lat': lat, 'lon': lon},
+                        'error': str(e)
+                    }))
+                    continue
+            
+            logger.info(json.dumps({
+                'event': 'sports_centre_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'total_results': len(all_results)
+            }))
+            
+            return all_results
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'sports_centre_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return []
     
     def _extract_name(self, feature: Dict[str, Any]) -> Optional[str]:
         """Extract the best available name from a Photon feature"""
