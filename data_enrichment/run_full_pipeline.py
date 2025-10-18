@@ -130,7 +130,9 @@ def test_single_way(way_id: str, connection_string: str):
         target_way = None
         for feature in geojson_data.get('features', []):
             properties = feature.get('properties', {})
-            if properties.get('osm_id') == way_id:
+            # Handle both "way/123" and "123" formats
+            osm_id = properties.get('osm_id', '')
+            if osm_id == way_id or osm_id == f"way/{way_id}" or (way_id.startswith('way/') and osm_id == way_id):
                 target_way = feature
                 break
         

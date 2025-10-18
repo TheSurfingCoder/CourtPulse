@@ -1,0 +1,65 @@
+{
+  "timestamp": "2025-10-15T18:30:50.086413",
+  "way_id": "32649024",
+  "coordinates": {
+    "lat": 37.80209232,
+    "lon": -122.43441733999998
+  },
+  "sport": "basketball",
+  "hoops": "2",
+  "geocoding_result": {
+    "name": "Moscone Recreation Center (2 Courts)",
+    "data": {
+      "name": "Moscone Recreation Center",
+      "distance_km": 0.111721,
+      "source": "bounding_box_search",
+      "is_inside_bbox": true,
+      "osm_id": 24562872,
+      "osm_key": "leisure",
+      "osm_value": "park",
+      "feature": {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 24562872,
+          "osm_key": "leisure",
+          "osm_value": "park",
+          "type": "other",
+          "countrycode": "US",
+          "name": "Moscone Recreation Center",
+          "country": "United States",
+          "city": "San Francisco",
+          "locality": "Marina District",
+          "state": "California",
+          "extent": [
+            -122.4348482,
+            37.8031288,
+            -122.431451,
+            37.8011398
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -122.43320142259066,
+            37.8023864
+          ]
+        }
+      }
+    }
+  },
+  "performance": {
+    "duration_seconds": 16.170157,
+    "features_per_second": 0.06184231853778538
+  },
+  "optimization_stats": {
+    "total_requests": 0,
+    "bounding_box_percentage": 0.0,
+    "distance_based_percentage": 0.0
+  },
+  "success": true,
+  "total_features": 1,
+  "processed_features": 1,
+  "success_rate": 100.0,
+  "frontend_ready": true
+}

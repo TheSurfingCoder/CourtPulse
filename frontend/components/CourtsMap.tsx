@@ -16,6 +16,7 @@ interface Court {
   lng: number;
   surface: string;
   is_public: boolean;
+  school: boolean;
   cluster_group_name: string;
   created_at: string;
   updated_at: string;
@@ -29,11 +30,13 @@ interface CourtsMapProps {
     sport: string;
     surface_type: string;
     is_public: boolean | undefined;
+    school: boolean | undefined;
   };
   onFiltersChange: (filters: {
     sport: string;
     surface_type: string;
     is_public: boolean | undefined;
+    school: boolean | undefined;
   }) => void;
   onRefresh: () => void;
   loading: boolean;
@@ -116,7 +119,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Track last searched area for smart re-query detection
   const lastSearchedArea = useRef<{
     bbox: [number, number, number, number];
-    filters: { sport: string; surface_type: string; is_public: boolean | undefined };
+    filters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined };
   } | null>(null);
 
   // Use external needsNewSearch state only - no internal state
@@ -168,7 +171,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   };
 
   // Helper function to find cache hit based on coverage area
-  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined }, shouldLog: boolean = true) => {
+  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined }, shouldLog: boolean = true) => {
     // Round search bbox to same precision as cache keys
     const roundedSearchBbox: [number, number, number, number] = searchBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
     
@@ -189,6 +192,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           if (filters.sport && court.type !== filters.sport) return false;
           if (filters.surface_type && court.surface !== filters.surface_type) return false;
           if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
+          if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });
         
@@ -214,7 +218,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   };
 
   // Helper function to check if user has moved to a new area requiring search
-  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string; surface_type: string; is_public: boolean | undefined }) => {
+  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined }) => {
     if (!lastSearchedArea.current) return false;
     
     // Check if we have cached data that can cover this area
@@ -338,6 +342,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         type: court.type,
         surface: court.surface,
         is_public: court.is_public,
+        school: court.school,
         cluster_group_name: court.cluster_group_name
       },
       geometry: {
@@ -503,7 +508,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     }, 300); // 300ms debounce
     
     return () => clearTimeout(filterTimer);
-  }, [filters.sport, filters.surface_type, filters.is_public]);
+  }, [filters.sport, filters.surface_type, filters.is_public, filters.school]);
 
   // Detect when user has moved to a new area requiring search
   useEffect(() => {
@@ -613,6 +618,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           if (filters.sport && court.type !== filters.sport) return false;
           if (filters.surface_type && court.surface !== filters.surface_type) return false;
           if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
+          if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });
         
@@ -693,6 +699,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         lng: lng,
         surface: cluster.properties.surface || 'Unknown',
         is_public: cluster.properties.is_public,
+        school: cluster.properties.school || false,
         cluster_group_name: cluster.properties.cluster_group_name || 'Unknown Group',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -919,7 +926,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
               <div className="space-y-2 text-sm mb-3">
                 <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>
                 <p><span className="font-medium">Surface:</span> {selectedCluster.properties.surface}</p>
-                <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public ? 'Yes' : 'No'}</p>
+                <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public === true ? 'Yes' : selectedCluster.properties.is_public === false ? 'No' : 'Unknown'}</p>
+                <p><span className="font-medium">School:</span> {selectedCluster.properties.school ? 'Yes' : 'No'}</p>
               </div>
             </div>
           </Popup>

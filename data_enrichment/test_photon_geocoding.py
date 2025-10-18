@@ -11,6 +11,7 @@ import time
 from typing import Dict, Any, List, Tuple, Optional
 from dataclasses import dataclass
 from shapely.geometry import Polygon, Point
+from bounding_box_geocoding import BoundingBoxGeocodingProvider
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +30,9 @@ class PhotonGeocodingProvider:
         self.distance_based_count = 0
         self.total_requests = 0
         
+        # Initialize bounding box geocoding provider
+        self.bbox_provider = BoundingBoxGeocodingProvider(base_url, delay)
+        
         logger.info(json.dumps({
             'event': 'photon_provider_initialized',
             'base_url': base_url,
@@ -38,103 +42,35 @@ class PhotonGeocodingProvider:
     def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Main entry point for reverse geocoding
         
-        OPTIMIZED BOUNDING BOX APPROACH: Search facility types in priority order with early exit
-        Priority order (with bounding box checks for early exit):
-        1. Parks/Playgrounds (osm_tag=leisure:park/playground, 1000 ft) - most relevant for courts
-        2. Schools/Universities (osm_tag=amenity:school/university, 500 ft) - educational institutions
-        3. Community centres (osm_tag=amenity:community_centre, 1000 ft) - JCC, etc.
-        4. Sports clubs (osm_tag=club:sport, 1000 ft) - tennis clubs, athletic clubs
-        5. Places of worship (osm_tag=amenity:place_of_worship, 500 ft) - churches with courts
-        6. Sports centres (osm_tag=leisure:sports_centre, 1000 ft) - rec centers
-        
-        If no bounding box matches, fall back to distance-based selection from collected results
+        HYBRID APPROACH: Try bounding box search first, fallback to distance-based search
+        1. Bounding box search (NEW - higher accuracy, fewer API calls)
+        2. Distance-based search (FALLBACK - proven reliable)
         """
         try:
-            # Rate limiting
-            self._rate_limit()
-            
-            # Collect all results for potential distance-based fallback
-            all_collected_results = []
-            
-            # 1. Parks/Playgrounds (highest priority for courts)
-            park_results = self._try_search_with_bounding_box(lat, lon, 'park', [
-                {'osm_tag': 'leisure:park', 'q': 'park'},
-                {'osm_tag': 'leisure:playground', 'q': 'playground'}
-            ], 1000)
-            if park_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(park_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'park', 'bounding_box_match')
-            
-            # 2. Schools/Universities
-            school_results = self._try_school_search_with_bounding_box(lat, lon)
-            if school_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(school_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'school', 'bounding_box_match')
-            
-            # 3. Community centres
-            community_results = self._try_community_centre_search_with_bounding_box(lat, lon)
-            if community_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(community_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'community_centre', 'bounding_box_match')
-            
-            # 4. Sports clubs
-            sports_club_results = self._try_sports_club_search_with_bounding_box(lat, lon)
-            if sports_club_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(sports_club_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'sports_club', 'bounding_box_match')
-            
-            # 5. Places of worship
-            worship_results = self._try_place_of_worship_search_with_bounding_box(lat, lon)
-            if worship_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in worship_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(worship_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'place_of_worship', 'bounding_box_match')
-            
-            # 6. Sports centres
-            sports_centre_results = self._try_sports_centre_search_with_bounding_box(lat, lon)
-            if sports_centre_results:
-                # Add to collected results for potential fallback
-                all_collected_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
-                
-                # Check for bounding box match
-                bounding_box_result = self._check_bounding_box_results(sports_centre_results, lat, lon)
-                if bounding_box_result:
-                    return self._format_result(bounding_box_result, court_count, 'sports_centre', 'bounding_box_match')
-            
-            # Fallback: No bounding box matches, use collected results for distance-based selection
             logger.info(json.dumps({
-                'event': 'no_bounding_box_matches',
+                'event': 'reverse_geocoding_started',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'reason': 'falling_back_to_distance_based_selection',
-                'collected_results_count': len(all_collected_results)
+                'court_count': court_count
             }))
             
-            return self._fallback_to_distance_based_selection_with_results(all_collected_results, lat, lon, court_count)
+            # 1. Try bounding box search first (NEW METHOD)
+            bbox_result = self._try_bounding_box_search(lat, lon, court_count)
+            if bbox_result[0]:  # If we found a result
+                logger.info(json.dumps({
+                    'event': 'bounding_box_search_success',
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'facility_name': bbox_result[0]
+                }))
+                return bbox_result
+            
+            # 2. Fallback to current distance-based search (PROVEN METHOD)
+            logger.info(json.dumps({
+                'event': 'bounding_box_search_failed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'reason': 'falling_back_to_distance_based_search'
+            }))
+            
+            return self._try_distance_based_search(lat, lon, court_count)
             
         except Exception as e:
             logger.error(json.dumps({
@@ -163,14 +99,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': leisure_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 18,  # ~300m radius for 1000ft search
                         'limit': 3  # Get more results to choose from
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -255,8 +192,8 @@ class PhotonGeocodingProvider:
                 'lon': lon,
                 'osm_tag': 'leisure:sports_centre',  # Search by OSM tag
                 'limit': 3,
-                'location_bias_scale': 0.1,
-                'zoom': 20
+                'location_bias_scale': 0.2,  # Default prominence bias
+                'zoom': 20  # ~60m radius for 200ft search
             }
             
             response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
@@ -319,8 +256,8 @@ class PhotonGeocodingProvider:
                 'lon': lon,
                 'osm_tag': 'club:sport',
                 'limit': 5,
-                'location_bias_scale': 0.1,
-                'zoom': 20
+                'location_bias_scale': 0.2,  # Default prominence bias
+                'zoom': 20  # ~60m radius for 200ft search
             }
             
             response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
@@ -384,8 +321,8 @@ class PhotonGeocodingProvider:
                 'lon': lon,
                 'osm_tag': 'amenity:community_centre',
                 'limit': 5,
-                'location_bias_scale': 0.1,
-                'zoom': 20
+                'location_bias_scale': 0.2,  # Default prominence bias
+                'zoom': 20  # ~60m radius for 200ft search
             }
             
             response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
@@ -447,8 +384,8 @@ class PhotonGeocodingProvider:
                 'lon': lon,
                 'osm_tag': 'amenity:place_of_worship',
                 'limit': 5,
-                'location_bias_scale': 0.1,
-                'zoom': 18
+                        'location_bias_scale': 0.0015,  # ~165m radius for 500ft search
+                        'zoom': 18
             }
             
             response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
@@ -553,198 +490,7 @@ class PhotonGeocodingProvider:
             }))
             return []
     
-    def _try_building_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
-        """Try to find nearby buildings using address-based reverse geocoding with radius parameter"""
-        try:
-            # Use radius parameter (supported by /reverse endpoint)
-            # 0.1 km = ~328 feet (tight radius for very local addresses)
-            params = {
-                'lon': lon,
-                'lat': lat,
-                'limit': 10,
-                'radius': 0.1  # Search within 0.1 km radius (328 feet)
-            }
-            
-            response = requests.get(f"{self.base_url}/reverse", params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
-            all_nearby_results = []
-            features = data.get('features', [])
-            
-            for feature in features:
-                if self._is_nearby_result(feature, lat, lon, max_distance_km=0.076):  # 250ft
-                    # Extract address information
-                    properties = feature.get('properties', {})
-                    
-                    # Look for address components
-                    housenumber = properties.get('housenumber')
-                    street = properties.get('street')
-                    name = properties.get('name')
-                    
-                    # Create address-based name (remove street numbers)
-                    address_name = None
-                    if street:
-                        # Always use just the street name, not the housenumber
-                        address_name = street
-                    elif name and ('Street' in name or 'Avenue' in name or 'Boulevard' in name):
-                        address_name = name
-                    
-                    if address_name:
-                        distance = self._calculate_distance(
-                            lat, lon,
-                            feature['geometry']['coordinates'][1],
-                            feature['geometry']['coordinates'][0]
-                        )
-                        
-                        # Determine if it's likely residential based on context
-                        is_residential = self._is_likely_residential(properties)
-                        
-                        all_nearby_results.append({
-                            'name': address_name,
-                            'distance': distance,
-                            'data': feature,
-                            'type': 'address',
-                            'is_residential': is_residential
-                        })
-            
-            # Sort by distance
-            all_nearby_results.sort(key=lambda x: x['distance'])
-            
-            logger.info(json.dumps({
-                'event': 'address_search_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'total_results': len(all_nearby_results),
-                'residential_results': len([r for r in all_nearby_results if r.get('is_residential', False)]),
-                'parameters': {'radius_km': 0.1, 'limit': 10}
-            }))
-            
-            return all_nearby_results
-        
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'address_search_error',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'error': str(e)
-            }))
-            return []
     
-    def _is_likely_residential(self, properties: Dict[str, Any]) -> bool:
-        """Determine if a location is likely residential based on properties"""
-        # Check for residential indicators
-        name = properties.get('name', '').lower()
-        osm_key = properties.get('osm_key', '')
-        osm_value = properties.get('osm_value', '')
-        
-        # Residential indicators
-        residential_indicators = [
-            'apartment', 'condo', 'house', 'residential', 'home',
-            'street', 'avenue', 'boulevard', 'drive', 'lane', 'place', 'court'
-        ]
-        
-        # Non-residential indicators  
-        non_residential_indicators = [
-            'school', 'park', 'playground', 'office', 'commercial', 'business',
-            'hospital', 'church', 'library', 'gym', 'sports', 'center'
-        ]
-        
-        # Check name for residential indicators
-        if any(indicator in name for indicator in non_residential_indicators):
-            return False
-        
-        if any(indicator in name for indicator in residential_indicators):
-            return True
-        
-        # Check OSM tags
-        if osm_key == 'amenity' and osm_value in ['school', 'hospital', 'library', 'place_of_worship']:
-            return False
-        
-        if osm_key == 'leisure' and osm_value in ['park', 'playground', 'sports_centre']:
-            return False
-        
-        # Default to residential if it has an address
-        housenumber = properties.get('housenumber')
-        street = properties.get('street')
-        if housenumber and street:
-            return True
-        
-        return False
-    
-    def _try_residential_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
-        """Try to find nearby residential buildings and return all valid results"""
-        try:
-            # Search for residential buildings (apartments, houses, condos)
-            residential_types = [
-                {'osm_tag': 'building:apartments', 'q': 'apartments'},
-                {'osm_tag': 'building:residential', 'q': 'residential'},
-                {'osm_tag': 'building:house', 'q': 'house'},
-                {'osm_tag': 'building:condominium', 'q': 'condo'}
-            ]
-            
-            all_nearby_results = []
-            
-            for building_type in residential_types:
-                try:
-                    params = {
-                        'q': building_type['q'],
-                        'lat': lat,
-                        'lon': lon,
-                        'osm_tag': building_type['osm_tag'],
-                        'location_bias_scale': 0.05,  # Very tight radius for residential
-                        'zoom': 20,
-                        'limit': 3
-                    }
-                    
-                    response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    features = data.get('features', [])
-                    for feature in features:
-                        if self._is_nearby_result(feature, lat, lon, max_distance_km=0.061):  # 200ft
-                            name = self._extract_name_from_feature(feature)
-                            if name:
-                                distance = self._calculate_distance(
-                                    lat, lon,
-                                    feature['geometry']['coordinates'][1],
-                                    feature['geometry']['coordinates'][0]
-                                )
-                                all_nearby_results.append({
-                                    'name': name,
-                                    'distance': distance,
-                                    'data': feature,
-                                    'type': 'residential'
-                                })
-                    
-                    time.sleep(self.delay)  # Rate limiting
-                    
-                except Exception as e:
-                    logger.error(json.dumps({
-                        'event': 'residential_search_error',
-                        'building_type': building_type['osm_tag'],
-                        'coordinates': {'lat': lat, 'lon': lon},
-                        'error': str(e)
-                    }))
-                    continue
-            
-            # Sort by distance
-            all_nearby_results.sort(key=lambda x: x['distance'])
-            
-            logger.info(json.dumps({
-                'event': 'residential_search_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'total_results': len(all_nearby_results)
-            }))
-            
-            return all_nearby_results
-            
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'residential_search_error',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'error': str(e)
-            }))
-            return []
     
     def _try_school_search_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """Try searching for schools and universities by OSM tag and return all valid results"""
@@ -769,13 +515,14 @@ class PhotonGeocodingProvider:
                         'lon': lon,
                         'osm_tag': edu_type['osm_tag'],
                         'limit': 15,  # Increased to catch more schools
-                        'location_bias_scale': 0.1,
-                        'zoom': 18
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 18  # ~300m radius for 1000ft search
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     
@@ -999,14 +746,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': leisure_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 18,  # ~300m radius for 1000ft search
                         'limit': 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1093,12 +841,7 @@ class PhotonGeocodingProvider:
         # Track optimization metrics
         optimization_type = "bounding_box" if reason == "bounding_box_match" else "distance_based"
         
-        # Update counters
-        self.total_requests += 1
-        if optimization_type == "bounding_box":
-            self.bounding_box_count += 1
-        else:
-            self.distance_based_count += 1
+        # Note: Counting is handled by the calling methods, not here
         
         logger.info(json.dumps({
             'event': 'result_selected',
@@ -1116,9 +859,13 @@ class PhotonGeocodingProvider:
     
     def get_optimization_stats(self) -> Dict[str, Any]:
         """Get optimization statistics"""
-        if self.total_requests == 0:
+        total_courts = self.bounding_box_count + self.distance_based_count
+        
+        if total_courts == 0:
             return {
-                'total_requests': 0,
+                'total_requests': self.total_requests,
+                'bounding_box_count': 0,
+                'distance_based_count': 0,
                 'bounding_box_percentage': 0.0,
                 'distance_based_percentage': 0.0
             }
@@ -1127,8 +874,8 @@ class PhotonGeocodingProvider:
             'total_requests': self.total_requests,
             'bounding_box_count': self.bounding_box_count,
             'distance_based_count': self.distance_based_count,
-            'bounding_box_percentage': round((self.bounding_box_count / self.total_requests) * 100, 1),
-            'distance_based_percentage': round((self.distance_based_count / self.total_requests) * 100, 1)
+            'bounding_box_percentage': round((self.bounding_box_count / total_courts) * 100, 1),
+            'distance_based_percentage': round((self.distance_based_count / total_courts) * 100, 1)
         }
     
     def _fallback_to_distance_based_selection_with_results(self, collected_results: List[Dict[str, Any]], lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
@@ -1233,14 +980,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': school_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 18,  # Broader search area like old method
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 18,  # ~300m radius for 1000ft search
                         'limit': 3  # Test with limit 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1325,14 +1073,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': community_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 19,  # ~150m radius for 500ft search
                         'limit': 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1416,14 +1165,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': sports_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 19,  # ~150m radius for 500ft search
                         'limit': 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1507,14 +1257,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': worship_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 19,  # ~150m radius for 500ft search
                         'limit': 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1597,14 +1348,15 @@ class PhotonGeocodingProvider:
                         'lat': lat,
                         'lon': lon,
                         'osm_tag': sports_centre_type['osm_tag'],
-                        'location_bias_scale': 0.1,
-                        'zoom': 20,
+                        'location_bias_scale': 0.2,  # Default prominence bias
+                        'zoom': 19,  # ~150m radius for 500ft search
                         'limit': 3
                     }
                     
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1742,7 +1494,122 @@ class PhotonGeocodingProvider:
         
         self.last_request_time = time.time()
 
-# Example usage
+    def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Try bounding box search first (NEW METHOD)"""
+        try:
+            logger.info(json.dumps({
+                'event': 'bounding_box_search_started',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'court_count': court_count
+            }))
+            
+            # Use the bounding box provider
+            facility_name, facility_data, api_calls_made = self.bbox_provider.reverse_geocode(lat, lon, court_count)
+            
+            if facility_name:
+                # Update metrics - only count bounding box matches here
+                if facility_data.get('is_inside_bbox', False):
+                    self.bounding_box_count += 1
+                # Distance-based counting will be handled in _try_distance_based_search
+                
+                # Update total requests with actual API calls made
+                self.total_requests += api_calls_made
+                
+                logger.info(json.dumps({
+                    'event': 'bounding_box_search_success',
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'facility_name': facility_name,
+                    'is_inside_bbox': facility_data.get('is_inside_bbox', False)
+                }))
+                
+                return facility_name, facility_data
+            else:
+                logger.info(json.dumps({
+                    'event': 'bounding_box_search_no_results',
+                    'coordinates': {'lat': lat, 'lon': lon}
+                }))
+                return None, None
+                
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'bounding_box_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return None, None
+    
+    def _try_distance_based_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Fallback to current distance-based search (PROVEN METHOD)"""
+        try:
+            logger.info(json.dumps({
+                'event': 'distance_based_search_started',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'court_count': court_count
+            }))
+            
+            # Rate limiting
+            self._rate_limit()
+            
+            # Collect all results for potential distance-based fallback
+            all_collected_results = []
+            
+            # 1. Parks/Playgrounds (highest priority for courts)
+            park_results = self._try_search_with_bounding_box(lat, lon, 'park', [
+                {'osm_tag': 'leisure:park', 'q': 'park'},
+                {'osm_tag': 'leisure:playground', 'q': 'playground'}
+            ], 1000)
+            if park_results:
+                all_collected_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
+            
+            # 2. Schools/Universities
+            school_results = self._try_school_search_with_bounding_box(lat, lon)
+            if school_results:
+                all_collected_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
+            
+            # 3. Community centres
+            community_results = self._try_community_centre_search_with_bounding_box(lat, lon)
+            if community_results:
+                all_collected_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_results])
+            
+            # 4. Sports clubs
+            sports_club_results = self._try_sports_club_search_with_bounding_box(lat, lon)
+            if sports_club_results:
+                all_collected_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
+            
+            # 5. Places of worship
+            worship_results = self._try_place_of_worship_search_with_bounding_box(lat, lon)
+            if worship_results:
+                all_collected_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in worship_results])
+            
+            # 6. Sports centres
+            sports_centre_results = self._try_sports_centre_search_with_bounding_box(lat, lon)
+            if sports_centre_results:
+                all_collected_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
+            
+            # Use distance-based selection from collected results
+            logger.info(json.dumps({
+                'event': 'distance_based_search_completed',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'court_count': court_count,
+                'collected_results_count': len(all_collected_results)
+            }))
+            
+            result = self._fallback_to_distance_based_selection_with_results(all_collected_results, lat, lon, court_count)
+            
+            # Update metrics
+            if result[0]:  # If we found a result
+                self.distance_based_count += 1
+            
+            return result
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'distance_based_search_error',
+                'coordinates': {'lat': lat, 'lon': lon},
+                'error': str(e)
+            }))
+            return None, None
+
 if __name__ == "__main__":
     # Test the provider
     provider = PhotonGeocodingProvider()
