@@ -10,7 +10,8 @@ export default function Home() {
   const [filters, setFilters] = useState({
     sport: 'basketball', // Start with basketball like the original
     surface_type: '',
-    is_public: undefined as boolean | undefined
+    is_public: undefined as boolean | undefined,
+    school: undefined as boolean | undefined
   });
 
   const [loading, setLoading] = useState(false);
