@@ -1,0 +1,24 @@
+{
+  "total_features": 10,
+  "total_processed": 10,
+  "successful": 10,
+  "validation_failed": 0,
+  "geocoding_failed": 0,
+  "database_failed": 0,
+  "skipped": 0,
+  "clusters_created": 0,
+  "api_calls_saved": 0,
+  "individual_names_added": 0,
+  "processing_time_seconds": 121.814947,
+  "features_per_second": 0.08,
+  "success_rate": 100.0,
+  "clustering_efficiency": 0,
+  "frontend_ready": true,
+  "optimization_stats": {
+    "total_requests": 57,
+    "bounding_box_count": 8,
+    "distance_based_count": 2,
+    "bounding_box_percentage": 80.0,
+    "distance_based_percentage": 20.0
+  }
+}

@@ -27,7 +27,7 @@ class BoundingBoxGeocodingProvider:
             'delay': delay
         }))
     
-    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:
         """
         Main geocoding method using bounding box search
         
@@ -46,29 +46,32 @@ class BoundingBoxGeocodingProvider:
                 'court_count': court_count
             }))
             
-            # Create bounding box around court
-            bbox = self._create_bbox_around_point(lat, lon, buffer_km=0.3)
+            # Create bounding box around court for search area
+            # We need a reasonable search area to find facilities, but we'll check containment separately
+            bbox = self._create_bbox_around_point(lat, lon, buffer_km=1.0)  # 1km buffer
             
-            # Search for facilities in bounding box
-            facilities = self._search_facilities_in_bbox(bbox, lat, lon)
+            # Search for facilities in bounding box and track API calls
+            facilities, api_calls_made = self._search_facilities_in_bbox(bbox, lat, lon)
             
             if not facilities:
                 logger.info(json.dumps({
                     'event': 'no_facilities_found',
                     'coordinates': {'lat': lat, 'lon': lon}
                 }))
-                return None, None
+                return None, None, api_calls_made
             
-            # Find best match
+            # Find best match - ONLY return inside-bbox matches for early exit
             best_match = self._find_best_facility_match(lat, lon, facilities)
             
-            if not best_match:
+            # Only return results if we found an inside-bbox match
+            if not best_match or not best_match.get('is_inside_bbox', False):
                 logger.info(json.dumps({
-                    'event': 'no_suitable_facility_found',
+                    'event': 'no_inside_bbox_match_found',
                     'coordinates': {'lat': lat, 'lon': lon},
-                    'total_facilities': len(facilities)
+                    'total_facilities': len(facilities),
+                    'reason': 'falling_back_to_distance_based_search'
                 }))
-                return None, None
+                return None, None, api_calls_made
             
             # Format result
             facility_name = self._format_facility_name(best_match['name'], court_count)
@@ -83,7 +86,7 @@ class BoundingBoxGeocodingProvider:
                 'match_type': 'bounding_box' if best_match['is_inside_bbox'] else 'distance_based'
             }))
             
-            return facility_name, facility_data
+            return facility_name, facility_data, api_calls_made
             
         except Exception as e:
             logger.error(json.dumps({
@@ -91,7 +94,7 @@ class BoundingBoxGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
-            return None, None
+            return None, None, 0
     
     def _create_bbox_around_point(self, lat: float, lon: float, buffer_km: float = 0.3) -> Tuple[float, float, float, float]:
         """
@@ -116,9 +119,9 @@ class BoundingBoxGeocodingProvider:
             lat + lat_buffer   # max_lat
         )
     
-    def _search_facilities_in_bbox(self, bbox: Tuple[float, float, float, float], lat: float, lon: float) -> List[Dict[str, Any]]:
+    def _search_facilities_in_bbox(self, bbox: Tuple[float, float, float, float], lat: float, lon: float) -> Tuple[List[Dict[str, Any]], int]:
         """
-        Search for facilities within bounding box using multiple search terms
+        Search for facilities within bounding box with early exit optimization
         
         Args:
             bbox: (min_lon, min_lat, max_lon, max_lat)
@@ -128,24 +131,29 @@ class BoundingBoxGeocodingProvider:
         Returns:
             List of facility features with distance and bounding box info
         """
-        search_terms = [
-            'park',
-            'school', 
-            'church',
-            'recreation',
-            'playground',
-            'community center',
-            'sports',
-            'moscone'  # Specific to SF area
+        # Search terms in priority order with OSM tags for better accuracy
+        search_configs = [
+            {'q': 'park', 'priority': 1},
+            {'q': 'recreation', 'priority': 2},
+            {'q': 'playground', 'priority': 3},
+            {'q': 'center', 'priority': 4},
+            {'q': 'school', 'priority': 5},
+            {'q': 'university', 'priority': 6},
+            {'q': 'community center', 'priority': 7},
+            {'q': 'sports club', 'priority': 8},
+            {'q': 'church', 'priority': 9},
+            {'q': 'sports center', 'priority': 10}
         ]
         
         all_facilities = []
         bbox_str = f"{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]}"
+        best_inside_bbox_match = None
+        api_calls_made = 0
         
-        for term in search_terms:
+        for config in search_configs:
             try:
                 params = {
-                    'q': term,
+                    'q': config['q'],
                     'bbox': bbox_str,
                     'limit': 20
                 }
@@ -153,33 +161,73 @@ class BoundingBoxGeocodingProvider:
                 response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
+                api_calls_made += 1
                 
                 features = data.get('features', [])
                 logger.debug(json.dumps({
                     'event': 'bbox_search_completed',
-                    'search_term': term,
+                    'search_term': config['q'],
+                    'osm_tag': config.get('osm_tag'),
                     'results_count': len(features),
                     'bbox': bbox_str
                 }))
                 
-                # Process each facility
+                # Process each facility and check for inside bbox matches
                 for feature in features:
                     facility = self._process_facility_feature(feature, lat, lon)
                     if facility:
                         all_facilities.append(facility)
+                        
+                        # Check for early exit condition: inside bbox match
+                        if facility.get('is_inside_bbox', False):
+                            if not best_inside_bbox_match or facility.get('distance', float('inf')) < best_inside_bbox_match.get('distance', float('inf')):
+                                best_inside_bbox_match = facility
+                                
+                                logger.info(json.dumps({
+                                    'event': 'early_exit_condition_met',
+                                    'search_term': config['q'],
+                                    'facility_name': facility.get('name'),
+                                    'is_inside_bbox': True,
+                                    'distance_km': facility.get('distance'),
+                                    'api_calls_saved': len(search_configs) - config['priority']
+                                }))
+                
+                # Early exit: if we found a perfect match (inside bbox), stop searching
+                if best_inside_bbox_match:
+                    logger.info(json.dumps({
+                        'event': 'early_exit_triggered',
+                        'total_api_calls_made': config['priority'],
+                        'api_calls_saved': len(search_configs) - config['priority'],
+                        'best_match': best_inside_bbox_match.get('name')
+                    }))
+                    break
                 
                 time.sleep(self.delay)  # Rate limiting
                 
             except Exception as e:
                 logger.error(json.dumps({
                     'event': 'bbox_search_error',
-                    'search_term': term,
+                    'search_term': config['q'],
+                    'osm_tag': config.get('osm_tag'),
                     'bbox': bbox_str,
                     'error': str(e)
                 }))
                 continue
         
-        # Remove duplicates based on OSM ID
+        # If we found a perfect inside-bbox match, return it immediately
+        if best_inside_bbox_match:
+            logger.info(json.dumps({
+                'event': 'facilities_search_completed_with_early_exit',
+                'total_found': len(all_facilities),
+                'unique_facilities': len(set(f.get('osm_id') for f in all_facilities if f.get('osm_id'))),
+                'bbox': bbox_str,
+                'early_exit_match': best_inside_bbox_match.get('name'),
+                'is_inside_bbox': True,
+                'api_calls_made': api_calls_made
+            }))
+            return [best_inside_bbox_match], api_calls_made
+        
+        # Otherwise, remove duplicates and return all facilities
         unique_facilities = {}
         for facility in all_facilities:
             osm_id = facility.get('osm_id')
@@ -187,13 +235,15 @@ class BoundingBoxGeocodingProvider:
                 unique_facilities[osm_id] = facility
         
         logger.info(json.dumps({
-            'event': 'facilities_search_completed',
+            'event': 'facilities_search_completed_no_early_exit',
             'total_found': len(all_facilities),
             'unique_facilities': len(unique_facilities),
-            'bbox': bbox_str
+            'bbox': bbox_str,
+            'early_exit_available': False,
+            'api_calls_made': api_calls_made
         }))
         
-        return list(unique_facilities.values())
+        return list(unique_facilities.values()), api_calls_made
     
     def _process_facility_feature(self, feature: Dict[str, Any], court_lat: float, court_lon: float) -> Optional[Dict[str, Any]]:
         """
@@ -230,6 +280,17 @@ class BoundingBoxGeocodingProvider:
             if extent and len(extent) == 4:
                 min_lon, max_lat, max_lon, min_lat = extent
                 is_inside_bbox = (min_lat <= court_lat <= max_lat and min_lon <= court_lon <= max_lon)
+                
+                # Debug logging for extent data (only when inside bbox)
+                if is_inside_bbox:
+                    logger.info(json.dumps({
+                        'event': 'inside_bbox_match_found',
+                        'facility_name': name,
+                        'extent': extent,
+                        'court_coords': [court_lat, court_lon],
+                        'facility_coords': [facility_lat, facility_lon],
+                        'is_inside_bbox': is_inside_bbox
+                    }))
             
             return {
                 'name': name,

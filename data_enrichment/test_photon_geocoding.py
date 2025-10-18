@@ -107,6 +107,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -521,6 +522,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     
@@ -752,6 +754,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -838,12 +841,7 @@ class PhotonGeocodingProvider:
         # Track optimization metrics
         optimization_type = "bounding_box" if reason == "bounding_box_match" else "distance_based"
         
-        # Update counters
-        self.total_requests += 1
-        if optimization_type == "bounding_box":
-            self.bounding_box_count += 1
-        else:
-            self.distance_based_count += 1
+        # Note: Counting is handled by the calling methods, not here
         
         logger.info(json.dumps({
             'event': 'result_selected',
@@ -990,6 +988,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1082,6 +1081,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1173,6 +1173,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1264,6 +1265,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1354,6 +1356,7 @@ class PhotonGeocodingProvider:
                     response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                     response.raise_for_status()
                     data = response.json()
+                    self.total_requests += 1
                     
                     features = data.get('features', [])
                     if not features:
@@ -1501,17 +1504,16 @@ class PhotonGeocodingProvider:
             }))
             
             # Use the bounding box provider
-            facility_name, facility_data = self.bbox_provider.reverse_geocode(lat, lon, court_count)
+            facility_name, facility_data, api_calls_made = self.bbox_provider.reverse_geocode(lat, lon, court_count)
             
             if facility_name:
-                # Update metrics
+                # Update metrics - only count bounding box matches here
                 if facility_data.get('is_inside_bbox', False):
                     self.bounding_box_count += 1
-                else:
-                    self.distance_based_count += 1
+                # Distance-based counting will be handled in _try_distance_based_search
                 
-                # Update total requests (bounding box search makes multiple API calls)
-                self.total_requests += 8  # Approximate number of API calls made by bounding box search
+                # Update total requests with actual API calls made
+                self.total_requests += api_calls_made
                 
                 logger.info(json.dumps({
                     'event': 'bounding_box_search_success',

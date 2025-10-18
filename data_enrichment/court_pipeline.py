@@ -109,13 +109,9 @@ class CourtProcessingPipeline:
                     total_lon = sum(coord[0] for coord in ring) / len(ring)
                     total_lat = sum(coord[1] for coord in ring) / len(ring)
                     
-                    # Get court count from properties
+                    # Each individual way represents 1 court, regardless of hoops count
+                    # (hoops count is for the number of basketball hoops, not courts)
                     court_count = 1
-                    if 'properties' in feature and 'hoops' in feature['properties']:
-                        try:
-                            court_count = int(feature['properties']['hoops'])
-                        except (ValueError, TypeError):
-                            court_count = 1
                     
                     # Get name from Photon
                     photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
@@ -349,7 +345,7 @@ class CourtProcessingPipeline:
             return []
     
     def process_geojson_file(self, file_path: str, max_features: Optional[int] = None) -> Dict[str, Any]:
-        """Process entire GeoJSON file with coordinate clustering"""
+        """Process entire GeoJSON file with individual court processing"""
         try:
             self.stats['start_time'] = datetime.now()
             
@@ -367,111 +363,41 @@ class CourtProcessingPipeline:
             
             total_features = len(features)
             
-            # Step 1: Extract court data and create clusters
+            # Step 1: Process each court individually
             logger.info(json.dumps({
-                'event': 'clustering_phase_started',
-                'total_features': total_features
-            }))
-            
-            courts = self.clusterer.extract_court_data(features)
-            clusters = self.clusterer.cluster_courts(courts)
-            
-            self.stats['clusters_created'] = len(clusters)
-            self.stats['api_calls_saved'] = total_features - len(clusters)
-            
-            logger.info(json.dumps({
-                'event': 'clustering_completed',
+                'event': 'individual_processing_phase_started',
                 'total_features': total_features,
-                'total_clusters': len(clusters),
-                'api_calls_saved': self.stats['api_calls_saved'],
-                'efficiency_improvement': round((self.stats['api_calls_saved'] / total_features) * 100, 1) if total_features > 0 else 0
-            }))
-            
-            # Step 2: Process clusters in batches
-            logger.info(json.dumps({
-                'event': 'processing_phase_started',
-                'total_clusters': len(clusters),
                 'batch_size': self.batch_size
             }))
             
             all_successful_data = []
             
-            for cluster in clusters:
-                try:
-                    self.stats['total_processed'] += len(cluster)
-                    
-                    # Process the cluster (1 API call for all courts in cluster)
-                    cluster_results = self.process_cluster(cluster)
-                    all_successful_data.extend(cluster_results)
-                    
-                    # Process database batch when we have enough records
-                    while len(all_successful_data) >= self.batch_size:
-                        batch_to_process = all_successful_data[:self.batch_size]
-                        all_successful_data = all_successful_data[self.batch_size:]
-                        
-                        # Process database batch
-                        db_results = self.db_ops.upsert_court_batch(batch_to_process)
-                        
-                        if db_results['error_count'] > 0:
-                            self.stats['database_failed'] += db_results['error_count']
-                            self.stats['successful'] -= db_results['error_count']
-                            self.stats['skipped'] += db_results['error_count']
-                        
-                        logger.info(json.dumps({
-                            'event': 'database_batch_processed',
-                            'batch_size': len(batch_to_process),
-                            'db_success': db_results['success_count'],
-                            'db_errors': db_results['error_count']
-                        }))
-                    
-                except Exception as e:
-                    logger.error(json.dumps({
-                        'event': 'cluster_batch_error',
-                        'cluster_size': len(cluster),
-                        'error': str(e)
+            # Process features in batches
+            for i in range(0, len(features), self.batch_size):
+                batch = features[i:i + self.batch_size]
+                batch_results = self.process_individual_courts_batch(batch)
+                all_successful_data.extend(batch_results['successful_data'])
+                
+                # Log progress
+                if (i + len(batch)) % (self.batch_size * 5) == 0:  # Log every 5 batches
+                    logger.info(json.dumps({
+                        'event': 'batch_progress',
+                        'processed': i + len(batch),
+                        'total': total_features,
+                        'successful': len(all_successful_data),
+                        'percentage': round(((i + len(batch)) / total_features) * 100, 1)
                     }))
-                    self.stats['skipped'] += len(cluster)
             
-            # Process remaining records
-            if all_successful_data:
-                db_results = self.db_ops.upsert_court_batch(all_successful_data)
-                
-                if db_results['error_count'] > 0:
-                    self.stats['database_failed'] += db_results['error_count']
-                    self.stats['successful'] -= db_results['error_count']
-                    self.stats['skipped'] += db_results['error_count']
-                
-                logger.info(json.dumps({
-                    'event': 'final_database_batch_processed',
-                    'batch_size': len(all_successful_data),
-                    'db_success': db_results['success_count'],
-                    'db_errors': db_results['error_count']
-                }))
-            
-            # Step 3: Populate cluster metadata for frontend
+            # Step 2: Post-processing clustering
             logger.info(json.dumps({
-                'event': 'cluster_metadata_population_started'
+                'event': 'post_processing_clustering_started',
+                'total_courts': len(all_successful_data)
             }))
             
-            try:
-                from populate_cluster_metadata import ClusterMetadataPopulator
-                
-                populator = ClusterMetadataPopulator(self.connection_string, max_distance_km=0.05)
-                cluster_summary = populator.populate_all_cluster_metadata()
-                
-                logger.info(json.dumps({
-                    'event': 'cluster_metadata_population_completed',
-                    'cluster_summary': cluster_summary
-                }))
-                
-            except Exception as e:
-                logger.error(json.dumps({
-                    'event': 'cluster_metadata_population_error',
-                    'error': str(e)
-                }))
-                # Continue even if cluster metadata fails
+            # Add cluster metadata to all successful courts
+            cluster_summary = self.add_cluster_metadata(all_successful_data)
             
-            # Add individual court names for clustered courts
+            # Step 3: Add individual court names
             logger.info(json.dumps({
                 'event': 'adding_individual_court_names',
                 'message': 'Starting individual court name assignment'
@@ -479,13 +405,34 @@ class CourtProcessingPipeline:
             
             individual_names_added = self.add_individual_court_names()
             
+            # Step 4: Final database batch processing
+            if all_successful_data:
+                logger.info(json.dumps({
+                    'event': 'final_database_batch_processing',
+                    'batch_size': len(all_successful_data)
+                }))
+                
+                db_results = self.db_ops.upsert_court_batch(all_successful_data)
+                db_success = db_results['success_count']
+                db_errors = db_results['error_count']
+                
+                logger.info(json.dumps({
+                    'event': 'final_database_batch_processed',
+                    'batch_size': len(all_successful_data),
+                    'db_success': db_success,
+                    'db_errors': db_errors
+                }))
+            
+            # Calculate final statistics
             self.stats['end_time'] = datetime.now()
-            processing_time = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+            self.stats['processing_time_seconds'] = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+            self.stats['features_per_second'] = round(self.stats['total_processed'] / self.stats['processing_time_seconds'], 2) if self.stats['processing_time_seconds'] > 0 else 0
+            self.stats['success_rate'] = round((self.stats['successful'] / self.stats['total_processed']) * 100, 2) if self.stats['total_processed'] > 0 else 0
             
             # Get optimization stats from geocoding provider
             optimization_stats = self.geocoding_provider.get_optimization_stats()
             
-            # Final statistics
+            # Generate final report
             final_stats = {
                 'total_features': total_features,
                 'total_processed': self.stats['total_processed'],
@@ -494,13 +441,13 @@ class CourtProcessingPipeline:
                 'geocoding_failed': self.stats['geocoding_failed'],
                 'database_failed': self.stats['database_failed'],
                 'skipped': self.stats['skipped'],
-                'clusters_created': self.stats['clusters_created'],
-                'api_calls_saved': self.stats['api_calls_saved'],
+                'clusters_created': cluster_summary.get('geographic_clusters', 0),
+                'api_calls_saved': 0,  # No longer applicable with individual processing
                 'individual_names_added': individual_names_added,
-                'processing_time_seconds': processing_time,
-                'features_per_second': round(self.stats['total_processed'] / processing_time, 2) if processing_time > 0 else 0,
-                'success_rate': round((self.stats['successful'] / self.stats['total_processed']) * 100, 2) if self.stats['total_processed'] > 0 else 0,
-                'clustering_efficiency': round((self.stats['api_calls_saved'] / total_features) * 100, 1) if total_features > 0 else 0,
+                'processing_time_seconds': self.stats['processing_time_seconds'],
+                'features_per_second': self.stats['features_per_second'],
+                'success_rate': self.stats['success_rate'],
+                'clustering_efficiency': cluster_summary.get('clustering_efficiency', 0),
                 'frontend_ready': True,
                 'optimization_stats': optimization_stats
             }
@@ -521,6 +468,172 @@ class CourtProcessingPipeline:
         finally:
             # Clean up database connections
             self.db_manager.close_all_connections()
+    
+    def process_individual_courts_batch(self, features_batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Process a batch of individual court features"""
+        batch_results = {
+            'processed': 0,
+            'successful': 0,
+            'failed': 0,
+            'errors': [],
+            'successful_data': []
+        }
+        
+        logger.info(json.dumps({
+            'event': 'processing_individual_batch',
+            'batch_size': len(features_batch)
+        }))
+        
+        for feature in features_batch:
+            try:
+                batch_results['processed'] += 1
+                self.stats['total_processed'] += 1
+                
+                # Process individual court
+                success, message, mapped_data = self.process_individual_court(feature)
+                
+                if success and mapped_data:
+                    batch_results['successful'] += 1
+                    batch_results['successful_data'].append(mapped_data)
+                else:
+                    batch_results['failed'] += 1
+                    batch_results['errors'].append({
+                        'osm_id': feature.get('properties', {}).get('osm_id', 'unknown'),
+                        'error': message
+                    })
+                    
+            except Exception as e:
+                batch_results['failed'] += 1
+                batch_results['errors'].append({
+                    'osm_id': feature.get('properties', {}).get('osm_id', 'unknown'),
+                    'error': str(e)
+                })
+                logger.error(json.dumps({
+                    'event': 'individual_court_error',
+                    'osm_id': feature.get('properties', {}).get('osm_id', 'unknown'),
+                    'error': str(e)
+                }))
+        
+        logger.info(json.dumps({
+            'event': 'individual_batch_completed',
+            'batch_size': len(features_batch),
+            'successful': batch_results['successful'],
+            'failed': batch_results['failed']
+        }))
+        
+        return batch_results
+    
+    def process_individual_court(self, feature: Dict[str, Any]) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Process a single court feature individually"""
+        try:
+            properties = feature.get('properties', {})
+            osm_id = properties.get('osm_id') or properties.get('@id', 'unknown')
+            
+            # Step 1: Validation
+            is_valid, validation_results = self.validator.validate_court_data(feature)
+            if not is_valid:
+                self.stats['validation_failed'] += 1
+                return False, "Validation failed", None
+            
+            # Step 2: Geocoding with Photon
+            try:
+                # Extract coordinates from geometry
+                geometry = feature['geometry']
+                if geometry['type'] == 'Polygon' and geometry['coordinates']:
+                    # Get centroid coordinates
+                    ring = geometry['coordinates'][0]
+                    total_lon = sum(coord[0] for coord in ring) / len(ring)
+                    total_lat = sum(coord[1] for coord in ring) / len(ring)
+                    
+                    # Each individual way represents 1 court, regardless of hoops count
+                    # (hoops count is for the number of basketball hoops, not courts)
+                    court_count = 1
+                    
+                    # Get name from Photon
+                    photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
+                    
+                    if not photon_name:
+                        self.stats['geocoding_failed'] += 1
+                        return False, "Geocoding failed", None
+                    
+                    # Calculate distance if we have the data
+                    distance_km = 0.0
+                    if photon_data and 'distance_km' in photon_data:
+                        distance_km = photon_data['distance_km']
+                    
+                    photon_data = {
+                        'name': photon_name,
+                        'distance_km': distance_km,
+                        'source': 'search_api'  # Use valid constraint value
+                    }
+                else:
+                    self.stats['geocoding_failed'] += 1
+                    return False, "Invalid geometry for geocoding", None
+                    
+            except Exception as e:
+                logger.error(json.dumps({
+                    'event': 'geocoding_error',
+                    'osm_id': osm_id,
+                    'error': str(e)
+                }))
+                self.stats['geocoding_failed'] += 1
+                return False, f"Geocoding error: {str(e)}", None
+            
+            # Step 3: Data mapping
+            try:
+                mapped_data = self.mapper.map_court_to_db_format(feature, photon_data)
+                
+                # Validate mapped data
+                is_valid, validation_msg = self.mapper.validate_mapped_data(mapped_data)
+                if not is_valid:
+                    self.stats['validation_failed'] += 1
+                    return False, f"Mapping validation failed: {validation_msg}", None
+                
+            except Exception as e:
+                logger.error(json.dumps({
+                    'event': 'mapping_error',
+                    'osm_id': osm_id,
+                    'error': str(e)
+                }))
+                self.stats['validation_failed'] += 1
+                return False, f"Mapping error: {str(e)}", None
+            
+            self.stats['successful'] += 1
+            return True, "Success", mapped_data
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'individual_court_processing_error',
+                'osm_id': osm_id,
+                'error': str(e)
+            }))
+            return False, f"Processing error: {str(e)}", None
+    
+    def add_cluster_metadata(self, courts_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Add cluster metadata to courts after individual processing"""
+        try:
+            # Import the cluster metadata populator
+            from populate_cluster_metadata import ClusterMetadataPopulator
+            
+            # Create a temporary connection string for the populator
+            populator = ClusterMetadataPopulator(self.connection_string, max_distance_km=0.05)
+            
+            # Get cluster summary
+            summary = populator.populate_all_cluster_metadata()
+            
+            logger.info(json.dumps({
+                'event': 'cluster_metadata_added',
+                'summary': summary
+            }))
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(json.dumps({
+                'event': 'cluster_metadata_error',
+                'error': str(e)
+            }))
+            return {'geographic_clusters': 0, 'clustering_efficiency': 0}
     
     def add_individual_court_names(self) -> int:
         """Add individual court names for clustered courts"""
@@ -567,62 +680,62 @@ class CourtProcessingPipeline:
             logger.info(f"Cleared {cleared_count} individual_court_name values for single-court clusters")
             
             # Get all location-sport combinations that have multiple courts total
-            # This handles cases where a location has multiple clusters of the same sport
             cursor.execute("""
-                SELECT photon_name, sport, COUNT(*) as total_courts
+                SELECT 
+                    photon_name, 
+                    sport, 
+                    COUNT(*) as court_count,
+                    STRING_AGG(osm_id::text, ',' ORDER BY osm_id) as osm_ids
                 FROM courts 
-                WHERE cluster_id IS NOT NULL AND photon_name IS NOT NULL
-                GROUP BY photon_name, sport
+                WHERE photon_name IS NOT NULL 
+                GROUP BY photon_name, sport 
                 HAVING COUNT(*) > 1
                 ORDER BY photon_name, sport
             """)
             
-            location_sports = cursor.fetchall()
-            logger.info(f"Found {len(location_sports)} location-sport combinations with multiple courts")
+            multi_court_locations = cursor.fetchall()
             
-            total_updated = 0
+            individual_names_added = 0
             
-            for photon_name, sport, total_courts in location_sports:
-                # Get all courts for this location-sport combination, ordered by id
-                cursor.execute("""
-                    SELECT id, osm_id, cluster_id
-                    FROM courts 
-                    WHERE photon_name = %s AND sport = %s
-                    ORDER BY id
-                """, (photon_name, sport))
+            for location in multi_court_locations:
+                photon_name = location[0]
+                sport = location[1]
+                court_count = location[2]
+                osm_ids = location[3].split(',')
                 
-                courts = cursor.fetchall()
-                
-                # Assign sequential individual court names across ALL clusters
-                for i, (court_id, osm_id, cluster_id) in enumerate(courts, 1):
-                    individual_name = f"Court {i}"
+                # Add individual court names
+                for i, osm_id in enumerate(osm_ids, 1):
+                    individual_name = f"{photon_name} Court {i}"
                     
                     cursor.execute("""
                         UPDATE courts 
                         SET individual_court_name = %s
-                        WHERE id = %s
-                    """, (individual_name, court_id))
+                        WHERE osm_id = %s AND photon_name = %s AND sport = %s
+                    """, (individual_name, osm_id, photon_name, sport))
                     
-                    total_updated += 1
+                    individual_names_added += 1
             
             conn.commit()
-            cursor.close()
-            conn.close()
             
             logger.info(json.dumps({
                 'event': 'individual_court_names_added',
-                'total_updated': total_updated,
-                'location_sports_processed': len(location_sports)
+                'total_updated': individual_names_added,
+                'location_sports_processed': len(multi_court_locations)
             }))
             
-            return total_updated
+            return individual_names_added
             
         except Exception as e:
+            if conn:
+                conn.rollback()
             logger.error(json.dumps({
                 'event': 'individual_court_names_error',
                 'error': str(e)
             }))
             return 0
+        finally:
+            if conn:
+                conn.close()
 
 # Example usage
 if __name__ == "__main__":

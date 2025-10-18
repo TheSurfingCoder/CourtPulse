@@ -1,0 +1,61 @@
+{
+  "timestamp": "2025-10-18T08:50:37.275236",
+  "way_id": "way/24307674",
+  "coordinates": {
+    "lat": 37.77972178,
+    "lon": -122.42888559999999
+  },
+  "sport": "tennis",
+  "hoops": null,
+  "geocoding_result": {
+    "name": "Ella Hill Hutch Community Center",
+    "data": {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 256584828,
+        "osm_key": "amenity",
+        "osm_value": "community_centre",
+        "type": "house",
+        "postcode": "95115",
+        "countrycode": "US",
+        "name": "Ella Hill Hutch Community Center",
+        "country": "United States",
+        "city": "San Francisco",
+        "district": "Western Addition",
+        "locality": "Fillmore District",
+        "street": "McAllister Street",
+        "state": "California",
+        "extent": [
+          -122.4297521,
+          37.7795052,
+          -122.4288562,
+          37.7790754
+        ]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -122.42921313340415,
+          37.77930955
+        ]
+      }
+    }
+  },
+  "performance": {
+    "duration_seconds": 32.685737,
+    "features_per_second": 0.03059438433344795
+  },
+  "optimization_stats": {
+    "total_requests": 17,
+    "bounding_box_count": 0,
+    "distance_based_count": 1,
+    "bounding_box_percentage": 0.0,
+    "distance_based_percentage": 100.0
+  },
+  "success": true,
+  "total_features": 1,
+  "processed_features": 1,
+  "success_rate": 100.0,
+  "frontend_ready": true
+}
