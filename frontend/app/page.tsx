@@ -1,5 +1,6 @@
 'use client';
 
+// Main court discovery page with interactive map and filtering
 import CourtsMap from '../components/CourtsMap';
 import Header from '../components/Header';
 import FilterBar from '../components/FilterBar';
