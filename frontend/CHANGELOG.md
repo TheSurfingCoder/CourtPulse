@@ -1,5 +1,17 @@
 # @courtpulse/frontend
 
+## [1.6.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.5.0...frontend-v1.6.0) (2025-10-26)
+
+
+### Features
+
+* configure Release Please to run on PR creation and add Vercel ignore ([da9441e](https://github.com/TheSurfingCoder/CourtPulse/commit/da9441e440fc1d54ff56663617be5527f15e2b33))
+
+
+### Bug Fixes
+
+* update .vercelignore to remove package-lock.json exclusions ([582f73c](https://github.com/TheSurfingCoder/CourtPulse/commit/582f73ce16dfa5448abef41b1a26e8808f316161))
+
 ## [1.5.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.4.0...frontend-v1.5.0) (2025-10-26)
 
 
