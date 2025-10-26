@@ -880,36 +880,6 @@ class PhotonGeocodingProvider:
             'distance_based_percentage': round((self.distance_based_count / total_courts) * 100, 1)
         }
     
-    def _fallback_to_distance_based_selection_with_results(self, collected_results: List[Dict[str, Any]], lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Optimized fallback method: use collected results from bounding box phase for distance-based selection"""
-        if collected_results:
-            # Sort by distance and pick the closest result
-            sorted_results = sorted(collected_results, key=lambda x: x['distance'])
-            closest_result = sorted_results[0]
-            
-            logger.info(json.dumps({
-                'event': 'distance_based_selection_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'total_candidates': len(collected_results),
-                'selected_result': {
-                    'name': closest_result['name'],
-                    'endpoint': closest_result['endpoint'],
-                    'distance_km': round(closest_result['distance'], 3)
-                }
-            }))
-            
-            return self._format_result(closest_result, court_count, closest_result['endpoint'], 'distance_based_fallback')
-        
-        # No results from any priority search - geocoding failed
-        logger.warning(json.dumps({
-            'event': 'geocoding_failed',
-            'coordinates': {'lat': lat, 'lon': lon},
-            'court_count': court_count,
-            'reason': 'no_priority_results_found'
-        }))
-        return None, None
-
     def _fallback_to_distance_based_selection(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Legacy fallback method: run all searches and use distance-based selection (DEPRECATED - use _fallback_to_distance_based_selection_with_results instead)"""
         # Collect all results from priority searches
@@ -1566,78 +1536,6 @@ class PhotonGeocodingProvider:
                 'error': str(e)
             }))
             return None, None, 0
-    
-    def _try_distance_based_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Fallback to current distance-based search (PROVEN METHOD)"""
-        try:
-            logger.info(json.dumps({
-                'event': 'distance_based_search_started',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count
-            }))
-            
-            # Rate limiting
-            self._rate_limit()
-            
-            # Collect all results for potential distance-based fallback
-            all_collected_results = []
-            
-            # 1. Parks/Playgrounds (highest priority for courts)
-            park_results = self._try_search_with_bounding_box(lat, lon, 'park', [
-                {'osm_tag': 'leisure:park', 'q': 'park'},
-                {'osm_tag': 'leisure:playground', 'q': 'playground'}
-            ], 1000)
-            if park_results:
-                all_collected_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
-            
-            # 2. Schools/Universities
-            school_results = self._try_school_search_with_bounding_box(lat, lon)
-            if school_results:
-                all_collected_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
-            
-            # 3. Community centres
-            community_results = self._try_community_centre_search_with_bounding_box(lat, lon)
-            if community_results:
-                all_collected_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_results])
-            
-            # 4. Sports clubs
-            sports_club_results = self._try_sports_club_search_with_bounding_box(lat, lon)
-            if sports_club_results:
-                all_collected_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
-            
-            # 5. Places of worship
-            worship_results = self._try_place_of_worship_search_with_bounding_box(lat, lon)
-            if worship_results:
-                all_collected_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in worship_results])
-            
-            # 6. Sports centres
-            sports_centre_results = self._try_sports_centre_search_with_bounding_box(lat, lon)
-            if sports_centre_results:
-                all_collected_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
-            
-            # Use distance-based selection from collected results
-            logger.info(json.dumps({
-                'event': 'distance_based_search_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'collected_results_count': len(all_collected_results)
-            }))
-            
-            result = self._fallback_to_distance_based_selection_with_results(all_collected_results, lat, lon, court_count)
-            
-            # Update metrics
-            if result[0]:  # If we found a result
-                self.distance_based_count += 1
-            
-            return result
-            
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'distance_based_search_error',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'error': str(e)
-            }))
-            return None, None
 
 if __name__ == "__main__":
     # Test the provider

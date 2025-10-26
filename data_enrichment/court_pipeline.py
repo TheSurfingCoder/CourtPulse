@@ -580,16 +580,20 @@ class CourtProcessingPipeline:
                     bounding_box_coords = None
                     
                     if is_facility_match:
-                        # Use the facility's actual center coordinates from Photon API
+                        # FACILITY MATCH: Use facility's extent as bounding box
+                        # Extract facility center coordinates for UUID generation
                         facility_geometry = photon_data.get('feature', {}).get('geometry', {})
                         if facility_geometry.get('type') == 'Point':
                             facility_lon, facility_lat = facility_geometry['coordinates']
                         else:
-                            # Fallback to court coordinates if no facility geometry
+                            # Fallback to court coordinates if no facility geometry available
                             facility_lat, facility_lon = total_lat, total_lon
-                        if photon_data and 'extent' in photon_data:
+                        
+                        # Use facility's extent as bounding box (preferred) or court geometry (fallback)
+                        if 'extent' in photon_data:
                             bounding_box_coords = photon_data['extent']
                         else:
+                            # Fallback: use court geometry if no facility extent
                             bounding_box_coords = geometry
                         
                         # Generate UUID using facility coordinates
@@ -604,8 +608,10 @@ class CourtProcessingPipeline:
                             'source': 'photon_api_geometry'
                         }))
                     else:
-                        # Generic name: use feature's own geometry as bounding box
+                        # GENERIC NAME: No facility match, no clustering
+                        # Use court's own geometry as bounding box (for individual court display)
                         bounding_box_coords = geometry
+                        bounding_box_id = None  # No clustering for generic names
                     
                     # Update photon_data with new fields (preserve original data including facility_coords)
                     if photon_data:
@@ -803,7 +809,7 @@ if __name__ == "__main__":
     connection_string = os.getenv('DATABASE_URL')
     if not connection_string:
         db_host = os.getenv('DB_HOST', 'localhost')
-db_user = os.getenv('DB_USER')
+        db_user = os.getenv('DB_USER')
     # Initialize pipeline
     pipeline = CourtProcessingPipeline(connection_string, batch_size=100)
     

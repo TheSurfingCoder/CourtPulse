@@ -161,10 +161,6 @@ class BoundingBoxGeocodingProvider:
                     'limit': 20
                 }
                 
-                # Add OSM tag filter if specified
-                if 'osm_tag' in config:
-                    params['osm_tag'] = config['osm_tag']
-                
                 response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
@@ -174,7 +170,6 @@ class BoundingBoxGeocodingProvider:
                 logger.debug(json.dumps({
                     'event': 'bbox_search_completed',
                     'search_term': config['q'],
-                    'osm_tag': config.get('osm_tag'),
                     'results_count': len(features),
                     'bbox': bbox_str
                 }))
@@ -215,7 +210,6 @@ class BoundingBoxGeocodingProvider:
                 logger.error(json.dumps({
                     'event': 'bbox_search_error',
                     'search_term': config['q'],
-                    'osm_tag': config.get('osm_tag'),
                     'bbox': bbox_str,
                     'error': str(e)
                 }))
