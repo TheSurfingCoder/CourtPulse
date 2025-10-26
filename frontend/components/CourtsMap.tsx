@@ -28,15 +28,13 @@ interface Court {
 interface CourtsMapProps {
   className?: string;
   filters: {
-    sport: string;
-    surface_type: string;
-    is_public: boolean | undefined;
+    sport: string[];
+    surface_type: string[];
     school: boolean | undefined;
   };
   onFiltersChange: (filters: {
-    sport: string;
-    surface_type: string;
-    is_public: boolean | undefined;
+    sport: string[];
+    surface_type: string[];
     school: boolean | undefined;
   }) => void;
   onRefresh: () => void;
@@ -122,7 +120,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Track last searched area for smart re-query detection
   const lastSearchedArea = useRef<{
     bbox: [number, number, number, number];
-    filters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined };
+    filters: { sport: string[]; surface_type: string[]; school: boolean | undefined };
   } | null>(null);
 
   // Use external needsNewSearch state only - no internal state
@@ -174,7 +172,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   };
 
   // Helper function to find cache hit based on coverage area
-  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined }, shouldLog: boolean = true) => {
+  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string[]; surface_type: string[]; school: boolean | undefined }, shouldLog: boolean = true) => {
     // Round search bbox to same precision as cache keys
     const roundedSearchBbox: [number, number, number, number] = searchBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
     
@@ -192,8 +190,14 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         
         // Filter cached results client-side
         const filteredCourts = cachedCourts.filter((court: Court) => {
-          if (filters.sport && court.type !== filters.sport) return false;
-          if (filters.surface_type && court.surface !== filters.surface_type) return false;
+          // If sport is selected but no surface types, show nothing
+          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
+          // If surface types are selected but no sport, show nothing
+          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
+          // Apply sport filter if both are selected
+          if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
+          // Apply surface filter if both are selected
+          if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });
@@ -220,7 +224,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   };
 
   // Helper function to check if user has moved to a new area requiring search
-  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string; surface_type: string; is_public: boolean | undefined; school: boolean | undefined }) => {
+  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string[]; surface_type: string[]; school: boolean | undefined }) => {
     if (!lastSearchedArea.current) return false;
     
     // Check if we have cached data that can cover this area
@@ -434,10 +438,11 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Get clusters for current viewport (using debounced viewport)
   const clusters = useMemo(() => {
-    console.time('cluster-calc');
     const calcStartTime = performance.now();
     
     if (!supercluster) return [];
+    
+    console.time('cluster-calc');
     
     const { bbox, widthMiles, heightMiles, degreesPerPixel } = calculateBoundingBox(debouncedViewport);
 
@@ -617,8 +622,14 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         
         // Apply filters client-side to the raw data
         const filteredCourts = result.data.filter((court: Court) => {
-          if (filters.sport && court.type !== filters.sport) return false;
-          if (filters.surface_type && court.surface !== filters.surface_type) return false;
+          // If sport is selected but no surface types, show nothing
+          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
+          // If surface types are selected but no sport, show nothing
+          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
+          // Apply sport filter if both are selected
+          if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
+          // Apply surface filter if both are selected
+          if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });
