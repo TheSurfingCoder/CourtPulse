@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.7.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.6.0...frontend-v1.7.0) (2025-10-26)
+
+
+### Features
+
+* add documentation comment to main page ([efa5b08](https://github.com/TheSurfingCoder/CourtPulse/commit/efa5b08afc04631d7a505b4a119ece3d7f590043))
+* add documentation comment to main page ([814ced5](https://github.com/TheSurfingCoder/CourtPulse/commit/814ced57d23082eca171584003bd310358899a34))
+
 ## [1.6.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.5.0...frontend-v1.6.0) (2025-10-26)
 
 
