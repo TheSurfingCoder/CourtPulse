@@ -7,19 +7,21 @@ on:
     paths:
       - 'backend/**'
       - 'frontend/**'
-      - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - '.github/workflows/ci.yml'
+    paths-ignore:
+      - '**/package.json'
   pull_request:
     branches: [ main ]
     paths:
       - 'backend/**'
       - 'frontend/**'
-      - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - '.github/workflows/ci.yml'
+    paths-ignore:
+      - '**/package.json'
 
 jobs:
   test-and-build:
