@@ -187,19 +187,22 @@ class CourtDataMapper:
         """Determine if a court is public based on OSM access tags"""
         try:
             # Check fee status - if fee is "no", it's likely public
-            fee = properties.get('fee', '').lower()
+            fee_raw = properties.get('fee')
+            fee = fee_raw.lower() if fee_raw else ''
             if fee == 'no':
                 return True
             
             # Check access restrictions
-            access = properties.get('access', '').lower()
+            access_raw = properties.get('access')
+            access = access_raw.lower() if access_raw else ''
             if access in ['private', 'no', 'restricted']:
                 return False
             if access in ['yes', 'public', 'permissive']:
                 return True
             
             # Check leisure type - parks and playgrounds are typically public
-            leisure = properties.get('leisure', '').lower()
+            leisure_raw = properties.get('leisure')
+            leisure = leisure_raw.lower() if leisure_raw else ''
             if leisure in ['park', 'playground', 'pitch']:
                 return True
             if leisure in ['sports_centre', 'fitness_centre']:
