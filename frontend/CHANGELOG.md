@@ -1,5 +1,24 @@
 # @courtpulse/frontend
 
+## [1.8.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.7.0...frontend-v1.8.0) (2025-10-26)
+
+
+### Features
+
+* add dynamic metadata API endpoint for sports and surface types ([adbad9c](https://github.com/TheSurfingCoder/CourtPulse/commit/adbad9c898eb0370801c099513329ff6658855fa))
+* add edit court functionality ([5a82c2b](https://github.com/TheSurfingCoder/CourtPulse/commit/5a82c2bf1c5cdf4faa114db0a768dcf33d7f38de))
+* add edit court functionality ([7feb109](https://github.com/TheSurfingCoder/CourtPulse/commit/7feb1093ddbf91d6cfd3fdc09fbbdc3036f0253f))
+* update cluster courts when photon_name changes; handle nulls in form ([c06cbaa](https://github.com/TheSurfingCoder/CourtPulse/commit/c06cbaa00e8c066ee5bf116e4b5e7917e626c2c5))
+
+
+### Bug Fixes
+
+* parse and use server response data after court update ([34fba77](https://github.com/TheSurfingCoder/CourtPulse/commit/34fba77513f4abd857f23a04466139513fe6ec38))
+* replace handball with pickleball in sport filter ([8bf8608](https://github.com/TheSurfingCoder/CourtPulse/commit/8bf86082f43266ada1411b97dedf6173cd4d8720))
+* replace handball with pickleball in sport filter ([4360ba2](https://github.com/TheSurfingCoder/CourtPulse/commit/4360ba249b320b56153ce1e7d348100702c0c0f7))
+* sync surface options between EditCourtModal and FilterBar ([6768bb0](https://github.com/TheSurfingCoder/CourtPulse/commit/6768bb08d3d161c73feff6b4aee345fab5ba3214))
+* update surface filter to match database ([8b55526](https://github.com/TheSurfingCoder/CourtPulse/commit/8b5552645ab19b115331741d07f7b5a98f83f448))
+
 ## [1.7.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.6.0...frontend-v1.7.0) (2025-10-26)
 
 
