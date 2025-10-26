@@ -45,41 +45,43 @@ class ClusterMetadataPopulator:
         
         return R * c
     
-    def get_courts_by_name(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Get all courts grouped by photon_name"""
+    def get_courts_by_name_and_bbox(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all courts grouped by photon_name AND bounding_box_id (exclude generic names)"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
             query = """
             SELECT 
-                id, osm_id, photon_name,
+                id, osm_id, photon_name, bounding_box_id,
                 ST_Y(centroid::geometry) as lat,
                 ST_X(centroid::geometry) as lon,
                 hoops, sport
             FROM courts 
-            WHERE photon_name IS NOT NULL
-            ORDER BY photon_name, osm_id;
+            WHERE photon_name IS NOT NULL 
+            AND bounding_box_id IS NOT NULL
+            ORDER BY photon_name, bounding_box_id, osm_id;
             """
             
             cursor.execute(query)
             results = cursor.fetchall()
             
-            # Group by photon_name
-            courts_by_name = {}
+            # Group by photon_name + bounding_box_id combination
+            courts_by_cluster = {}
             for court in results:
-                name = court['photon_name']
-                if name not in courts_by_name:
-                    courts_by_name[name] = []
-                courts_by_name[name].append(dict(court))
+                # Create cluster key from name + bounding_box_id
+                cluster_key = f"{court['photon_name']}|{court['bounding_box_id']}"
+                if cluster_key not in courts_by_cluster:
+                    courts_by_cluster[cluster_key] = []
+                courts_by_cluster[cluster_key].append(dict(court))
             
             logger.info(json.dumps({
-                'event': 'courts_grouped_by_name',
-                'unique_names': len(courts_by_name),
+                'event': 'courts_grouped_by_name_and_bbox',
+                'unique_clusters': len(courts_by_cluster),
                 'total_courts': len(results)
             }))
             
-            return courts_by_name
+            return courts_by_cluster
             
         except Exception as e:
             logger.error(json.dumps({
@@ -91,36 +93,37 @@ class ClusterMetadataPopulator:
             if conn:
                 conn.close()
     
-    def create_geographic_clusters(self, courts_by_name: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-        """Create geographic clusters from courts with same name"""
+    def create_bbox_clusters(self, courts_by_cluster: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Create clusters from courts with same photon_name + bounding_box_id"""
         all_clusters = []
         
-        for photon_name, courts in courts_by_name.items():
-            if len(courts) == 1:
-                # Single court - create cluster of 1
-                cluster_id = str(uuid.uuid4())
-                cluster = {
-                    'cluster_id': cluster_id,
-                    'photon_name': photon_name,
-                    'courts': courts,
-                    'representative': courts[0],
-                    'size': 1
-                }
-                all_clusters.append(cluster)
-                
-                logger.debug(json.dumps({
-                    'event': 'single_court_cluster',
-                    'photon_name': photon_name,
-                    'osm_id': courts[0]['osm_id']
-                }))
-                
-            else:
-                # Multiple courts with same name - cluster by distance
-                clusters = self.cluster_courts_by_distance(courts, photon_name)
-                all_clusters.extend(clusters)
+        for cluster_key, courts in courts_by_cluster.items():
+            # Extract photon_name and bounding_box_id from cluster key
+            photon_name, bounding_box_id = cluster_key.split('|')
+            
+            # All courts in this group already have the same bounding_box_id
+            # So they form one cluster
+            cluster_id = str(uuid.uuid4())
+            cluster = {
+                'cluster_id': cluster_id,
+                'photon_name': photon_name,
+                'bounding_box_id': bounding_box_id,
+                'courts': courts,
+                'representative': courts[0],  # Use first court as representative
+                'size': len(courts)
+            }
+            all_clusters.append(cluster)
+            
+            logger.debug(json.dumps({
+                'event': 'bbox_cluster_created',
+                'photon_name': photon_name,
+                'bounding_box_id': bounding_box_id,
+                'cluster_size': len(courts),
+                'court_osm_ids': [court['osm_id'] for court in courts]
+            }))
         
         logger.info(json.dumps({
-            'event': 'geographic_clustering_completed',
+            'event': 'bbox_clustering_completed',
             'total_clusters': len(all_clusters),
             'total_courts': sum(len(cluster['courts']) for cluster in all_clusters)
         }))
@@ -250,19 +253,19 @@ class ClusterMetadataPopulator:
                 'max_distance_km': self.max_distance_km
             }))
             
-            # Step 1: Get courts grouped by name
-            courts_by_name = self.get_courts_by_name()
+            # Step 1: Get courts grouped by name + bounding_box_id
+            courts_by_cluster = self.get_courts_by_name_and_bbox()
             
-            # Step 2: Create geographic clusters
-            clusters = self.create_geographic_clusters(courts_by_name)
+            # Step 2: Create bounding box clusters
+            clusters = self.create_bbox_clusters(courts_by_cluster)
             
             # Step 3: Update database with cluster metadata
             stats = self.update_cluster_metadata(clusters)
             
             # Step 4: Generate summary
             summary = {
-                'unique_names': len(courts_by_name),
-                'geographic_clusters': len(clusters),
+                'unique_clusters': len(courts_by_cluster),
+                'bbox_clusters': len(clusters),
                 'updated_courts': stats['updated_courts'],
                 'multi_court_clusters': len([c for c in clusters if c['size'] > 1]),
                 'largest_cluster_size': max(c['size'] for c in clusters) if clusters else 0,

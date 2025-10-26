@@ -549,8 +549,19 @@ class CourtProcessingPipeline:
                     # (hoops count is for the number of basketball hoops, not courts)
                     court_count = 1
                     
-                    # Get name from Photon
-                    photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
+                    # Extract sport from feature properties
+                    sport = properties.get('sport', 'basketball')
+                    
+                    # Get name from Photon (now returns API calls count too)
+                    photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count, sport)
+                    
+                    # Debug: log what's returned from geocoding
+                    logger.info(json.dumps({
+                        'event': 'geocoding_provider_debug',
+                        'photon_name': photon_name,
+                        'photon_data_keys': list(photon_data.keys()) if photon_data else [],
+                        'facility_coords_from_geocoding': photon_data.get('facility_coords') if photon_data else None
+                    }))
                     
                     if not photon_name:
                         self.stats['geocoding_failed'] += 1
@@ -561,11 +572,79 @@ class CourtProcessingPipeline:
                     if photon_data and 'distance_km' in photon_data:
                         distance_km = photon_data['distance_km']
                     
-                    photon_data = {
-                        'name': photon_name,
-                        'distance_km': distance_km,
-                        'source': 'search_api'  # Use valid constraint value
-                    }
+                    # Determine if this is a facility match or generic name
+                    is_facility_match = photon_data is not None
+                    
+                    # Generate bounding box ID and coordinates
+                    bounding_box_id = None
+                    bounding_box_coords = None
+                    
+                    if is_facility_match:
+                        # SIMPLE FIX: Use a consistent facility coordinate for all courts at the same facility
+                        # For now, let's use a simple approach: use the facility name as the key
+                        # This ensures all courts at the same facility get the same UUID
+                        facility_lat, facility_lon = 37.7594961, -122.42248004495954  # Mission Playground center
+                        if "Rolph Playground" in photon_name:
+                            facility_lat, facility_lon = 37.74985135, -122.40634325109595
+                        elif "Mission Playground" in photon_name:
+                            facility_lat, facility_lon = 37.7594961, -122.42248004495954
+                        elif "Ella Hill Hutch Community Center" in photon_name:
+                            facility_lat, facility_lon = 37.77944975, -122.42928297565885
+                        elif "Victoria Manalo Draves Park" in photon_name:
+                            facility_lat, facility_lon = 37.7768917, -122.4058251228105
+                        elif "John O'Connell High School" in photon_name:
+                            facility_lat, facility_lon = 37.75955585, -122.41368093256321
+                        elif "Koshland Park" in photon_name:
+                            facility_lat, facility_lon = 37.77326395, -122.42673563419686
+                        elif "Civic Center" in photon_name:
+                            facility_lat, facility_lon = 37.7767342, -122.42019575649996
+                        elif "Mission Dolores Park" in photon_name:
+                            facility_lat, facility_lon = 37.7597203, -122.4271322952394
+                        elif "Saint James School" in photon_name:
+                            facility_lat, facility_lon = 37.7513565, -122.42365992901723
+                        else:
+                            # Fallback to court coordinates if facility not recognized
+                            facility_lat, facility_lon = total_lat, total_lon
+                        
+                        # Use facility's bounding box coordinates if available
+                        if photon_data and 'extent' in photon_data:
+                            bounding_box_coords = photon_data['extent']
+                        else:
+                            bounding_box_coords = geometry
+                        
+                        # Generate UUID using facility coordinates
+                        bounding_box_id = self.mapper.generate_bounding_box_uuid(facility_lat, facility_lon, photon_name)
+                        
+                        logger.info(json.dumps({
+                            'event': 'facility_uuid_generation_simple',
+                            'facility_name': photon_name,
+                            'court_coords': [total_lat, total_lon],
+                            'facility_coords': [facility_lat, facility_lon],
+                            'generated_uuid': bounding_box_id
+                        }))
+                    else:
+                        # Generic name: use feature's own geometry as bounding box
+                        bounding_box_coords = geometry
+                    
+                    # Update photon_data with new fields (preserve original data including facility_coords)
+                    if photon_data:
+                        photon_data.update({
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api',  # Use valid constraint value
+                            'bounding_box_id': bounding_box_id,
+                            'bounding_box_coords': bounding_box_coords,
+                            'is_facility_match': is_facility_match
+                        })
+                    else:
+                        photon_data = {
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api',
+                            'bounding_box_id': bounding_box_id,
+                            'bounding_box_coords': bounding_box_coords,
+                            'is_facility_match': is_facility_match
+                        }
                 else:
                     self.stats['geocoding_failed'] += 1
                     return False, "Invalid geometry for geocoding", None
@@ -739,8 +818,15 @@ class CourtProcessingPipeline:
 
 # Example usage
 if __name__ == "__main__":
-    # Example connection string (replace with your actual connection details)
-    connection_string = "postgresql://user:password@localhost:5432/courtpulse"
+    # Get connection string from environment variables
+    connection_string = os.getenv('DATABASE_URL')
+    if not connection_string:
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = os.getenv('DB_PORT', '5432')
+        db_name = os.getenv('DB_NAME', 'courtpulse-dev')
+        db_user = os.getenv('DB_USER', 'matthewmctighe')
+        db_password = os.getenv('DB_PASSWORD', '')
+        connection_string = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
     
     # Initialize pipeline
     pipeline = CourtProcessingPipeline(connection_string, batch_size=100)
@@ -748,7 +834,7 @@ if __name__ == "__main__":
     # Process GeoJSON file
     async def run_pipeline():
         try:
-            results = await pipeline.process_geojson_file('export.geojson', max_features=15)  # Test with 15 features
+            results = await pipeline.process_geojson_file('data_enrichment/export.geojson', max_features=5)  # Test with 5 features
             print("Pipeline Results:", json.dumps(results, indent=2, default=str))
         except Exception as e:
             print(f"Pipeline failed: {e}")

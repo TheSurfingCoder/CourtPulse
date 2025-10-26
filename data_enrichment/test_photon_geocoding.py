@@ -39,12 +39,12 @@ class PhotonGeocodingProvider:
             'delay': delay
         }))
     
-    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1, sport: str = 'basketball') -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:
         """Main entry point for reverse geocoding
         
-        HYBRID APPROACH: Try bounding box search first, fallback to distance-based search
-        1. Bounding box search (NEW - higher accuracy, fewer API calls)
-        2. Distance-based search (FALLBACK - proven reliable)
+        BOUNDING BOX ONLY APPROACH: Try bounding box search, return generic name if no match
+        1. Bounding box search (primary method)
+        2. Generic sport name (fallback - no clustering)
         """
         try:
             logger.info(json.dumps({
@@ -53,7 +53,7 @@ class PhotonGeocodingProvider:
                 'court_count': court_count
             }))
             
-            # 1. Try bounding box search first (NEW METHOD)
+            # 1. Try bounding box search first
             bbox_result = self._try_bounding_box_search(lat, lon, court_count)
             if bbox_result[0]:  # If we found a result
                 logger.info(json.dumps({
@@ -61,16 +61,18 @@ class PhotonGeocodingProvider:
                     'coordinates': {'lat': lat, 'lon': lon},
                     'facility_name': bbox_result[0]
                 }))
-                return bbox_result
+                return bbox_result[0], bbox_result[1], bbox_result[2]
             
-            # 2. Fallback to current distance-based search (PROVEN METHOD)
+            # 2. Return generic sport name (no clustering)
+            generic_name = self._get_generic_sport_name(sport)
             logger.info(json.dumps({
                 'event': 'bounding_box_search_failed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'reason': 'falling_back_to_distance_based_search'
+                'reason': 'using_generic_sport_name',
+                'generic_name': generic_name
             }))
             
-            return self._try_distance_based_search(lat, lon, court_count)
+            return generic_name, None, 0
             
         except Exception as e:
             logger.error(json.dumps({
@@ -79,7 +81,7 @@ class PhotonGeocodingProvider:
                 'court_count': court_count,
                 'error': str(e)
             }))
-            return None, None
+            return None, None, 0
     
     def _try_search_fallback_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """Try to find nearby named places using search API and return all valid results"""
@@ -1494,7 +1496,24 @@ class PhotonGeocodingProvider:
         
         self.last_request_time = time.time()
 
-    def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def _get_generic_sport_name(self, sport: str) -> str:
+        """Generate generic sport name based on actual sport from OSM data"""
+        sport_mapping = {
+            'basketball': 'Basketball Court',
+            'tennis': 'Tennis Court', 
+            'soccer': 'Soccer Field',
+            'volleyball': 'Volleyball Court',
+            'pickleball': 'Pickleball Court',
+            'baseball': 'Baseball Field',
+            'football': 'Football Field',
+            'hockey': 'Hockey Rink',
+            'rugby': 'Rugby Field'
+        }
+        
+        # Return mapped name or generic fallback
+        return sport_mapping.get(sport.lower(), f'{sport.title()} Court')
+    
+    def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:
         """Try bounding box search first (NEW METHOD)"""
         try:
             logger.info(json.dumps({
@@ -1510,7 +1529,6 @@ class PhotonGeocodingProvider:
                 # Update metrics - only count bounding box matches here
                 if facility_data.get('is_inside_bbox', False):
                     self.bounding_box_count += 1
-                # Distance-based counting will be handled in _try_distance_based_search
                 
                 # Update total requests with actual API calls made
                 self.total_requests += api_calls_made
@@ -1519,16 +1537,18 @@ class PhotonGeocodingProvider:
                     'event': 'bounding_box_search_success',
                     'coordinates': {'lat': lat, 'lon': lon},
                     'facility_name': facility_name,
-                    'is_inside_bbox': facility_data.get('is_inside_bbox', False)
+                    'is_inside_bbox': facility_data.get('is_inside_bbox', False),
+                    'api_calls_made': api_calls_made
                 }))
                 
-                return facility_name, facility_data
+                return facility_name, facility_data, api_calls_made
             else:
                 logger.info(json.dumps({
                     'event': 'bounding_box_search_no_results',
-                    'coordinates': {'lat': lat, 'lon': lon}
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'api_calls_made': api_calls_made
                 }))
-                return None, None
+                return None, None, api_calls_made
                 
         except Exception as e:
             logger.error(json.dumps({
@@ -1536,7 +1556,7 @@ class PhotonGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
-            return None, None
+            return None, None, 0
     
     def _try_distance_based_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Fallback to current distance-based search (PROVEN METHOD)"""
