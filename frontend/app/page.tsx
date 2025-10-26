@@ -8,11 +8,14 @@ import RateLimitModal from '../components/RateLimitModal';
 import { useState } from 'react';
 
 export default function Home() {
-  const [filters, setFilters] = useState({
-    sport: 'basketball', // Start with basketball like the original
-    surface_type: '',
-    is_public: undefined as boolean | undefined,
-    school: undefined as boolean | undefined
+  const [filters, setFilters] = useState<{
+    sport: string[];
+    surface_type: string[];
+    school: boolean | undefined;
+  }>({
+    sport: ['basketball'], // Start with basketball like the original
+    surface_type: [],
+    school: undefined
   });
 
   const [loading, setLoading] = useState(false);
