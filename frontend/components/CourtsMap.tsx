@@ -826,12 +826,31 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         throw new Error('Failed to update court');
       }
 
-      // Update local state
-      setCourts(courts.map(c => c.id === updatedCourt.id ? updatedCourt : c));
+      // Parse server response to get the updated court data
+      const result = await response.json();
+      if (!result.success || !result.data) {
+        throw new Error('Invalid response from server');
+      }
+
+      // Update local state with server-returned data
+      const serverUpdatedCourt = result.data;
+      setCourts(courts.map(c => c.id === serverUpdatedCourt.id ? {
+        id: serverUpdatedCourt.id,
+        name: serverUpdatedCourt.name,
+        type: serverUpdatedCourt.type,
+        lat: serverUpdatedCourt.lat,
+        lng: serverUpdatedCourt.lng,
+        surface: serverUpdatedCourt.surface,
+        is_public: serverUpdatedCourt.is_public,
+        school: serverUpdatedCourt.school,
+        cluster_group_name: serverUpdatedCourt.cluster_group_name,
+        created_at: serverUpdatedCourt.created_at,
+        updated_at: serverUpdatedCourt.updated_at
+      } : c));
       
       logEvent('court_updated', {
-        courtId: updatedCourt.id,
-        updatedData: updatedCourt
+        courtId: serverUpdatedCourt.id,
+        updatedData: serverUpdatedCourt
       });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
