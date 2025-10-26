@@ -191,6 +191,11 @@ npm start
 
 Deployments are automatically triggered when there are changes in the `frontend/` directory, excluding version-only changes in `package.json` and `CHANGELOG.md` files.
 
+### Deployment Status
+- ✅ **Production**: Automatically deployed on version releases
+- 🔄 **CI/CD**: GitHub Actions run on code changes
+- 📦 **Releases**: Automated via Release Please
+
 ## 📝 License
 
 This project is licensed under the MIT License.
