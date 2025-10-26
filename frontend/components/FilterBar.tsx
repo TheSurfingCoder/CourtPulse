@@ -59,10 +59,9 @@ export default function FilterBar({
             <option value="">All Surfaces</option>
             <option value="asphalt">Asphalt</option>
             <option value="concrete">Concrete</option>
-            <option value="wood">Wood</option>
-            <option value="synthetic">Synthetic</option>
-            <option value="clay">Clay</option>
             <option value="grass">Grass</option>
+            <option value="clay">Clay</option>
+            <option value="other">Other</option>
           </select>
           <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
         </div>
