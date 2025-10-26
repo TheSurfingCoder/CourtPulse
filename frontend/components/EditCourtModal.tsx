@@ -54,10 +54,10 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     
     const updatedCourt: CourtData = {
       ...court,
-      cluster_group_name: formData.cluster_group_name,
-      name: formData.name,
-      type: formData.type,
-      surface: formData.surface,
+      cluster_group_name: formData.cluster_group_name.trim() || null,
+      name: formData.name.trim() || null,
+      type: formData.type.trim() || court.type,
+      surface: formData.surface.trim() || court.surface,
       is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : court.is_public,
       school: formData.school === 'true'
     };

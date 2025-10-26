@@ -105,14 +105,22 @@ export class CourtModel {
         const values = [];
         let paramCount = 1;
 
-        if (courtData.name) {
+        // Check if photon_name is being updated
+        let photonNameBeingUpdated = false;
+        let newPhotonName = null;
+
+        if (courtData.cluster_group_name !== undefined && courtData.cluster_group_name !== null && courtData.cluster_group_name.trim() !== '') {
+            fields.push(`photon_name = $${paramCount++}`);
+            values.push(courtData.cluster_group_name);
+            photonNameBeingUpdated = true;
+            newPhotonName = courtData.cluster_group_name;
+        }
+
+        if (courtData.name !== undefined && courtData.name !== null && courtData.name.trim() !== '') {
             fields.push(`enriched_name = $${paramCount++}`);
             values.push(courtData.name);
         }
-        if (courtData.cluster_group_name !== undefined) {
-            fields.push(`photon_name = $${paramCount++}`);
-            values.push(courtData.cluster_group_name);
-        }
+
         if (courtData.type) {
             fields.push(`sport = $${paramCount++}`);
             values.push(courtData.type);
@@ -136,8 +144,27 @@ export class CourtModel {
 
         if (fields.length === 0) return null;
 
+        // Get the current court to find its current photon_name (only if we're updating cluster_group_name)
+        let currentPhotonName = null;
+        if (photonNameBeingUpdated) {
+            const currentCourt = await this.findById(id);
+            if (!currentCourt) return null;
+            currentPhotonName = currentCourt.cluster_group_name;
+        }
+
         fields.push(`updated_at = NOW()`);
         values.push(id);
+
+        // If photon_name is being updated, update all courts with the same current photon_name
+        if (photonNameBeingUpdated && currentPhotonName) {
+            // Update all courts with the same current photon_name
+            const updateClusterQuery = `
+                UPDATE courts 
+                SET photon_name = $1, updated_at = NOW()
+                WHERE photon_name = $2
+            `;
+            await pool.query(updateClusterQuery, [newPhotonName, currentPhotonName]);
+        }
 
         const result = await pool.query(`
             UPDATE courts 
