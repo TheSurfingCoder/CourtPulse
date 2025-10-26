@@ -6,6 +6,32 @@ import { searchRateLimit } from '../middleware/rateLimiter';
 
 const router = express.Router();
 
+// GET /api/courts/metadata - Get available sports and surface types from database
+router.get('/metadata', async (req: express.Request, res: express.Response) => {
+  try {
+    const result = await CourtModel.getMetadata();
+    
+    return res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'metadata_fetch_error',
+      timestamp: new Date().toISOString(),
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }
+    }));
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch metadata',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // GET /api/courts/search - Search courts with viewport and filters
 router.get('/search', searchRateLimit, async (req: express.Request, res: express.Response) => {
   try {

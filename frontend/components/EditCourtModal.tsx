@@ -34,6 +34,34 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     school: ''
   });
 
+  const [sportOptions, setSportOptions] = useState<string[]>([]);
+  const [surfaceOptions, setSurfaceOptions] = useState<string[]>([]);
+  const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
+
+  // Fetch metadata on mount
+  useEffect(() => {
+    const fetchMetadata = async () => {
+      try {
+        setIsLoadingMetadata(true);
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiUrl}/api/courts/metadata`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            setSportOptions(result.data.sports || []);
+            setSurfaceOptions(result.data.surfaceTypes || []);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch metadata:', error);
+      } finally {
+        setIsLoadingMetadata(false);
+      }
+    };
+
+    fetchMetadata();
+  }, []);
+
   useEffect(() => {
     if (court) {
       setFormData({
@@ -65,9 +93,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     onSave(updatedCourt);
     onClose();
   };
-
-  const sportOptions = ['basketball', 'tennis', 'soccer', 'volleyball', 'pickleball'];
-  const surfaceOptions = ['asphalt', 'concrete', 'wood', 'synthetic', 'clay', 'grass'];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">

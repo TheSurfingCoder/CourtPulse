@@ -265,4 +265,14 @@ export class CourtModel {
         return result.rows;
     }
 
+    static async getMetadata(): Promise<{ sports: string[]; surfaceTypes: string[] }> {
+        const sportsResult = await pool.query(`SELECT DISTINCT sport FROM courts ORDER BY sport`);
+        const surfaceTypesResult = await pool.query(`SELECT DISTINCT surface_type FROM courts WHERE surface_type IS NOT NULL ORDER BY surface_type`);
+        
+        return {
+            sports: sportsResult.rows.map(row => row.sport),
+            surfaceTypes: surfaceTypesResult.rows.map(row => row.surface_type)
+        };
+    }
+
 }
