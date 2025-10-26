@@ -2,7 +2,8 @@ name: release-please
 # Replaces old release.yml workflow with Release Please for automated versioning
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize]
     branches: [main]
     # Only run when source code changes, not when Release Please updates version files
     paths-ignore:
