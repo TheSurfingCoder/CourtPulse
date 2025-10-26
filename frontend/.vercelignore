@@ -1,8 +1,3 @@
 # Ignore CHANGELOG files
 **/CHANGELOG.md
 frontend/CHANGELOG.md
-
-# Ignore package-lock.json changes (these often happen with version bumps)
-package-lock.json
-frontend/package-lock.json
-backend/package-lock.json
