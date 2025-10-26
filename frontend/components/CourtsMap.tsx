@@ -11,14 +11,14 @@ import EditCourtModal from './EditCourtModal';
 
 interface Court {
   id: number;
-  name: string;
+  name: string | null;
   type: string;
   lat: number;
   lng: number;
   surface: string;
   is_public: boolean;
   school: boolean;
-  cluster_group_name: string;
+  cluster_group_name: string | null;
   created_at: string;
   updated_at: string;
 }
