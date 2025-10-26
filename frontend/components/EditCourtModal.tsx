@@ -67,7 +67,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
   };
 
   const sportOptions = ['basketball', 'tennis', 'soccer', 'volleyball', 'pickleball'];
-  const surfaceOptions = ['asphalt', 'concrete', 'grass', 'clay', 'other'];
+  const surfaceOptions = ['asphalt', 'concrete', 'wood', 'synthetic', 'clay', 'grass'];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
