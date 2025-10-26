@@ -1,5 +1,21 @@
 # @courtpulse/frontend
 
+## [1.9.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.8.0...frontend-v1.9.0) (2025-10-26)
+
+
+### Features
+
+* implement multi-select filters with server-driven metadata ([9df085a](https://github.com/TheSurfingCoder/CourtPulse/commit/9df085a35c6e2c6551a1b4a6872d900a3102b024))
+* initialize filters with all sports and surface types selected ([dbb91a5](https://github.com/TheSurfingCoder/CourtPulse/commit/dbb91a50875f87a71da5e3246aebbd900246e1b1))
+
+
+### Bug Fixes
+
+* move console.time call after supercluster check to prevent orphan timers ([b75a3d1](https://github.com/TheSurfingCoder/CourtPulse/commit/b75a3d11679318afe494980e31b6894d2176eca9))
+* require both sport and surface filters to be selected for filtering to apply ([7bb3c10](https://github.com/TheSurfingCoder/CourtPulse/commit/7bb3c10cba95afa60b5bead3b6ad54eb40a65fc0))
+* update Court interface to allow null for name and cluster_group_… ([366ad90](https://github.com/TheSurfingCoder/CourtPulse/commit/366ad90a5f986deb07fdcfecc52589bc27f85cde))
+* update Court interface to allow null for name and cluster_group_name ([cd047c8](https://github.com/TheSurfingCoder/CourtPulse/commit/cd047c8af045cc01ea1e8414c92af55dd5254625))
+
 ## [1.8.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.7.0...frontend-v1.8.0) (2025-10-26)
 
 
