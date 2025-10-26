@@ -187,6 +187,10 @@ npm start
 5. Ensure all tests pass
 6. Submit a pull request to `main`
 
+## 🚀 Deployment
+
+Deployments are automatically triggered when there are changes in the `frontend/` directory.
+
 ## 📝 License
 
 This project is licensed under the MIT License.
