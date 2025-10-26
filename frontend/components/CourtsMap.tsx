@@ -191,7 +191,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         const filteredCourts = cachedCourts.filter((court: Court) => {
           if (filters.sport && court.type !== filters.sport) return false;
           if (filters.surface_type && court.surface !== filters.surface_type) return false;
-          if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });
@@ -508,7 +507,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     }, 300); // 300ms debounce
     
     return () => clearTimeout(filterTimer);
-  }, [filters.sport, filters.surface_type, filters.is_public, filters.school]);
+  }, [filters.sport, filters.surface_type, filters.school]);
 
   // Detect when user has moved to a new area requiring search
   useEffect(() => {
@@ -617,7 +616,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         const filteredCourts = result.data.filter((court: Court) => {
           if (filters.sport && court.type !== filters.sport) return false;
           if (filters.surface_type && court.surface !== filters.surface_type) return false;
-          if (filters.is_public !== undefined && court.is_public !== filters.is_public) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
         });

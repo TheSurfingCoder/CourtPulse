@@ -84,9 +84,14 @@ export default function FilterBar({
         </div>
 
         {/* Clear Filters */}
-        {(filters.sport || filters.surface_type || filters.school !== undefined) && (
+        {(filters.sport || filters.surface_type || filters.is_public !== undefined || filters.school !== undefined) && (
           <button
-            onClick={() => setFilters({ sport: '', surface_type: '', is_public: undefined, school: undefined })}
+            onClick={() => setFilters({ 
+              sport: '', 
+              surface_type: '', 
+              is_public: undefined, 
+              school: undefined 
+            })}
             className="px-3 py-2 text-sm text-red-500 hover:text-red-700 transition-colors rounded-lg hover:bg-red-50 border border-red-200 hover:border-red-300"
             title="Clear all filters"
           >
