@@ -44,7 +44,7 @@ export default function FilterBar({
             <option value="tennis">Tennis</option>
             <option value="soccer">Soccer</option>
             <option value="volleyball">Volleyball</option>
-            <option value="handball">Handball</option>
+            <option value="pickleball">Pickleball</option>
           </select>
           <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
         </div>
