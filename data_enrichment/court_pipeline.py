@@ -549,8 +549,19 @@ class CourtProcessingPipeline:
                     # (hoops count is for the number of basketball hoops, not courts)
                     court_count = 1
                     
-                    # Get name from Photon
-                    photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
+                    # Extract sport from feature properties
+                    sport = properties.get('sport', 'unknown')
+                    
+                    # Get name from Photon (now returns API calls count too)
+                    photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count, sport)
+                    
+                    # Debug: log what's returned from geocoding
+                    logger.info(json.dumps({
+                        'event': 'geocoding_provider_debug',
+                        'photon_name': photon_name,
+                        'photon_data_keys': list(photon_data.keys()) if photon_data else [],
+                        'facility_coords_from_geocoding': photon_data.get('facility_coords') if photon_data else None
+                    }))
                     
                     if not photon_name:
                         self.stats['geocoding_failed'] += 1
@@ -561,11 +572,66 @@ class CourtProcessingPipeline:
                     if photon_data and 'distance_km' in photon_data:
                         distance_km = photon_data['distance_km']
                     
-                    photon_data = {
-                        'name': photon_name,
-                        'distance_km': distance_km,
-                        'source': 'search_api'  # Use valid constraint value
-                    }
+                    # Determine if this is a facility match or generic name
+                    is_facility_match = photon_data is not None
+                    
+                    # Generate bounding box ID and coordinates
+                    bounding_box_id = None
+                    bounding_box_coords = None
+                    
+                    if is_facility_match:
+                        # FACILITY MATCH: Use facility's extent as bounding box
+                        # Extract facility center coordinates for UUID generation
+                        facility_geometry = photon_data.get('feature', {}).get('geometry', {})
+                        if facility_geometry.get('type') == 'Point':
+                            facility_lon, facility_lat = facility_geometry['coordinates']
+                        else:
+                            # Fallback to court coordinates if no facility geometry available
+                            facility_lat, facility_lon = total_lat, total_lon
+                        
+                        # Use facility's extent as bounding box (preferred) or court geometry (fallback)
+                        if 'extent' in photon_data:
+                            bounding_box_coords = photon_data['extent']
+                        else:
+                            # Fallback: use court geometry if no facility extent
+                            bounding_box_coords = geometry
+                        
+                        # Generate UUID using facility coordinates
+                        bounding_box_id = self.mapper.generate_bounding_box_uuid(facility_lat, facility_lon, photon_name)
+                        
+                        logger.info(json.dumps({
+                            'event': 'facility_uuid_generation',
+                            'facility_name': photon_name,
+                            'court_coords': [total_lat, total_lon],
+                            'facility_coords': [facility_lat, facility_lon],
+                            'generated_uuid': bounding_box_id,
+                            'source': 'photon_api_geometry'
+                        }))
+                    else:
+                        # GENERIC NAME: No facility match, no clustering
+                        # Use court's own geometry as bounding box (for individual court display)
+                        bounding_box_coords = geometry
+                        bounding_box_id = None  # No clustering for generic names
+                    
+                    # Update photon_data with new fields (preserve original data including facility_coords)
+                    if photon_data:
+                        photon_data.update({
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api',  # Use valid constraint value
+                            'bounding_box_id': bounding_box_id,
+                            'bounding_box_coords': bounding_box_coords,
+                            'is_facility_match': is_facility_match
+                        })
+                    else:
+                        photon_data = {
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api',
+                            'bounding_box_id': bounding_box_id,
+                            'bounding_box_coords': bounding_box_coords,
+                            'is_facility_match': is_facility_match
+                        }
                 else:
                     self.stats['geocoding_failed'] += 1
                     return False, "Invalid geometry for geocoding", None
@@ -739,16 +805,18 @@ class CourtProcessingPipeline:
 
 # Example usage
 if __name__ == "__main__":
-    # Example connection string (replace with your actual connection details)
-    connection_string = "postgresql://user:password@localhost:5432/courtpulse"
-    
+    # Get connection string from environment variables
+    connection_string = os.getenv('DATABASE_URL')
+    if not connection_string:
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_user = os.getenv('DB_USER')
     # Initialize pipeline
     pipeline = CourtProcessingPipeline(connection_string, batch_size=100)
     
     # Process GeoJSON file
     async def run_pipeline():
         try:
-            results = await pipeline.process_geojson_file('export.geojson', max_features=15)  # Test with 15 features
+            results = await pipeline.process_geojson_file('data_enrichment/export.geojson', max_features=5)  # Test with 5 features
             print("Pipeline Results:", json.dumps(results, indent=2, default=str))
         except Exception as e:
             print(f"Pipeline failed: {e}")

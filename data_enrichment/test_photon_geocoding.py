@@ -39,12 +39,12 @@ class PhotonGeocodingProvider:
             'delay': delay
         }))
     
-    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def reverse_geocode(self, lat: float, lon: float, court_count: int = 1, sport: str = 'basketball') -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:
         """Main entry point for reverse geocoding
         
-        HYBRID APPROACH: Try bounding box search first, fallback to distance-based search
-        1. Bounding box search (NEW - higher accuracy, fewer API calls)
-        2. Distance-based search (FALLBACK - proven reliable)
+        BOUNDING BOX ONLY APPROACH: Try bounding box search, return generic name if no match
+        1. Bounding box search (primary method)
+        2. Generic sport name (fallback - no clustering)
         """
         try:
             logger.info(json.dumps({
@@ -53,7 +53,7 @@ class PhotonGeocodingProvider:
                 'court_count': court_count
             }))
             
-            # 1. Try bounding box search first (NEW METHOD)
+            # 1. Try bounding box search first
             bbox_result = self._try_bounding_box_search(lat, lon, court_count)
             if bbox_result[0]:  # If we found a result
                 logger.info(json.dumps({
@@ -61,16 +61,18 @@ class PhotonGeocodingProvider:
                     'coordinates': {'lat': lat, 'lon': lon},
                     'facility_name': bbox_result[0]
                 }))
-                return bbox_result
+                return bbox_result[0], bbox_result[1], bbox_result[2]
             
-            # 2. Fallback to current distance-based search (PROVEN METHOD)
+            # 2. Return generic sport name (no clustering)
+            generic_name = self._get_generic_sport_name(sport)
             logger.info(json.dumps({
                 'event': 'bounding_box_search_failed',
                 'coordinates': {'lat': lat, 'lon': lon},
-                'reason': 'falling_back_to_distance_based_search'
+                'reason': 'using_generic_sport_name',
+                'generic_name': generic_name
             }))
             
-            return self._try_distance_based_search(lat, lon, court_count)
+            return generic_name, None, 0
             
         except Exception as e:
             logger.error(json.dumps({
@@ -79,7 +81,7 @@ class PhotonGeocodingProvider:
                 'court_count': court_count,
                 'error': str(e)
             }))
-            return None, None
+            return None, None, 0
     
     def _try_search_fallback_all_results(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """Try to find nearby named places using search API and return all valid results"""
@@ -878,36 +880,6 @@ class PhotonGeocodingProvider:
             'distance_based_percentage': round((self.distance_based_count / total_courts) * 100, 1)
         }
     
-    def _fallback_to_distance_based_selection_with_results(self, collected_results: List[Dict[str, Any]], lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Optimized fallback method: use collected results from bounding box phase for distance-based selection"""
-        if collected_results:
-            # Sort by distance and pick the closest result
-            sorted_results = sorted(collected_results, key=lambda x: x['distance'])
-            closest_result = sorted_results[0]
-            
-            logger.info(json.dumps({
-                'event': 'distance_based_selection_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'total_candidates': len(collected_results),
-                'selected_result': {
-                    'name': closest_result['name'],
-                    'endpoint': closest_result['endpoint'],
-                    'distance_km': round(closest_result['distance'], 3)
-                }
-            }))
-            
-            return self._format_result(closest_result, court_count, closest_result['endpoint'], 'distance_based_fallback')
-        
-        # No results from any priority search - geocoding failed
-        logger.warning(json.dumps({
-            'event': 'geocoding_failed',
-            'coordinates': {'lat': lat, 'lon': lon},
-            'court_count': court_count,
-            'reason': 'no_priority_results_found'
-        }))
-        return None, None
-
     def _fallback_to_distance_based_selection(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Legacy fallback method: run all searches and use distance-based selection (DEPRECATED - use _fallback_to_distance_based_selection_with_results instead)"""
         # Collect all results from priority searches
@@ -1494,7 +1466,33 @@ class PhotonGeocodingProvider:
         
         self.last_request_time = time.time()
 
-    def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def _get_generic_sport_name(self, sport: str) -> str:
+        """Generate generic sport name based on actual sport from OSM data
+        
+        NOTE: This method ALWAYS returns a non-empty string, never None.
+        This ensures the pipeline never fails due to missing names.
+        """
+        sport_mapping = {
+            'basketball': 'Basketball Court',
+            'tennis': 'Tennis Court', 
+            'soccer': 'Soccer Field',
+            'volleyball': 'Volleyball Court',
+            'pickleball': 'Pickleball Court',
+            'baseball': 'Baseball Field',
+            'football': 'Football Field',
+            'hockey': 'Hockey Rink',
+            'rugby': 'Rugby Field'
+        }
+        
+        # Handle unknown sport
+        if sport.lower() == 'unknown':
+            return 'Sports Court'
+        
+        # Return mapped name or generic fallback
+        # This ensures we ALWAYS return a non-empty string
+        return sport_mapping.get(sport.lower(), f'{sport.title()} Court')
+    
+    def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:
         """Try bounding box search first (NEW METHOD)"""
         try:
             logger.info(json.dumps({
@@ -1510,7 +1508,6 @@ class PhotonGeocodingProvider:
                 # Update metrics - only count bounding box matches here
                 if facility_data.get('is_inside_bbox', False):
                     self.bounding_box_count += 1
-                # Distance-based counting will be handled in _try_distance_based_search
                 
                 # Update total requests with actual API calls made
                 self.total_requests += api_calls_made
@@ -1519,16 +1516,18 @@ class PhotonGeocodingProvider:
                     'event': 'bounding_box_search_success',
                     'coordinates': {'lat': lat, 'lon': lon},
                     'facility_name': facility_name,
-                    'is_inside_bbox': facility_data.get('is_inside_bbox', False)
+                    'is_inside_bbox': facility_data.get('is_inside_bbox', False),
+                    'api_calls_made': api_calls_made
                 }))
                 
-                return facility_name, facility_data
+                return facility_name, facility_data, api_calls_made
             else:
                 logger.info(json.dumps({
                     'event': 'bounding_box_search_no_results',
-                    'coordinates': {'lat': lat, 'lon': lon}
+                    'coordinates': {'lat': lat, 'lon': lon},
+                    'api_calls_made': api_calls_made
                 }))
-                return None, None
+                return None, None, api_calls_made
                 
         except Exception as e:
             logger.error(json.dumps({
@@ -1536,79 +1535,7 @@ class PhotonGeocodingProvider:
                 'coordinates': {'lat': lat, 'lon': lon},
                 'error': str(e)
             }))
-            return None, None
-    
-    def _try_distance_based_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Fallback to current distance-based search (PROVEN METHOD)"""
-        try:
-            logger.info(json.dumps({
-                'event': 'distance_based_search_started',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count
-            }))
-            
-            # Rate limiting
-            self._rate_limit()
-            
-            # Collect all results for potential distance-based fallback
-            all_collected_results = []
-            
-            # 1. Parks/Playgrounds (highest priority for courts)
-            park_results = self._try_search_with_bounding_box(lat, lon, 'park', [
-                {'osm_tag': 'leisure:park', 'q': 'park'},
-                {'osm_tag': 'leisure:playground', 'q': 'playground'}
-            ], 1000)
-            if park_results:
-                all_collected_results.extend([{**result, 'endpoint': 'park'} for result in park_results])
-            
-            # 2. Schools/Universities
-            school_results = self._try_school_search_with_bounding_box(lat, lon)
-            if school_results:
-                all_collected_results.extend([{**result, 'endpoint': 'school'} for result in school_results])
-            
-            # 3. Community centres
-            community_results = self._try_community_centre_search_with_bounding_box(lat, lon)
-            if community_results:
-                all_collected_results.extend([{**result, 'endpoint': 'community_centre'} for result in community_results])
-            
-            # 4. Sports clubs
-            sports_club_results = self._try_sports_club_search_with_bounding_box(lat, lon)
-            if sports_club_results:
-                all_collected_results.extend([{**result, 'endpoint': 'sports_club'} for result in sports_club_results])
-            
-            # 5. Places of worship
-            worship_results = self._try_place_of_worship_search_with_bounding_box(lat, lon)
-            if worship_results:
-                all_collected_results.extend([{**result, 'endpoint': 'place_of_worship'} for result in worship_results])
-            
-            # 6. Sports centres
-            sports_centre_results = self._try_sports_centre_search_with_bounding_box(lat, lon)
-            if sports_centre_results:
-                all_collected_results.extend([{**result, 'endpoint': 'sports_centre'} for result in sports_centre_results])
-            
-            # Use distance-based selection from collected results
-            logger.info(json.dumps({
-                'event': 'distance_based_search_completed',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'court_count': court_count,
-                'collected_results_count': len(all_collected_results)
-            }))
-            
-            result = self._fallback_to_distance_based_selection_with_results(all_collected_results, lat, lon, court_count)
-            
-            # Update metrics
-            if result[0]:  # If we found a result
-                self.distance_based_count += 1
-            
-            return result
-            
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'distance_based_search_error',
-                'coordinates': {'lat': lat, 'lon': lon},
-                'error': str(e)
-            }))
-            return None, None
+            return None, None, 0
 
 if __name__ == "__main__":
     # Test the provider

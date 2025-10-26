@@ -48,7 +48,7 @@ class BoundingBoxGeocodingProvider:
             
             # Create bounding box around court for search area
             # We need a reasonable search area to find facilities, but we'll check containment separately
-            bbox = self._create_bbox_around_point(lat, lon, buffer_km=1.0)  # 1km buffer
+            bbox = self._create_bbox_around_point(lat, lon, buffer_km=1.5)  # 1.5km buffer
             
             # Search for facilities in bounding box and track API calls
             facilities, api_calls_made = self._search_facilities_in_bbox(bbox, lat, lon)
@@ -134,15 +134,18 @@ class BoundingBoxGeocodingProvider:
         # Search terms in priority order with OSM tags for better accuracy
         search_configs = [
             {'q': 'park', 'priority': 1},
-            {'q': 'recreation', 'priority': 2},
-            {'q': 'playground', 'priority': 3},
-            {'q': 'center', 'priority': 4},
-            {'q': 'school', 'priority': 5},
-            {'q': 'university', 'priority': 6},
-            {'q': 'community center', 'priority': 7},
-            {'q': 'sports club', 'priority': 8},
-            {'q': 'church', 'priority': 9},
-            {'q': 'sports center', 'priority': 10}
+            {'q': 'square', 'priority': 2},
+            {'q': 'recreation', 'priority': 3},
+            {'q': 'playground', 'priority': 4},
+            {'q': 'center', 'priority': 5},
+            {'q': 'school', 'priority': 6},
+            {'q': 'university', 'priority': 7},
+            {'q': 'community center', 'priority': 8},
+            {'q': 'sports club', 'priority': 9},
+            {'q': 'church', 'priority': 10},
+            {'q': 'sports center', 'priority': 11},
+            {'q': 'field', 'priority': 12},
+            {'q': 'plaza', 'priority': 13}
         ]
         
         all_facilities = []
@@ -167,7 +170,6 @@ class BoundingBoxGeocodingProvider:
                 logger.debug(json.dumps({
                     'event': 'bbox_search_completed',
                     'search_term': config['q'],
-                    'osm_tag': config.get('osm_tag'),
                     'results_count': len(features),
                     'bbox': bbox_str
                 }))
@@ -208,7 +210,6 @@ class BoundingBoxGeocodingProvider:
                 logger.error(json.dumps({
                     'event': 'bbox_search_error',
                     'search_term': config['q'],
-                    'osm_tag': config.get('osm_tag'),
                     'bbox': bbox_str,
                     'error': str(e)
                 }))
@@ -300,7 +301,8 @@ class BoundingBoxGeocodingProvider:
                 'distance': distance,
                 'is_inside_bbox': is_inside_bbox,
                 'extent': extent,
-                'feature': feature
+                'feature': feature,
+                'facility_coords': [facility_lat, facility_lon]
             }
             
         except Exception as e:

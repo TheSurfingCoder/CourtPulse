@@ -5,6 +5,7 @@ Converts GeoJSON features and Photon data to database format
 
 import json
 import logging
+import uuid
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 import math
@@ -28,6 +29,26 @@ class CourtDataMapper:
             'gravel': 'other',
             'sand': 'other'
         }
+    
+    def generate_bounding_box_uuid(self, lat: float, lon: float, facility_name: str) -> str:
+        """Generate a deterministic UUID based on location + facility name using RFC 4122 standard"""
+        # Create a deterministic string from location and facility name
+        uuid_input = f"{lat:.6f},{lon:.6f},{facility_name}"
+        
+        # Use uuid5 for deterministic UUID generation (RFC 4122 compliant)
+        # Using NAMESPACE_DNS as a standard namespace for our application
+        deterministic_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, uuid_input)
+        
+        logger.info(json.dumps({
+            'event': 'bounding_box_uuid_generated',
+            'facility_name': facility_name,
+            'lat': lat,
+            'lon': lon,
+            'uuid_input': uuid_input,
+            'generated_uuid': str(deterministic_uuid)
+        }))
+        
+        return str(deterministic_uuid)
     
     def normalize_coordinates(self, coordinates: Any) -> Any:
         """Normalize coordinates to [lon, lat] format for PostGIS"""
@@ -257,13 +278,19 @@ class CourtDataMapper:
                     photon_data['distance_km'],
                     photon_data['source']
                 ))
+                
+                # Add bounding box fields
+                court_data['bounding_box_id'] = photon_data.get('bounding_box_id')
+                court_data['bounding_box_coords'] = json.dumps(photon_data.get('bounding_box_coords')) if photon_data.get('bounding_box_coords') else None
             else:
                 # Use fallback data if no Photon data
                 court_data.update({
                     'photon_name': court_data['fallback_name'],
                     'photon_distance_km': None,
                     'photon_source': 'fallback',
-                    'school': False
+                    'school': False,
+                    'bounding_box_id': None,
+                    'bounding_box_coords': None
                 })
             
             logger.debug(json.dumps({
