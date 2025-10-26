@@ -1497,7 +1497,11 @@ class PhotonGeocodingProvider:
         self.last_request_time = time.time()
 
     def _get_generic_sport_name(self, sport: str) -> str:
-        """Generate generic sport name based on actual sport from OSM data"""
+        """Generate generic sport name based on actual sport from OSM data
+        
+        NOTE: This method ALWAYS returns a non-empty string, never None.
+        This ensures the pipeline never fails due to missing names.
+        """
         sport_mapping = {
             'basketball': 'Basketball Court',
             'tennis': 'Tennis Court', 
@@ -1510,7 +1514,12 @@ class PhotonGeocodingProvider:
             'rugby': 'Rugby Field'
         }
         
+        # Handle unknown sport
+        if sport.lower() == 'unknown':
+            return 'Sports Court'
+        
         # Return mapped name or generic fallback
+        # This ensures we ALWAYS return a non-empty string
         return sport_mapping.get(sport.lower(), f'{sport.title()} Court')
     
     def _try_bounding_box_search(self, lat: float, lon: float, court_count: int) -> Tuple[Optional[str], Optional[Dict[str, Any]], int]:

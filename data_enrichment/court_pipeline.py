@@ -550,7 +550,7 @@ class CourtProcessingPipeline:
                     court_count = 1
                     
                     # Extract sport from feature properties
-                    sport = properties.get('sport', 'basketball')
+                    sport = properties.get('sport', 'unknown')
                     
                     # Get name from Photon (now returns API calls count too)
                     photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count, sport)

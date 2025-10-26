@@ -310,8 +310,8 @@ def main():
         summary = populator.populate_all_cluster_metadata()
         
         print("📊 CLUSTER METADATA RESULTS:")
-        print(f"   Unique Names: {summary['unique_names']}")
-        print(f"   Geographic Clusters: {summary['geographic_clusters']}")
+        print(f"   Unique Clusters: {summary['unique_clusters']}")
+        print(f"   Bounding Box Clusters: {summary['bbox_clusters']}")
         print(f"   Updated Courts: {summary['updated_courts']}")
         print(f"   Multi-Court Clusters: {summary['multi_court_clusters']}")
         print(f"   Largest Cluster: {summary['largest_cluster_size']} courts")

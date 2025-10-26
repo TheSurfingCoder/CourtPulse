@@ -5,7 +5,6 @@ Converts GeoJSON features and Photon data to database format
 
 import json
 import logging
-import hashlib
 import uuid
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -32,19 +31,13 @@ class CourtDataMapper:
         }
     
     def generate_bounding_box_uuid(self, lat: float, lon: float, facility_name: str) -> str:
-        """Generate a deterministic UUID based on location + facility name"""
+        """Generate a deterministic UUID based on location + facility name using RFC 4122 standard"""
         # Create a deterministic string from location and facility name
         uuid_input = f"{lat:.6f},{lon:.6f},{facility_name}"
         
-        # Generate SHA-256 hash
-        hash_object = hashlib.sha256(uuid_input.encode('utf-8'))
-        hash_hex = hash_object.hexdigest()
-        
-        # Convert to UUID format (use first 32 characters)
-        uuid_string = hash_hex[:32]
-        
-        # Format as UUID
-        formatted_uuid = f"{uuid_string[:8]}-{uuid_string[8:12]}-{uuid_string[12:16]}-{uuid_string[16:20]}-{uuid_string[20:32]}"
+        # Use uuid5 for deterministic UUID generation (RFC 4122 compliant)
+        # Using NAMESPACE_DNS as a standard namespace for our application
+        deterministic_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, uuid_input)
         
         logger.info(json.dumps({
             'event': 'bounding_box_uuid_generated',
@@ -52,10 +45,10 @@ class CourtDataMapper:
             'lat': lat,
             'lon': lon,
             'uuid_input': uuid_input,
-            'generated_uuid': formatted_uuid
+            'generated_uuid': str(deterministic_uuid)
         }))
         
-        return formatted_uuid
+        return str(deterministic_uuid)
     
     def normalize_coordinates(self, coordinates: Any) -> Any:
         """Normalize coordinates to [lon, lat] format for PostGIS"""
