@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.5.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.4.0...frontend-v1.5.0) (2025-10-26)
+
+
+### Features
+
+* add click-to-center functionality for map clusters and courts ([993585a](https://github.com/TheSurfingCoder/CourtPulse/commit/993585a2f9ce0093ac9b1637bcbef3ceeae72b9f))
+* add frontend school filter and improve public access display ([56df75d](https://github.com/TheSurfingCoder/CourtPulse/commit/56df75da98346ed97521dd2ad0375ec13061ca9d))
+
 ## [1.4.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.3.0...frontend-v1.4.0) (2025-10-05)
 
 
