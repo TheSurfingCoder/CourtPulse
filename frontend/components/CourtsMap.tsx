@@ -190,7 +190,13 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         
         // Filter cached results client-side
         const filteredCourts = cachedCourts.filter((court: Court) => {
+          // If sport is selected but no surface types, show nothing
+          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
+          // If surface types are selected but no sport, show nothing
+          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
+          // Apply sport filter if both are selected
           if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
+          // Apply surface filter if both are selected
           if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
@@ -616,7 +622,13 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         
         // Apply filters client-side to the raw data
         const filteredCourts = result.data.filter((court: Court) => {
+          // If sport is selected but no surface types, show nothing
+          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
+          // If surface types are selected but no sport, show nothing
+          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
+          // Apply sport filter if both are selected
           if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
+          // Apply surface filter if both are selected
           if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
           if (filters.school !== undefined && court.school !== filters.school) return false;
           return true;
