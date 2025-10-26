@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.4.0...backend-v1.5.0) (2025-10-26)
+
+
+### Features
+
+* add dynamic metadata API endpoint for sports and surface types ([adbad9c](https://github.com/TheSurfingCoder/CourtPulse/commit/adbad9c898eb0370801c099513329ff6658855fa))
+* add edit court functionality ([5a82c2b](https://github.com/TheSurfingCoder/CourtPulse/commit/5a82c2bf1c5cdf4faa114db0a768dcf33d7f38de))
+* add edit court functionality ([7feb109](https://github.com/TheSurfingCoder/CourtPulse/commit/7feb1093ddbf91d6cfd3fdc09fbbdc3036f0253f))
+* update cluster courts when photon_name changes; handle nulls in form ([c06cbaa](https://github.com/TheSurfingCoder/CourtPulse/commit/c06cbaa00e8c066ee5bf116e4b5e7917e626c2c5))
+
 ## [1.4.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.3.0...backend-v1.4.0) (2025-10-26)
 
 
