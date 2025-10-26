@@ -189,7 +189,7 @@ npm start
 
 ## 🚀 Deployment
 
-Deployments are automatically triggered when there are changes in the `frontend/` directory.
+Deployments are automatically triggered when there are changes in the `frontend/` directory, excluding version-only changes in `package.json` and `CHANGELOG.md` files.
 
 ## 📝 License
 
