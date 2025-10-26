@@ -434,10 +434,11 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Get clusters for current viewport (using debounced viewport)
   const clusters = useMemo(() => {
-    console.time('cluster-calc');
     const calcStartTime = performance.now();
     
     if (!supercluster) return [];
+    
+    console.time('cluster-calc');
     
     const { bbox, widthMiles, heightMiles, degreesPerPixel } = calculateBoundingBox(debouncedViewport);
 
