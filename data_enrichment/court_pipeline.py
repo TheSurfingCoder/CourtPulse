@@ -580,33 +580,13 @@ class CourtProcessingPipeline:
                     bounding_box_coords = None
                     
                     if is_facility_match:
-                        # SIMPLE FIX: Use a consistent facility coordinate for all courts at the same facility
-                        # For now, let's use a simple approach: use the facility name as the key
-                        # This ensures all courts at the same facility get the same UUID
-                        facility_lat, facility_lon = 37.7594961, -122.42248004495954  # Mission Playground center
-                        if "Rolph Playground" in photon_name:
-                            facility_lat, facility_lon = 37.74985135, -122.40634325109595
-                        elif "Mission Playground" in photon_name:
-                            facility_lat, facility_lon = 37.7594961, -122.42248004495954
-                        elif "Ella Hill Hutch Community Center" in photon_name:
-                            facility_lat, facility_lon = 37.77944975, -122.42928297565885
-                        elif "Victoria Manalo Draves Park" in photon_name:
-                            facility_lat, facility_lon = 37.7768917, -122.4058251228105
-                        elif "John O'Connell High School" in photon_name:
-                            facility_lat, facility_lon = 37.75955585, -122.41368093256321
-                        elif "Koshland Park" in photon_name:
-                            facility_lat, facility_lon = 37.77326395, -122.42673563419686
-                        elif "Civic Center" in photon_name:
-                            facility_lat, facility_lon = 37.7767342, -122.42019575649996
-                        elif "Mission Dolores Park" in photon_name:
-                            facility_lat, facility_lon = 37.7597203, -122.4271322952394
-                        elif "Saint James School" in photon_name:
-                            facility_lat, facility_lon = 37.7513565, -122.42365992901723
+                        # Use the facility's actual center coordinates from Photon API
+                        facility_geometry = photon_data.get('feature', {}).get('geometry', {})
+                        if facility_geometry.get('type') == 'Point':
+                            facility_lon, facility_lat = facility_geometry['coordinates']
                         else:
-                            # Fallback to court coordinates if facility not recognized
+                            # Fallback to court coordinates if no facility geometry
                             facility_lat, facility_lon = total_lat, total_lon
-                        
-                        # Use facility's bounding box coordinates if available
                         if photon_data and 'extent' in photon_data:
                             bounding_box_coords = photon_data['extent']
                         else:
@@ -616,11 +596,12 @@ class CourtProcessingPipeline:
                         bounding_box_id = self.mapper.generate_bounding_box_uuid(facility_lat, facility_lon, photon_name)
                         
                         logger.info(json.dumps({
-                            'event': 'facility_uuid_generation_simple',
+                            'event': 'facility_uuid_generation',
                             'facility_name': photon_name,
                             'court_coords': [total_lat, total_lon],
                             'facility_coords': [facility_lat, facility_lon],
-                            'generated_uuid': bounding_box_id
+                            'generated_uuid': bounding_box_id,
+                            'source': 'photon_api_geometry'
                         }))
                     else:
                         # Generic name: use feature's own geometry as bounding box
