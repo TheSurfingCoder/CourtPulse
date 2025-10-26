@@ -5,7 +5,7 @@ import CourtsMap from '../components/CourtsMap';
 import Header from '../components/Header';
 import FilterBar from '../components/FilterBar';
 import RateLimitModal from '../components/RateLimitModal';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
   const [filters, setFilters] = useState<{
@@ -13,7 +13,7 @@ export default function Home() {
     surface_type: string[];
     school: boolean | undefined;
   }>({
-    sport: ['basketball'], // Start with basketball like the original
+    sport: [], // Show all sports initially
     surface_type: [],
     school: undefined
   });
@@ -30,6 +30,31 @@ export default function Home() {
     retryAfter: 60
   });
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+
+  // Fetch metadata and select all options initially
+  useEffect(() => {
+    const fetchMetadataAndSetAllFilters = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiUrl}/api/courts/metadata`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            // Select all sports and all surfaces by default
+            setFilters({
+              sport: result.data.sports || [],
+              surface_type: result.data.surfaceTypes || [],
+              school: undefined
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch metadata:', error);
+      }
+    };
+
+    fetchMetadataAndSetAllFilters();
+  }, []);
 
   const handleRefresh = () => {
     // Trigger a manual search in the CourtsMap component
