@@ -24,6 +24,8 @@ export interface CourtInput {
     lng: number;
     surface: string;
     is_public: boolean;
+    cluster_group_name?: string | null;
+    school?: boolean;
 }
 
 export class CourtModel {
@@ -107,6 +109,10 @@ export class CourtModel {
             fields.push(`enriched_name = $${paramCount++}`);
             values.push(courtData.name);
         }
+        if (courtData.cluster_group_name !== undefined) {
+            fields.push(`photon_name = $${paramCount++}`);
+            values.push(courtData.cluster_group_name);
+        }
         if (courtData.type) {
             fields.push(`sport = $${paramCount++}`);
             values.push(courtData.type);
@@ -122,6 +128,10 @@ export class CourtModel {
         if (courtData.is_public !== undefined) {
             fields.push(`is_public = $${paramCount++}`);
             values.push(courtData.is_public);
+        }
+        if (courtData.school !== undefined) {
+            fields.push(`school = $${paramCount++}`);
+            values.push(courtData.school);
         }
 
         if (fields.length === 0) return null;

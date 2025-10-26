@@ -6,6 +6,7 @@ import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { logEvent, logError, logBusinessEvent } from '../lib/logger-with-backend';
 import MapTypeToggle from './MapTypeToggle';
+import EditCourtModal from './EditCourtModal';
 
 
 interface Court {
@@ -68,6 +69,8 @@ export default function CourtsMap({
   const [clusterDetails, setClusterDetails] = useState<Court[]>([]); //array of courts in selected cluster
   const [mapLoaded, setMapLoaded] = useState(false); //true when Maplibre GL finishes loading tiles/rendering.
   const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets'); //current map type
+  const [editingCourt, setEditingCourt] = useState<Court | null>(null); //court being edited
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false); //edit modal state
 /*
 Why both:
 loading - Data isn't ready yet
@@ -789,6 +792,54 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     });
   };
 
+  // Handle edit button click
+  const handleEditClick = (court: Court) => {
+    setEditingCourt(court);
+    setIsEditModalOpen(true);
+    setSelectedCluster(null); // Close popup when opening edit modal
+  };
+
+  // Handle save from edit modal
+  const handleSaveCourt = async (updatedCourt: Court) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      
+      // Map frontend fields to backend fields
+      const updateData = {
+        name: updatedCourt.name,
+        cluster_group_name: updatedCourt.cluster_group_name,
+        type: updatedCourt.type,
+        surface: updatedCourt.surface,
+        is_public: updatedCourt.is_public,
+        school: updatedCourt.school
+      };
+      
+      const response = await fetch(`${apiUrl}/api/courts/${updatedCourt.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update court');
+      }
+
+      // Update local state
+      setCourts(courts.map(c => c.id === updatedCourt.id ? updatedCourt : c));
+      
+      logEvent('court_updated', {
+        courtId: updatedCourt.id,
+        updatedData: updatedCourt
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logError(err, { context: 'Failed to update court' });
+      alert('Failed to update court. Please try again.');
+    }
+  };
+
   // Map rendering complete
 
   return (
@@ -929,6 +980,30 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
                 <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public === true ? 'Yes' : selectedCluster.properties.is_public === false ? 'No' : 'Unknown'}</p>
                 <p><span className="font-medium">School:</span> {selectedCluster.properties.school ? 'Yes' : 'No'}</p>
               </div>
+              
+              <div className="flex justify-center">
+                <button
+                  onClick={() => {
+                    const courtDetail = {
+                      id: selectedCluster.properties.id || selectedCluster.id,
+                      name: selectedCluster.properties.name || 'Unknown Court',
+                      type: selectedCluster.properties.type || 'unknown',
+                      lat: selectedCluster.geometry.coordinates[1],
+                      lng: selectedCluster.geometry.coordinates[0],
+                      surface: selectedCluster.properties.surface || 'Unknown',
+                      is_public: selectedCluster.properties.is_public || false,
+                      school: selectedCluster.properties.school || false,
+                      cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString()
+                    };
+                    handleEditClick(courtDetail);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors max-w-[calc(100%-1.5rem)]"
+                >
+                  Edit Court
+                </button>
+              </div>
             </div>
           </Popup>
         )}
@@ -938,6 +1013,17 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       <MapTypeToggle 
         currentMapType={mapType}
         onMapTypeChange={handleMapTypeChange}
+      />
+
+      {/* Edit Court Modal */}
+      <EditCourtModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingCourt(null);
+        }}
+        court={editingCourt}
+        onSave={handleSaveCourt}
       />
     </div>
   );
