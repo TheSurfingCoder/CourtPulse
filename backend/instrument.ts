@@ -26,13 +26,13 @@ Sentry.init({
   // Set tracesSampleRate to 1.0 to capture 100%
   // of transactions for tracing.
   // We recommend adjusting this value in production
-  tracesSampleRate: (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') ? 0.1 : 1.0,
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
   
   // profiling
   // Set profilesSampleRate to 1.0 to profile 100%
   // of sampled transactions.
   // This is relative to tracesSampleRate
-  profilesSampleRate: (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') ? 0.1 : 1.0,
+  profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
   
   // logs
   // Enable logs to be sent to Sentry

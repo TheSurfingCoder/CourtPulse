@@ -3,7 +3,7 @@ name: Basic CI
 # This runs when you push code or create a pull request
 on:
   push:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'backend/**'
       - 'frontend/**'
@@ -12,7 +12,7 @@ on:
       - 'tsconfig.json'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'backend/**'
       - 'frontend/**'

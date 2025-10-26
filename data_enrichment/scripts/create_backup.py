@@ -111,7 +111,7 @@ def cleanup_old_backups(cursor, region: str, keep_count: int = 10):
 
 def main():
     parser = argparse.ArgumentParser(description='Create database backup before data pipeline')
-    parser.add_argument('--environment', required=True, help='Target environment (staging/production)')
+    parser.add_argument('--environment', required=True, help='Target environment (production)')
     parser.add_argument('--region', required=True, help='Region being processed')
     
     args = parser.parse_args()

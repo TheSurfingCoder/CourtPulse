@@ -2,10 +2,6 @@
 
 A sports court discovery and management platform - similar to Surfline.com but for all sports.
 
-## 🚀 Staging Environment
-- **Backend**: https://courtpulse-staging-backend.onrender.com
-- **Frontend**: https://courtpulse-staging.vercel.app
-
 ## 🏗️ Architecture
 
 - **Frontend**: Next.js 14 with TypeScript
@@ -99,9 +95,6 @@ npm run test:ci
 # Development
 npm run docker:dev
 
-# Staging
-npm run docker:staging
-
 # Production
 npm run docker:prod
 ```
@@ -188,11 +181,11 @@ npm start
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch from `main`
 3. Make your changes
 4. Add tests for new functionality
 5. Ensure all tests pass
-6. Submit a pull request
+6. Submit a pull request to `main`
 
 ## 📝 License
 

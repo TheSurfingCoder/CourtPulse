@@ -129,7 +129,7 @@ def get_available_regions(cursor):
 
 def main():
     parser = argparse.ArgumentParser(description='Rollback database after pipeline failure')
-    parser.add_argument('--environment', required=True, help='Target environment (staging/production)')
+    parser.add_argument('--environment', required=True, help='Target environment (production)')
     parser.add_argument('--region', required=True, help='Region being processed')
     
     args = parser.parse_args()
