@@ -129,17 +129,20 @@ class CourtDataMapper:
         """Determine surface type from OSM properties"""
         try:
             # Check for explicit surface tag
-            surface = properties.get('surface', '').lower()
+            surface_raw = properties.get('surface')
+            surface = surface_raw.lower() if surface_raw else ''
             if surface in self.surface_type_mapping:
                 return self.surface_type_mapping[surface]
             
             # Check for surface type variations
-            surface_type = properties.get('surface_type', '').lower()
+            surface_type_raw = properties.get('surface_type')
+            surface_type = surface_type_raw.lower() if surface_type_raw else ''
             if surface_type in self.surface_type_mapping:
                 return self.surface_type_mapping[surface_type]
             
             # Check for material tag
-            material = properties.get('material', '').lower()
+            material_raw = properties.get('material')
+            material = material_raw.lower() if material_raw else ''
             if material in self.surface_type_mapping:
                 return self.surface_type_mapping[material]
             
