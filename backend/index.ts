@@ -33,7 +33,7 @@ if (process.env.CORS_ORIGIN) {
 
 // Add production origins (always included)
 const productionOrigins = [
-  'https://courtpulse-staging.vercel.app',
+  'https://courtpulse.vercel.app',
   'https://courtpulse.vercel.app', 
   'https://courtpulse.app'
 ];

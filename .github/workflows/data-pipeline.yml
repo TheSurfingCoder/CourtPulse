@@ -16,11 +16,9 @@ on:
           - london
       environment:
         description: 'Target environment'
-        required: true
-        type: choice
-        options:
-          - staging
-          - production
+        required: false
+        type: string
+        default: 'production'
       batch_size:
         description: 'Batch size for processing'
         required: false
@@ -69,16 +67,16 @@ jobs:
           cd backend
           npm install
           # Add SSL parameters to DATABASE_URL for cloud databases
-          DATABASE_URL_WITH_SSL="${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment || 'staging')] }}?sslmode=require"
+          DATABASE_URL_WITH_SSL="${{ secrets.PRODUCTION_DATABASE_URL }}?sslmode=require"
           DATABASE_URL="$DATABASE_URL_WITH_SSL" npm run migrate
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
       
       - name: Create database backup
         run: |
           # Create backup before processing
           # Use manual trigger inputs
-          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ENVIRONMENT="production"
           REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
@@ -87,7 +85,7 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
       
       - name: Fetch court data from Overpass API
@@ -120,7 +118,7 @@ jobs:
         run: |
           cd data_enrichment
           # Use manual trigger inputs
-          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ENVIRONMENT="production"
           REGION="${{ github.event.inputs.region }}"
           BATCH_SIZE="${{ github.event.inputs.batch_size }}"
           MAX_FEATURES="${{ github.event.inputs.max_features }}"
@@ -138,19 +136,19 @@ jobs:
           echo "  Test Mode Type: $(echo $TEST_MODE | od -c)"
           # Run the clustered pipeline for better API efficiency
           python run_full_pipeline.py \
-            --connection-string ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }} \
+            --connection-string ${{ secrets.PRODUCTION_DATABASE_URL }} \
             --batch-size $BATCH_SIZE \
             ${{ github.event.inputs.max_features && format('--max-features {0}', github.event.inputs.max_features) || '' }} \
             ${{ github.event.inputs.test_mode == 'true' && '--test-mode' || '' }}
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
       
       - name: Validate data quality
         id: validate-data-quality
         run: |
           # Use manual trigger inputs
-          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ENVIRONMENT="production"
           REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
@@ -159,7 +157,7 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
         continue-on-error: true
       
@@ -167,7 +165,7 @@ jobs:
         if: failure() && steps.validate-data-quality.outcome == 'failure'
         run: |
           # Use manual trigger inputs
-          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ENVIRONMENT="production"
           REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
@@ -177,7 +175,7 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
       
       - name: Notify success
@@ -187,7 +185,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const region = '${{ github.event.inputs.region }}';
-            const environment = '${{ github.event.inputs.environment }}';
+            const environment = 'production';
             
             console.log(`✅ Data pipeline completed successfully!`);
             console.log(`   Region: ${region}`);
@@ -199,7 +197,7 @@ jobs:
         if: failure()
         run: |
           # Use manual trigger inputs
-          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ENVIRONMENT="production"
           REGION="${{ github.event.inputs.region }}"
           cd data_enrichment
           # Set SSL environment variable for psycopg2
@@ -208,7 +206,7 @@ jobs:
             --environment $ENVIRONMENT \
             --region $REGION
         env:
-          DATABASE_URL: ${{ secrets[format('{0}_DATABASE_URL', github.event.inputs.environment)] }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
       
       - name: Notify failure
@@ -218,7 +216,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const region = '${{ github.event.inputs.region }}';
-            const environment = '${{ github.event.inputs.environment }}';
+            const environment = 'production';
             
             console.log(`❌ Data pipeline failed!`);
             console.log(`   Region: ${region}`);

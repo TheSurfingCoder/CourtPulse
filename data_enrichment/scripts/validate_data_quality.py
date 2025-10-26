@@ -152,7 +152,7 @@ async def validate_data_quality(environment: str, region: str):
 
 def main():
     parser = argparse.ArgumentParser(description='Validate data quality after pipeline processing')
-    parser.add_argument('--environment', required=True, help='Target environment (staging/production)')
+    parser.add_argument('--environment', required=True, help='Target environment (production)')
     parser.add_argument('--region', required=True, help='Region being processed')
     
     args = parser.parse_args()

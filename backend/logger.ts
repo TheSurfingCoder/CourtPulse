@@ -66,9 +66,8 @@ export const logError = (error: Error, context: Record<string, any> = {}) => {
     ...context,
   });
 
-  // Send critical errors to Sentry (in production, staging, or for specific error types)
-  const isStaging = process.env.NODE_ENV === 'staging';
-  const shouldSendToSentry = isProduction || isStaging || 
+  // Send critical errors to Sentry (in production or for specific error types)
+  const shouldSendToSentry = isProduction || 
     error.name === 'DatabaseError' || 
     error.name === 'ValidationError' ||
     error.message.includes('rate limit') ||
