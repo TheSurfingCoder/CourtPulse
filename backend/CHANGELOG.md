@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.3.0...backend-v1.4.0) (2025-10-26)
+
+
+### Features
+
+* add click-to-center functionality for map clusters and courts ([993585a](https://github.com/TheSurfingCoder/CourtPulse/commit/993585a2f9ce0093ac9b1637bcbef3ceeae72b9f))
+* consolidate to production-only infrastructure ([d52318d](https://github.com/TheSurfingCoder/CourtPulse/commit/d52318d0d56d2eae87b39731dce34e320d74f2c9))
+* consolidate to production-only infrastructure ([f7f97b2](https://github.com/TheSurfingCoder/CourtPulse/commit/f7f97b2ae2cc7897648665a35774a70361ed1516))
+* implement bounding box geocoding with hash-based clustering ([0b5a54a](https://github.com/TheSurfingCoder/CourtPulse/commit/0b5a54a57488fc46c465fd1c0517e423163f25cc))
+* implement bounding box geocoding with hash-based clustering ([a4985e8](https://github.com/TheSurfingCoder/CourtPulse/commit/a4985e8a12512f1a492ce9cdbaef3d16b905d5de))
+
 ## [1.3.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.2.0...backend-v1.3.0) (2025-10-05)
 
 
