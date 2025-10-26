@@ -132,20 +132,22 @@ class BoundingBoxGeocodingProvider:
             List of facility features with distance and bounding box info
         """
         # Search terms in priority order with OSM tags for better accuracy
+        # Schools moved to higher priority to avoid playground overlap issues
         search_configs = [
-            {'q': 'park', 'priority': 1},
-            {'q': 'square', 'priority': 2},
-            {'q': 'recreation', 'priority': 3},
-            {'q': 'playground', 'priority': 4},
-            {'q': 'center', 'priority': 5},
-            {'q': 'school', 'priority': 6},
-            {'q': 'university', 'priority': 7},
-            {'q': 'community center', 'priority': 8},
-            {'q': 'sports club', 'priority': 9},
-            {'q': 'church', 'priority': 10},
-            {'q': 'sports center', 'priority': 11},
-            {'q': 'field', 'priority': 12},
-            {'q': 'plaza', 'priority': 13}
+            {'q': 'school', 'priority': 1},
+            {'q': 'university', 'priority': 2},
+            {'q': 'college', 'priority': 3},
+            {'q': 'park', 'priority': 4},
+            {'q': 'square', 'priority': 5},
+            {'q': 'recreation', 'priority': 6},
+            {'q': 'playground', 'priority': 7},
+            {'q': 'center', 'priority': 8},
+            {'q': 'community center', 'priority': 9},
+            {'q': 'sports club', 'priority': 10},
+            {'q': 'church', 'priority': 11},
+            {'q': 'sports center', 'priority': 12},
+            {'q': 'field', 'priority': 13},
+            {'q': 'plaza', 'priority': 14}
         ]
         
         all_facilities = []
