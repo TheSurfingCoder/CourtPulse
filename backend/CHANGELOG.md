@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.5.0...backend-v1.6.0) (2025-11-16)
+
+
+### Features
+
+* improve facility bbox geocoding and hybrid court updates ([6ccd759](https://github.com/TheSurfingCoder/CourtPulse/commit/6ccd7598bbbbbfe0291c68a6f952fea49fcd17cb))
+* improve facility bbox geocoding and hybrid court updates ([65aaa35](https://github.com/TheSurfingCoder/CourtPulse/commit/65aaa354e637463e328cd2621412058a1fea97d5))
+* remove unused columns and update data mapping logic ([b21d879](https://github.com/TheSurfingCoder/CourtPulse/commit/b21d879800392af60a901a8e463c6633c8c07fb5))
+
+
+### Bug Fixes
+
+* resolve cluster name change detection bug and fix test mocks ([ec65f7c](https://github.com/TheSurfingCoder/CourtPulse/commit/ec65f7c0e8600d8a15c05d096e646f6e7dffe6be))
+
 ## [1.5.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.4.0...backend-v1.5.0) (2025-10-26)
 
 
