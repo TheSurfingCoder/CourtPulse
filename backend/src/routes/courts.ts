@@ -240,7 +240,14 @@ router.put('/:id', async (req: express.Request, res: express.Response) => {
       });
     }
 
-    const court = await CourtModel.update(id, req.body);
+    const body = req.body || {}; // raw payload from client (per-court + optional cluster fields)
+    // Separate optional cluster-level updates (cluster_fields) from per-court fields (courtPayload)
+    const { cluster_fields, ...courtPayload } = body;
+    const clusterFields = cluster_fields && typeof cluster_fields === 'object' && !Array.isArray(cluster_fields)
+      ? cluster_fields
+      : undefined;
+
+    const court = await CourtModel.update(id, courtPayload, clusterFields);
     if (!court) {
       return res.status(404).json({
         success: false,

@@ -193,8 +193,17 @@ describe('CourtModel', () => {
   });
 
   describe('update', () => {
+    let mockClient: any;
+
+    beforeEach(() => {
+      mockClient = {
+        query: jest.fn(),
+        release: jest.fn()
+      };
+      mockPool.connect.mockResolvedValue(mockClient);
+    });
+
     it('should update court with valid data', async () => {
-      // Arrange: Create update data
       const updateData = {
         name: 'Updated Court',
         type: 'tennis',
@@ -210,46 +219,85 @@ describe('CourtModel', () => {
         address: 'Original Address',
         surface: 'clay',
         is_public: true,
+        cluster_group_name: 'Moscone Recreation Center',
+        school: false,
         created_at: new Date(),
         updated_at: new Date()
       };
 
-      mockPool.query.mockResolvedValue({ rows: [updatedCourt] });
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 1, cluster_id: 'cluster-1', photon_name: 'Moscone Recreation Center' }] }) // SELECT ... FOR UPDATE
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE per court
+        .mockResolvedValueOnce({}); // COMMIT
 
-      // Act: Call the update method
+      mockPool.query.mockResolvedValueOnce({ rows: [updatedCourt] });
+
       const result = await CourtModel.update(1, updateData);
 
-      // Assert: Check we got the updated court back
       expect(result).toEqual(updatedCourt);
-      // Assert: Check the database was called with UPDATE query
-      expect(mockPool.query).toHaveBeenCalledWith(
+      expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
+      expect(mockClient.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('SELECT id, cluster_id, photon_name'),
+        [1]
+      );
+      expect(mockClient.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE courts'),
         expect.arrayContaining(['Updated Court', 'tennis', 'clay', 1])
+      );
+      expect(mockClient.query).toHaveBeenLastCalledWith('COMMIT');
+    });
+
+    it('should update cluster fields when cluster_fields provided', async () => {
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 1, cluster_id: 'cluster-1', photon_name: 'Moscone Recreation Center' }] }) // SELECT ... FOR UPDATE
+        .mockResolvedValueOnce({}) // UPDATE cluster set ...
+        .mockResolvedValueOnce({}); // COMMIT
+
+      mockPool.query.mockResolvedValueOnce({
+        rows: [{
+          id: 1,
+          name: 'Court',
+          type: 'basketball',
+          lat: 0,
+          lng: 0,
+          surface: 'concrete',
+          is_public: true,
+          cluster_group_name: 'New Cluster Name',
+          school: false,
+          created_at: new Date(),
+          updated_at: new Date()
+        }]
+      });
+
+      const result = await CourtModel.update(1, {}, { cluster_group_name: 'New Cluster Name' });
+
+      expect(result?.cluster_group_name).toEqual('New Cluster Name');
+      expect(mockClient.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE courts'),
+        expect.arrayContaining(['New Cluster Name', 'cluster-1'])
       );
     });
 
     it('should return null when no fields to update', async () => {
-      // Arrange: Empty update data
-      const updateData = {};
+      const result = await CourtModel.update(1, {});
 
-      // Act: Call the update method with empty data
-      const result = await CourtModel.update(1, updateData);
-
-      // Assert: Should return null
       expect(result).toBeNull();
-      // Assert: Database should not be called
-      expect(mockPool.query).not.toHaveBeenCalled();
+      expect(mockPool.connect).not.toHaveBeenCalled();
     });
 
     it('should return null when court not found', async () => {
-      // Arrange: Mock database to return no rows (court not found)
-      mockPool.query.mockResolvedValue({ rows: [] });
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // SELECT ... FOR UPDATE
+        .mockResolvedValueOnce({}); // ROLLBACK
 
-      // Act: Try to update non-existent court
       const result = await CourtModel.update(999, { name: 'Updated' });
 
-      // Assert: Should return null
       expect(result).toBeNull();
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
     });
   });
 

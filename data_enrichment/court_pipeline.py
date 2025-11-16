@@ -126,11 +126,33 @@ class CourtProcessingPipeline:
                         # This would need to be implemented based on your Photon response structure
                         distance_km = 0.0  # Placeholder
                     
-                    photon_data = {
-                        'name': photon_name,
-                        'distance_km': distance_km,
-                        'source': 'search_api'  # or 'reverse_geocoding' based on your logic
-                    }
+                    # Preserve rich facility data from the provider when available.
+                    # The provider returns a structured dict with fields like:
+                    # - source ('bounding_box_search' when bbox match)
+                    # - is_inside_bbox (True when inside facility extent)
+                    # - osm_value/osm_key (amenity types, e.g., 'school')
+                    # - extent (Photon extent array) and feature (raw feature)
+                    # We enrich it minimally and pass through for the mapper to consume.
+                    if photon_data:
+                        enriched = dict(photon_data)
+                        enriched.setdefault('name', photon_name)
+                        enriched.setdefault('distance_km', distance_km)
+                        # Map extent → bounding_box_coords for DB mapper
+                        extent = enriched.get('extent')
+                        if not extent and isinstance(enriched.get('feature', {}), dict):
+                            props = enriched['feature'].get('properties', {})
+                            extent = props.get('extent')
+                            if extent:
+                                enriched['extent'] = extent
+                        if extent:
+                            enriched['bounding_box_coords'] = extent
+                        photon_data = enriched
+                    else:
+                        photon_data = {
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api'
+                        }
                 else:
                     self.stats['geocoding_failed'] += 1
                     return False, "Invalid geometry for geocoding", None

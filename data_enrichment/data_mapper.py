@@ -187,15 +187,10 @@ class CourtDataMapper:
             return "sports court"
     
     def determine_public_access(self, properties: Dict[str, Any]) -> Optional[bool]:
-        """Determine if a court is public based on OSM access tags"""
+        """Determine if a court is public based on OSM access tags.
+        Default to Unknown (None) unless an explicit tag indicates otherwise."""
         try:
-            # Check fee status - if fee is "no", it's likely public
-            fee_raw = properties.get('fee')
-            fee = fee_raw.lower() if fee_raw else ''
-            if fee == 'no':
-                return True
-            
-            # Check access restrictions
+            # Check access restrictions first (authoritative)
             access_raw = properties.get('access')
             access = access_raw.lower() if access_raw else ''
             if access in ['private', 'no', 'restricted']:
@@ -203,17 +198,17 @@ class CourtDataMapper:
             if access in ['yes', 'public', 'permissive']:
                 return True
             
-            # Check leisure type - parks and playgrounds are typically public
+            # Fee explicitly required often implies non-public
+            fee_raw = properties.get('fee')
+            fee = fee_raw.lower() if fee_raw else ''
+            if fee == 'yes':
+                return False
+            
+            # Do NOT infer public from leisure types; default to Unknown without explicit tags
             leisure_raw = properties.get('leisure')
             leisure = leisure_raw.lower() if leisure_raw else ''
-            if leisure in ['park', 'playground', 'pitch']:
-                return True
             if leisure in ['sports_centre', 'fitness_centre']:
-                # Sports centers can be private, check other indicators
-                # If we have fee info, use it
-                if fee == 'yes':
-                    return False
-                # Otherwise, we don't know
+                # Many sports centres are private or managed; without explicit tags, return Unknown
                 return None
             
             # If we have no clear indicators, return None (unknown)
@@ -243,17 +238,42 @@ class CourtDataMapper:
         return False
     
     def map_photon_data(self, photon_name: str, photon_distance_km: float, 
-                       photon_source: str) -> Dict[str, Any]:
-        """Map Photon API response to database format"""
-        # Determine if this is a school-based name
+                       photon_source: str, raw_photon: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Map Photon API response to database format.
+        - Preserves source and distance for auditability
+        - Sets school using stronger signals (osm_value + bbox) with keyword fallback
+        """
+        # Start with keyword-based school detection
         is_school = self._is_school_name(photon_name)
+        osm_value = None
+        is_inside_bbox = False
+        extent = None
+        # Extract stronger signals from raw facility data when available
+        if raw_photon and isinstance(raw_photon, dict):
+            osm_value = raw_photon.get('osm_value')
+            is_inside_bbox = bool(raw_photon.get('is_inside_bbox'))
+            extent = raw_photon.get('extent')
+            # Some providers embed the feature; double-check there too
+            if not osm_value:
+                feature = raw_photon.get('feature') or {}
+                props = feature.get('properties', {}) if isinstance(feature, dict) else {}
+                osm_value = props.get('osm_value') or osm_value
+                if not extent:
+                    extent = props.get('extent')
+            # Prefer authoritative facility classification for school
+            if osm_value in ['school', 'university', 'college']:
+                is_school = True
         
-        return {
+        result = {
             'photon_name': photon_name,
-            'photon_distance_km': round(photon_distance_km, 6),  # Round to 6 decimal places
+            'photon_distance_km': round(photon_distance_km, 6),
             'photon_source': photon_source,
             'school': is_school
         }
+        # Pass through bbox info for DB persistence if present
+        if extent:
+            result['bounding_box_coords'] = extent
+        return result
     
     def map_court_to_db_format(self, feature: Dict[str, Any], 
                               photon_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -281,8 +301,9 @@ class CourtDataMapper:
             if photon_data:
                 court_data.update(self.map_photon_data(
                     photon_data['name'],
-                    photon_data['distance_km'],
-                    photon_data['source']
+                    photon_data.get('distance_km', 0.0),
+                    photon_data.get('source', 'search_api'),
+                    photon_data  # pass raw facility payload for richer mapping
                 ))
                 
                 # Add bounding box fields

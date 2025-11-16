@@ -28,6 +28,12 @@ export interface CourtInput {
     school?: boolean;
 }
 
+export interface ClusterFieldsInput {
+    cluster_group_name?: string | null;
+    bounding_box_id?: string | null;
+    bounding_box_coords?: Record<string, unknown> | null;
+}
+
 export class CourtModel {
 
 
@@ -100,20 +106,19 @@ export class CourtModel {
         return result.rows[0];
     }
 
-    static async update(id: number, courtData: Partial<CourtInput>): Promise<Court | null> {
+    static async update(id: number, courtData: Partial<CourtInput>, clusterFields?: ClusterFieldsInput): Promise<Court | null> {
         const fields = [];
         const values = [];
         let paramCount = 1;
+        const sanitizedClusterFields = clusterFields || {};
+        const hasClusterFieldUpdates = Object.keys(sanitizedClusterFields).some(
+            (key) => (sanitizedClusterFields as any)[key] !== undefined
+        );
 
-        // Check if photon_name is being updated
-        let photonNameBeingUpdated = false;
-        let newPhotonName = null;
-
-        if (courtData.cluster_group_name !== undefined && courtData.cluster_group_name !== null && courtData.cluster_group_name.trim() !== '') {
+        if (courtData.cluster_group_name !== undefined) {
+            const trimmedClusterName = courtData.cluster_group_name && courtData.cluster_group_name.trim() !== '' ? courtData.cluster_group_name.trim() : null;
             fields.push(`photon_name = $${paramCount++}`);
-            values.push(courtData.cluster_group_name);
-            photonNameBeingUpdated = true;
-            newPhotonName = courtData.cluster_group_name;
+            values.push(trimmedClusterName);
         }
 
         if (courtData.name !== undefined && courtData.name !== null && courtData.name.trim() !== '') {
@@ -142,51 +147,90 @@ export class CourtModel {
             values.push(courtData.school);
         }
 
-        if (fields.length === 0) return null;
+        if (fields.length === 0 && !hasClusterFieldUpdates) return null;
 
-        // Get the current court to find its current photon_name (only if we're updating cluster_group_name)
-        let currentPhotonName = null;
-        if (photonNameBeingUpdated) {
-            const currentCourt = await this.findById(id);
-            if (!currentCourt) return null;
-            currentPhotonName = currentCourt.cluster_group_name;
+        const client = await pool.connect();
+
+        try {
+            await client.query('BEGIN');
+
+            const existingCourtResult = await client.query(`
+                SELECT id, cluster_id, photon_name
+                FROM courts
+                WHERE id = $1
+                FOR UPDATE
+            `, [id]);
+
+            if (existingCourtResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return null;
+            }
+
+            const existingCourt = existingCourtResult.rows[0];
+
+            if (fields.length > 0) {
+                fields.push(`updated_at = NOW()`);
+                values.push(id);
+
+                await client.query(`
+                    UPDATE courts 
+                    SET ${fields.join(', ')}
+                    WHERE id = $${paramCount}
+                `, values);
+            }
+
+            const clusterAssignments = [];
+            const clusterValues = [];
+            let clusterParamIndex = 1;
+
+            if (sanitizedClusterFields.cluster_group_name !== undefined) {
+                const newClusterName = sanitizedClusterFields.cluster_group_name && sanitizedClusterFields.cluster_group_name.trim() !== ''
+                    ? sanitizedClusterFields.cluster_group_name.trim()
+                    : null;
+                clusterAssignments.push(`photon_name = $${clusterParamIndex++}`);
+                clusterValues.push(newClusterName);
+            }
+
+            if (sanitizedClusterFields.bounding_box_id !== undefined) {
+                clusterAssignments.push(`bounding_box_id = $${clusterParamIndex++}`);
+                clusterValues.push(sanitizedClusterFields.bounding_box_id);
+            }
+
+            if (sanitizedClusterFields.bounding_box_coords !== undefined) {
+                clusterAssignments.push(`bounding_box_coords = $${clusterParamIndex++}`);
+                clusterValues.push(sanitizedClusterFields.bounding_box_coords);
+            }
+
+            if (clusterAssignments.length > 0) {
+                clusterAssignments.push(`updated_at = NOW()`);
+
+                let identifierClause = '';
+                if (existingCourt.cluster_id) {
+                    identifierClause = `cluster_id = $${clusterParamIndex}`;
+                    clusterValues.push(existingCourt.cluster_id);
+                } else if (existingCourt.photon_name) {
+                    identifierClause = `photon_name = $${clusterParamIndex}`;
+                    clusterValues.push(existingCourt.photon_name);
+                }
+
+                if (identifierClause) {
+                    await client.query(`
+                        UPDATE courts 
+                        SET ${clusterAssignments.join(', ')}
+                        WHERE ${identifierClause}
+                    `, clusterValues);
+                }
+            }
+
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
 
-        fields.push(`updated_at = NOW()`);
-        values.push(id);
-
-        // If photon_name is being updated, update all courts with the same current photon_name
-        if (photonNameBeingUpdated && currentPhotonName) {
-            // Update all courts with the same current photon_name
-            const updateClusterQuery = `
-                UPDATE courts 
-                SET photon_name = $1, updated_at = NOW()
-                WHERE photon_name = $2
-            `;
-            await pool.query(updateClusterQuery, [newPhotonName, currentPhotonName]);
-        }
-
-        const result = await pool.query(`
-            UPDATE courts 
-            SET ${fields.join(', ')}
-            WHERE id = $${paramCount}
-            RETURNING 
-                id, 
-                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
-                sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
-                COALESCE(surface_type::text, 'Unknown') as surface, 
-                is_public,
-                school,
-                cluster_id,
-                region,
-                created_at, 
-                updated_at
-        `, values);
-
-        return result.rows[0] || null;
+        return await this.findById(id);
     }
 
     static async delete(id: number): Promise<boolean> {
