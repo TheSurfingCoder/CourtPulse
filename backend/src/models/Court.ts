@@ -1,4 +1,5 @@
 import pool from '../../config/database';
+import { logBusinessEvent } from '../../logger';
 
 export interface Court {
     id: number;
@@ -115,7 +116,9 @@ export class CourtModel {
             (key) => (sanitizedClusterFields as any)[key] !== undefined
         );
 
-        if (courtData.cluster_group_name !== undefined) {
+        // Only process cluster_group_name from courtData if it's NOT in clusterFields
+        // Cluster-level updates take precedence over per-court updates
+        if (courtData.cluster_group_name !== undefined && sanitizedClusterFields.cluster_group_name === undefined) {
             const trimmedClusterName = courtData.cluster_group_name && courtData.cluster_group_name.trim() !== '' ? courtData.cluster_group_name.trim() : null;
             fields.push(`photon_name = $${paramCount++}`);
             values.push(trimmedClusterName);
@@ -168,6 +171,19 @@ export class CourtModel {
 
             const existingCourt = existingCourtResult.rows[0];
 
+            // Track if we're updating photon_name in the per-court update and capture the new value
+            let updatedPhotonName: string | null = null;
+            const photonNameFieldIndex = fields.findIndex(field => field.startsWith('photon_name ='));
+            if (photonNameFieldIndex !== -1) {
+                // Extract the parameter index from the field (e.g., "photon_name = $2" -> 2)
+                const match = fields[photonNameFieldIndex].match(/\$(\d+)/);
+                if (match) {
+                    const paramIndex = parseInt(match[1]);
+                    // values array is 0-indexed, but params are 1-indexed, so subtract 1
+                    updatedPhotonName = values[paramIndex - 1] as string | null;
+                }
+            }
+
             if (fields.length > 0) {
                 fields.push(`updated_at = NOW()`);
                 values.push(id);
@@ -206,11 +222,42 @@ export class CourtModel {
 
                 let identifierClause = '';
                 if (existingCourt.cluster_id) {
+                    // Use cluster_id if available (most reliable, unaffected by photon_name updates)
                     identifierClause = `cluster_id = $${clusterParamIndex}`;
                     clusterValues.push(existingCourt.cluster_id);
+                    clusterParamIndex++;
+                } else if (updatedPhotonName !== null && existingCourt.photon_name) {
+                    // If we just updated photon_name, we need to find courts with EITHER the old or new name
+                    // This ensures we update all courts in the cluster, including the one we just updated
+                    // and any others that still have the old name
+                    identifierClause = `(photon_name = $${clusterParamIndex} OR photon_name = $${clusterParamIndex + 1} OR id = $${clusterParamIndex + 2})`;
+                    clusterValues.push(existingCourt.photon_name); // Old name
+                    clusterValues.push(updatedPhotonName); // New name
+                    clusterValues.push(existingCourt.id); // Ensure this court is included
+                    clusterParamIndex += 3;
+                } else if (updatedPhotonName !== null) {
+                    // Updated photon_name but no old name (was null) - use new name or id
+                    identifierClause = `(photon_name = $${clusterParamIndex} OR id = $${clusterParamIndex + 1})`;
+                    clusterValues.push(updatedPhotonName);
+                    clusterValues.push(existingCourt.id);
+                    clusterParamIndex += 2;
                 } else if (existingCourt.photon_name) {
+                    // Use original photon_name if we didn't update it
                     identifierClause = `photon_name = $${clusterParamIndex}`;
                     clusterValues.push(existingCourt.photon_name);
+                    clusterParamIndex++;
+                } else {
+                    // Fallback: if this court is not yet associated with a cluster identifier,
+                    // apply the cluster field updates directly to this court record.
+                    logBusinessEvent('cluster_update_fallback_to_single_court', {
+                        courtId: existingCourt.id,
+                        reason: 'no_cluster_identifiers',
+                        clusterFields: Object.keys(sanitizedClusterFields),
+                        message: 'Cluster fields provided but court has no cluster_id or photon_name. Updating single court only.'
+                    });
+                    identifierClause = `id = $${clusterParamIndex}`;
+                    clusterValues.push(existingCourt.id);
+                    clusterParamIndex++;
                 }
 
                 if (identifierClause) {
@@ -220,6 +267,18 @@ export class CourtModel {
                         WHERE ${identifierClause}
                     `, clusterValues);
                 }
+            }
+
+            // Explicitly update the individual court's updated_at if only cluster fields were updated
+            // This ensures the court's timestamp reflects any changes, even if it wasn't part of the cluster update
+            // We check fields.length === 0 to ensure no per-court update occurred, and clusterAssignments.length > 0
+            // to ensure a cluster update did occur
+            if (fields.length === 0 && clusterAssignments.length > 0) {
+                await client.query(`
+                    UPDATE courts 
+                    SET updated_at = NOW()
+                    WHERE id = $1
+                `, [id]);
             }
 
             await client.query('COMMIT');

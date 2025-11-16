@@ -243,6 +243,28 @@ router.put('/:id', async (req: express.Request, res: express.Response) => {
     const body = req.body || {}; // raw payload from client (per-court + optional cluster fields)
     // Separate optional cluster-level updates (cluster_fields) from per-court fields (courtPayload)
     const { cluster_fields, ...courtPayload } = body;
+    
+    // Validate cluster_fields if provided
+    if (cluster_fields !== undefined) {
+      if (typeof cluster_fields !== 'object' || cluster_fields === null || Array.isArray(cluster_fields)) {
+        return res.status(400).json({
+          success: false,
+          message: 'cluster_fields must be an object'
+        });
+      }
+      
+      // Validate that cluster_fields only contains allowed keys
+      const allowedClusterFields = ['cluster_group_name', 'bounding_box_id', 'bounding_box_coords'];
+      const invalidKeys = Object.keys(cluster_fields).filter(key => !allowedClusterFields.includes(key));
+      
+      if (invalidKeys.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid cluster_fields keys: ${invalidKeys.join(', ')}. Allowed keys: ${allowedClusterFields.join(', ')}`
+        });
+      }
+    }
+    
     const clusterFields = cluster_fields && typeof cluster_fields === 'object' && !Array.isArray(cluster_fields)
       ? cluster_fields
       : undefined;

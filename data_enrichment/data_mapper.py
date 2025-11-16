@@ -237,10 +237,8 @@ class CourtDataMapper:
         
         return False
     
-    def map_photon_data(self, photon_name: str, photon_distance_km: float, 
-                       photon_source: str, raw_photon: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def map_photon_data(self, photon_name: str, raw_photon: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Map Photon API response to database format.
-        - Preserves source and distance for auditability
         - Sets school using stronger signals (osm_value + bbox) with keyword fallback
         """
         # Start with keyword-based school detection
@@ -266,8 +264,6 @@ class CourtDataMapper:
         
         result = {
             'photon_name': photon_name,
-            'photon_distance_km': round(photon_distance_km, 6),
-            'photon_source': photon_source,
             'school': is_school
         }
         # Pass through bbox info for DB persistence if present
@@ -301,20 +297,17 @@ class CourtDataMapper:
             if photon_data:
                 court_data.update(self.map_photon_data(
                     photon_data['name'],
-                    photon_data.get('distance_km', 0.0),
-                    photon_data.get('source', 'search_api'),
                     photon_data  # pass raw facility payload for richer mapping
                 ))
                 
                 # Add bounding box fields
                 court_data['bounding_box_id'] = photon_data.get('bounding_box_id')
-                court_data['bounding_box_coords'] = json.dumps(photon_data.get('bounding_box_coords')) if photon_data.get('bounding_box_coords') else None
+                # Pass Python dict/list directly - psycopg2 will handle JSONB conversion automatically
+                court_data['bounding_box_coords'] = photon_data.get('bounding_box_coords')
             else:
                 # Use fallback data if no Photon data
                 court_data.update({
                     'photon_name': court_data['fallback_name'],
-                    'photon_distance_km': None,
-                    'photon_source': 'fallback',
                     'school': False,
                     'bounding_box_id': None,
                     'bounding_box_coords': None
@@ -323,8 +316,7 @@ class CourtDataMapper:
             logger.debug(json.dumps({
                 'event': 'court_mapped',
                 'osm_id': court_data['osm_id'],
-                'photon_name': court_data['photon_name'],
-                'photon_source': court_data['photon_source']
+                'photon_name': court_data['photon_name']
             }))
             
             return court_data
@@ -360,11 +352,6 @@ class CourtDataMapper:
             if court_data.get('hoops') is not None:
                 if not isinstance(court_data['hoops'], int) or court_data['hoops'] <= 0:
                     return False, f"Invalid hoops count: {court_data['hoops']}"
-            
-            # Validate distance (if present)
-            if court_data.get('photon_distance_km') is not None:
-                if not isinstance(court_data['photon_distance_km'], (int, float)) or court_data['photon_distance_km'] < 0:
-                    return False, f"Invalid distance: {court_data['photon_distance_km']}"
             
             return True, "Valid"
             
