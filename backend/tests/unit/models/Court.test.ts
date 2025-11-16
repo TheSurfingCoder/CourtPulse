@@ -227,6 +227,7 @@ describe('CourtModel', () => {
 
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [{ id: 1, cluster_id: 'cluster-1', photon_name: 'Moscone Recreation Center' }] }) // SELECT ... FOR UPDATE
         .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE per court
         .mockResolvedValueOnce({}); // COMMIT
@@ -238,7 +239,7 @@ describe('CourtModel', () => {
       expect(result).toEqual(updatedCourt);
       expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
       expect(mockClient.query).toHaveBeenNthCalledWith(
-        2,
+        3,
         expect.stringContaining('SELECT id, cluster_id, photon_name'),
         [1]
       );
@@ -252,6 +253,7 @@ describe('CourtModel', () => {
     it('should update cluster fields when cluster_fields provided', async () => {
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [{ id: 1, cluster_id: 'cluster-1', photon_name: 'Moscone Recreation Center' }] }) // SELECT ... FOR UPDATE
         .mockResolvedValueOnce({}) // UPDATE cluster set ...
         .mockResolvedValueOnce({}); // COMMIT
@@ -291,6 +293,7 @@ describe('CourtModel', () => {
     it('should return null when court not found', async () => {
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({}) // SET LOCAL lock_timeout
         .mockResolvedValueOnce({ rows: [] }) // SELECT ... FOR UPDATE
         .mockResolvedValueOnce({}); // ROLLBACK
 

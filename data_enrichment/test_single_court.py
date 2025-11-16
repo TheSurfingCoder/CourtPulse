@@ -68,8 +68,8 @@ def test_single_court(lat: float, lon: float, sport: str = 'basketball', hoops: 
         building_type = "🏠 Residential" if result.get('is_residential', False) else "🏢 Commercial"
         print(f"   {i}. {result['name']} ({result['distance']:.3f}km = ~{result['distance']*3281:.0f}ft) {building_type}")
     
-    # Test the full geocoding
-    name, data = provider.reverse_geocode(lat, lon, court_count)
+    # Test the full geocoding (returns name, data, and API calls count)
+    name, data, api_calls_made = provider.reverse_geocode(lat, lon, court_count)
     
     print()
     print("="*80)

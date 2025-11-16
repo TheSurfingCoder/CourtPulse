@@ -1548,5 +1548,5 @@ if __name__ == "__main__":
     ]
     
     for lat, lon in test_coords:
-        name, data = provider.reverse_geocode(lat, lon, 2)
+        name, data, api_calls_made = provider.reverse_geocode(lat, lon, 2)
         print(f"Result: {name}")

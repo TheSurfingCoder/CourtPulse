@@ -113,8 +113,8 @@ class CourtProcessingPipeline:
                     # (hoops count is for the number of basketball hoops, not courts)
                     court_count = 1
                     
-                    # Get name from Photon
-                    photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
+                    # Get name from Photon (returns name, data, and API calls count)
+                    photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
                     
                     if not photon_name:
                         self.stats['geocoding_failed'] += 1
@@ -288,8 +288,8 @@ class CourtProcessingPipeline:
             # Calculate total court count for the cluster
             total_court_count = sum(court.hoops or 1 for court in cluster)
             
-            # Get geocoding result for the representative court
-            photon_name, photon_data = self.geocoding_provider.reverse_geocode(
+            # Get geocoding result for the representative court (returns name, data, and API calls count)
+            photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(
                 representative_court.lat, representative_court.lon, total_court_count
             )
             

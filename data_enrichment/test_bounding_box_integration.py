@@ -28,8 +28,8 @@ def test_way_32649024():
     # Initialize provider
     provider = BoundingBoxGeocodingProvider()
     
-    # Test geocoding
-    facility_name, facility_data = provider.reverse_geocode(court_lat, court_lon, court_count)
+    # Test geocoding (returns name, data, and API calls count)
+    facility_name, facility_data, api_calls_made = provider.reverse_geocode(court_lat, court_lon, court_count)
     
     if facility_name:
         print(f"\n✅ SUCCESS!")
@@ -63,8 +63,8 @@ def test_way_1106815330():
     # Initialize provider
     provider = BoundingBoxGeocodingProvider()
     
-    # Test geocoding
-    facility_name, facility_data = provider.reverse_geocode(court_lat, court_lon, court_count)
+    # Test geocoding (returns name, data, and API calls count)
+    facility_name, facility_data, api_calls_made = provider.reverse_geocode(court_lat, court_lon, court_count)
     
     if facility_name:
         print(f"\n✅ SUCCESS!")

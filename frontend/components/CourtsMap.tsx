@@ -825,15 +825,19 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       const clusterFields: Record<string, string | null> = {};
       // Track previous (current stored label) vs next (user-entered) cluster name to decide if we need a cluster-wide rename
       const nextClusterName = updatedCourt.cluster_group_name ?? null;
-      const previousClusterName = editingCourt && editingCourt.id === updatedCourt.id
-        ? editingCourt.cluster_group_name ?? null
-        : null;
-
+      
+      // Get previous cluster name from editingCourt if it matches, otherwise look it up in courts array
+      let previousClusterName: string | null = null;
       if (editingCourt && editingCourt.id === updatedCourt.id) {
-        if (previousClusterName !== nextClusterName) {
-          clusterFields.cluster_group_name = nextClusterName;
-        }
-      } else if (nextClusterName !== null) {
+        previousClusterName = editingCourt.cluster_group_name ?? null;
+      } else {
+        // Fallback: look up the current court in the courts array to get its previous cluster name
+        const currentCourt = courts.find(c => c.id === updatedCourt.id);
+        previousClusterName = currentCourt?.cluster_group_name ?? null;
+      }
+
+      // Only send cluster_fields if the cluster name actually changed
+      if (previousClusterName !== nextClusterName) {
         clusterFields.cluster_group_name = nextClusterName;
       }
 
