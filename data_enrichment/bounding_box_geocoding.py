@@ -48,7 +48,7 @@ class BoundingBoxGeocodingProvider:
             
             # Create bounding box around court for search area
             # We need a reasonable search area to find facilities, but we'll check containment separately
-            bbox = self._create_bbox_around_point(lat, lon, buffer_km=1.5)  # 1.5km buffer
+            bbox = self._create_bbox_around_point(lat, lon, buffer_km=1.0)  # tighten to 1.0km per request
             
             # Search for facilities in bounding box and track API calls
             facilities, api_calls_made = self._search_facilities_in_bbox(bbox, lat, lon)
@@ -110,7 +110,9 @@ class BoundingBoxGeocodingProvider:
         """
         # Rough conversion: 1 degree ≈ 111 km
         lat_buffer = buffer_km / 111.0
-        lon_buffer = buffer_km / (111.0 * abs(lat * 3.14159 / 180))
+        # Correct longitudinal degree scaling by latitude using cosine of latitude (in radians)
+        from math import radians, cos
+        lon_buffer = buffer_km / (111.0 * max(cos(radians(lat)), 1e-6))
         
         return (
             lon - lon_buffer,  # min_lon
@@ -131,21 +133,21 @@ class BoundingBoxGeocodingProvider:
         Returns:
             List of facility features with distance and bounding box info
         """
-        # Search terms in priority order with OSM tags for better accuracy
-        # Schools moved to higher priority to avoid playground overlap issues
+        # Search terms in priority order with OSM tags for better accuracy.
+        # Put authoritative facility types first and use osm_tag filters when supported.
         search_configs = [
             {'q': 'school', 'priority': 1},
             {'q': 'university', 'priority': 2},
             {'q': 'college', 'priority': 3},
-            {'q': 'park', 'priority': 4},
-            {'q': 'square', 'priority': 5},
-            {'q': 'recreation', 'priority': 6},
-            {'q': 'playground', 'priority': 7},
+            {'q': 'square', 'priority': 4},
+            {'q': 'park', 'priority': 5},
+            {'q': 'playground', 'priority': 6},
+            {'q': 'recreation', 'priority': 7},
             {'q': 'center', 'priority': 8},
             {'q': 'community center', 'priority': 9},
             {'q': 'sports club', 'priority': 10},
-            {'q': 'church', 'priority': 11},
-            {'q': 'sports center', 'priority': 12},
+            {'q': 'sports center', 'priority': 11},
+            {'q': 'church', 'priority': 12},
             {'q': 'field', 'priority': 13},
             {'q': 'plaza', 'priority': 14}
         ]
@@ -160,15 +162,54 @@ class BoundingBoxGeocodingProvider:
                 params = {
                     'q': config['q'],
                     'bbox': bbox_str,
-                    'limit': 20
+                    'limit': 20  # keep result set tight per request
                 }
                 
+                # Log the exact request we are issuing (term, osm_tag, bbox, limit)
+                try:
+                    logger.info(json.dumps({
+                        'event': 'bbox_request_issued',
+                        'url': f"{self.base_url}/api",
+                        'params': params
+                    }))
+                except Exception:
+                    pass
                 response = requests.get(f"{self.base_url}/api", params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
                 api_calls_made += 1
                 
                 features = data.get('features', [])
+                # Log basic stats for this term to aid debugging
+                try:
+                    with_extent = sum(1 for feat in features if feat.get('properties', {}).get('extent'))
+                    logger.info(json.dumps({
+                        'event': 'bbox_term_stats',
+                        'search_term': config['q'],
+                        'osm_tag': config.get('osm_tag'),
+                        'results_count': len(features),
+                        'with_extent_count': with_extent
+                    }))
+                except Exception:
+                    pass
+                # Log a concise sample of returned features (name, osm_value, has_extent)
+                try:
+                    sample = []
+                    for feat in features[:5]:
+                        props = feat.get('properties', {})
+                        sample.append({
+                            'name': props.get('name'),
+                            'osm_value': props.get('osm_value'),
+                            'has_extent': bool(props.get('extent'))
+                        })
+                    logger.info(json.dumps({
+                        'event': 'bbox_term_sample',
+                        'search_term': config['q'],
+                        'osm_tag': config.get('osm_tag'),
+                        'sample': sample
+                    }))
+                except Exception:
+                    pass
                 logger.debug(json.dumps({
                     'event': 'bbox_search_completed',
                     'search_term': config['q'],
@@ -230,7 +271,7 @@ class BoundingBoxGeocodingProvider:
             }))
             return [best_inside_bbox_match], api_calls_made
         
-        # Otherwise, remove duplicates and return all facilities
+        # Otherwise, remove duplicates and return all facilities (no inside-bbox match)
         unique_facilities = {}
         for facility in all_facilities:
             osm_id = facility.get('osm_id')
@@ -283,6 +324,18 @@ class BoundingBoxGeocodingProvider:
             if extent and len(extent) == 4:
                 min_lon, max_lat, max_lon, min_lat = extent
                 is_inside_bbox = (min_lat <= court_lat <= max_lat and min_lon <= court_lon <= max_lon)
+                # Emit detailed containment check logs to debug naming misses
+                try:
+                    logger.info(json.dumps({
+                        'event': 'bbox_containment_check',
+                        'facility_name': name,
+                        'osm_value': properties.get('osm_value'),
+                        'extent': extent,
+                        'court_coords': [court_lat, court_lon],
+                        'inside': is_inside_bbox
+                    }))
+                except Exception:
+                    pass
                 
                 # Debug logging for extent data (only when inside bbox)
                 if is_inside_bbox:
@@ -378,7 +431,13 @@ class BoundingBoxGeocodingProvider:
             'osm_id': facility['osm_id'],
             'osm_key': facility['osm_key'],
             'osm_value': facility['osm_value'],
-            'feature': facility['feature']
+            # Preserve full feature for downstream consumers (mapper/pipeline)
+            'feature': facility['feature'],
+            # Explicitly expose extent and facility coordinates for easier mapping
+            # extent format from Photon: [min_lon, max_lat, max_lon, min_lat]
+            'extent': facility.get('extent'),
+            # facility_coords format: [facility_lat, facility_lon]
+            'facility_coords': facility.get('facility_coords')
         }
     
     def _calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:

@@ -112,14 +112,14 @@ class CourtDatabaseOperations:
             upsert_query = """
             INSERT INTO courts (
                 osm_id, sport, hoops, geom, centroid, 
-                photon_name, photon_distance_km, photon_source,
+                photon_name,
                 fallback_name, surface_type, is_public, school,
                 bounding_box_id, bounding_box_coords
             ) VALUES (
                 %(osm_id)s, %(sport)s, %(hoops)s, 
                 ST_GeomFromGeoJSON(%(geom)s), 
                 ST_Centroid(ST_GeomFromGeoJSON(%(geom)s))::GEOGRAPHY,
-                %(photon_name)s, %(photon_distance_km)s, %(photon_source)s,
+                %(photon_name)s,
                 %(fallback_name)s, %(surface_type)s, %(is_public)s, %(school)s,
                 %(bounding_box_id)s, %(bounding_box_coords)s
             )
@@ -129,8 +129,6 @@ class CourtDatabaseOperations:
                 geom = EXCLUDED.geom,
                 centroid = EXCLUDED.centroid,
                 photon_name = EXCLUDED.photon_name,
-                photon_distance_km = EXCLUDED.photon_distance_km,
-                photon_source = EXCLUDED.photon_source,
                 fallback_name = EXCLUDED.fallback_name,
                 surface_type = EXCLUDED.surface_type,
                 school = EXCLUDED.school,
@@ -196,14 +194,14 @@ class CourtDatabaseOperations:
                     upsert_query = """
                     INSERT INTO courts (
                         osm_id, sport, hoops, geom, centroid, 
-                        photon_name, photon_distance_km, photon_source,
+                        photon_name,
                         fallback_name, surface_type, is_public, school,
                         bounding_box_id, bounding_box_coords
                     ) VALUES (
                         %(osm_id)s, %(sport)s, %(hoops)s, 
                         ST_GeomFromGeoJSON(%(geom)s), 
                         ST_Centroid(ST_GeomFromGeoJSON(%(geom)s))::GEOGRAPHY,
-                        %(photon_name)s, %(photon_distance_km)s, %(photon_source)s,
+                        %(photon_name)s,
                         %(fallback_name)s, %(surface_type)s, %(is_public)s, %(school)s,
                         %(bounding_box_id)s, %(bounding_box_coords)s
                     )
@@ -213,8 +211,6 @@ class CourtDatabaseOperations:
                         geom = EXCLUDED.geom,
                         centroid = EXCLUDED.centroid,
                         photon_name = EXCLUDED.photon_name,
-                        photon_distance_km = EXCLUDED.photon_distance_km,
-                        photon_source = EXCLUDED.photon_source,
                         fallback_name = EXCLUDED.fallback_name,
                         surface_type = EXCLUDED.surface_type,
                         is_public = EXCLUDED.is_public,
@@ -351,11 +347,8 @@ if __name__ == "__main__":
         'hoops': 2,
         'geom': '{"type": "Polygon", "coordinates": [[[-122.4, 37.7], [-122.4, 37.8], [-122.3, 37.8], [-122.3, 37.7], [-122.4, 37.7]]]}',
         'photon_name': 'Test Court',
-        'photon_distance_km': 0.05,
-        'photon_source': 'search_api',
         'fallback_name': 'basketball court (2 hoops)',
-        'surface_type': 'asphalt',
-        'import_timestamp': datetime.now()
+        'surface_type': 'asphalt'
     }
     
     # Test upsert

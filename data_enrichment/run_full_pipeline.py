@@ -174,7 +174,7 @@ def test_single_way(way_id: str, connection_string: str):
         print("🔄 Running production geocoding...")
         start_time = datetime.now()
         
-        name, data = provider.reverse_geocode(lat, lon, court_count)
+        name, data, api_calls_made = provider.reverse_geocode(lat, lon, court_count)
         
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()

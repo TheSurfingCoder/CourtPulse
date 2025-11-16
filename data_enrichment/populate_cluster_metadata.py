@@ -193,23 +193,17 @@ class ClusterMetadataPopulator:
                 cluster_size = cluster['size']
                 
                 # Update all courts in cluster
-                for i, court in enumerate(cluster['courts']):
-                    is_representative = (i == 0)  # First court is representative
-                    
+                for court in cluster['courts']:
                     update_query = """
                     UPDATE courts 
                     SET 
                         cluster_id = %s,
-                        cluster_representative = %s,
-                        cluster_size = %s,
                         updated_at = NOW()
                     WHERE id = %s;
                     """
                     
                     cursor.execute(update_query, (
                         cluster_id,
-                        is_representative,
-                        cluster_size,
                         court['id']
                     ))
                     

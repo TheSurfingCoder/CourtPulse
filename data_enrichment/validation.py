@@ -313,27 +313,6 @@ class CourtDataValidator:
                     field='photon_name'
                 ))
         
-        # Validate photon_distance_km
-        if 'photon_distance_km' in photon_data:
-            distance = photon_data['photon_distance_km']
-            if not isinstance(distance, (int, float)) or distance < 0:
-                results.append(ValidationResult(
-                    False, ValidationLevel.ERROR,
-                    f"photon_distance_km must be a non-negative number, got: {distance}",
-                    field='photon_distance_km'
-                ))
-        
-        # Validate photon_source
-        if 'photon_source' in photon_data:
-            source = photon_data['photon_source']
-            valid_sources = ['search_api', 'reverse_geocoding', 'fallback']
-            if source not in valid_sources:
-                results.append(ValidationResult(
-                    False, ValidationLevel.ERROR,
-                    f"Invalid photon_source: {source}. Must be one of {valid_sources}",
-                    field='photon_source'
-                ))
-        
         return results
     
     def validate_court_data(self, feature: Dict[str, Any], photon_data: Optional[Dict[str, Any]] = None) -> Tuple[bool, List[ValidationResult]]:

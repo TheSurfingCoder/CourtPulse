@@ -113,8 +113,8 @@ class CourtProcessingPipeline:
                     # (hoops count is for the number of basketball hoops, not courts)
                     court_count = 1
                     
-                    # Get name from Photon
-                    photon_name, photon_data = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
+                    # Get name from Photon (returns name, data, and API calls count)
+                    photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(total_lat, total_lon, court_count)
                     
                     if not photon_name:
                         self.stats['geocoding_failed'] += 1
@@ -126,11 +126,33 @@ class CourtProcessingPipeline:
                         # This would need to be implemented based on your Photon response structure
                         distance_km = 0.0  # Placeholder
                     
-                    photon_data = {
-                        'name': photon_name,
-                        'distance_km': distance_km,
-                        'source': 'search_api'  # or 'reverse_geocoding' based on your logic
-                    }
+                    # Preserve rich facility data from the provider when available.
+                    # The provider returns a structured dict with fields like:
+                    # - source ('bounding_box_search' when bbox match)
+                    # - is_inside_bbox (True when inside facility extent)
+                    # - osm_value/osm_key (amenity types, e.g., 'school')
+                    # - extent (Photon extent array) and feature (raw feature)
+                    # We enrich it minimally and pass through for the mapper to consume.
+                    if photon_data:
+                        enriched = dict(photon_data)
+                        enriched.setdefault('name', photon_name)
+                        enriched.setdefault('distance_km', distance_km)
+                        # Map extent → bounding_box_coords for DB mapper
+                        extent = enriched.get('extent')
+                        if not extent and isinstance(enriched.get('feature', {}), dict):
+                            props = enriched['feature'].get('properties', {})
+                            extent = props.get('extent')
+                            if extent:
+                                enriched['extent'] = extent
+                        if extent:
+                            enriched['bounding_box_coords'] = extent
+                        photon_data = enriched
+                    else:
+                        photon_data = {
+                            'name': photon_name,
+                            'distance_km': distance_km,
+                            'source': 'search_api'
+                        }
                 else:
                     self.stats['geocoding_failed'] += 1
                     return False, "Invalid geometry for geocoding", None
@@ -266,8 +288,8 @@ class CourtProcessingPipeline:
             # Calculate total court count for the cluster
             total_court_count = sum(court.hoops or 1 for court in cluster)
             
-            # Get geocoding result for the representative court
-            photon_name, photon_data = self.geocoding_provider.reverse_geocode(
+            # Get geocoding result for the representative court (returns name, data, and API calls count)
+            photon_name, photon_data, api_calls_made = self.geocoding_provider.reverse_geocode(
                 representative_court.lat, representative_court.lon, total_court_count
             )
             

@@ -814,14 +814,37 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
       
       // Map frontend fields to backend fields
-      const updateData = {
+      const updateData: Record<string, any> = {
         name: updatedCourt.name,
-        cluster_group_name: updatedCourt.cluster_group_name,
         type: updatedCourt.type,
         surface: updatedCourt.surface,
         is_public: updatedCourt.is_public,
         school: updatedCourt.school
       };
+
+      const clusterFields: Record<string, string | null> = {};
+      // Track previous (current stored label) vs next (user-entered) cluster name to decide if we need a cluster-wide rename
+      const nextClusterName = updatedCourt.cluster_group_name ?? null;
+      
+      // Get previous cluster name from editingCourt if it matches, otherwise look it up in courts array
+      let previousClusterName: string | null = null;
+      if (editingCourt && editingCourt.id === updatedCourt.id) {
+        previousClusterName = editingCourt.cluster_group_name ?? null;
+      } else {
+        // Fallback: look up the current court in the courts array to get its previous cluster name
+        const currentCourt = courts.find(c => c.id === updatedCourt.id);
+        previousClusterName = currentCourt?.cluster_group_name ?? null;
+      }
+
+      // Only send cluster_fields if the cluster name actually changed
+      if (previousClusterName !== nextClusterName) {
+        clusterFields.cluster_group_name = nextClusterName;
+      }
+
+      // Only send cluster_fields when at least one shared field changes; keeps per-court edits scoped
+      if (Object.keys(clusterFields).length > 0) {
+        updateData.cluster_fields = clusterFields;
+      }
       
       const response = await fetch(`${apiUrl}/api/courts/${updatedCourt.id}`, {
         method: 'PUT',
