@@ -1,5 +1,17 @@
 # @courtpulse/frontend
 
+## [1.10.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.9.0...frontend-v1.10.0) (2025-11-16)
+
+
+### Features
+
+* improve facility bbox geocoding and hybrid court updates ([6ccd759](https://github.com/TheSurfingCoder/CourtPulse/commit/6ccd7598bbbbbfe0291c68a6f952fea49fcd17cb))
+
+
+### Bug Fixes
+
+* resolve cluster name change detection bug and fix test mocks ([ec65f7c](https://github.com/TheSurfingCoder/CourtPulse/commit/ec65f7c0e8600d8a15c05d096e646f6e7dffe6be))
+
 ## [1.9.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.8.0...frontend-v1.9.0) (2025-10-26)
 
 
