@@ -204,9 +204,11 @@ class CourtDatabaseOperations:
             
             for idx, court_data in enumerate(courts_batch):
                 savepoint_name = f"sp_{idx}"
+                savepoint_created = False
                 try:
                     # Create a savepoint for this court
                     cursor.execute(f"SAVEPOINT {savepoint_name};")
+                    savepoint_created = True
                     
                     # Prepare court_data with JSONB conversion for bounding_box_coords
                     prepared_data = court_data.copy()
@@ -250,6 +252,7 @@ class CourtDatabaseOperations:
                     
                     # Release the savepoint on success
                     cursor.execute(f"RELEASE SAVEPOINT {savepoint_name};")
+                    savepoint_created = False  # No longer need to rollback
                     
                     results['success_count'] += 1
                     results['successful_osm_ids'].append(court_data['osm_id'])
@@ -261,17 +264,31 @@ class CourtDatabaseOperations:
                     }))
                     
                 except Exception as e:
-                    # Rollback to savepoint to allow other items to continue
-                    try:
-                        cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name};")
-                    except Exception as rollback_error:
-                        # If rollback fails, the transaction is likely already aborted
-                        logger.error(json.dumps({
-                            'event': 'savepoint_rollback_error',
-                            'osm_id': court_data.get('osm_id'),
-                            'error': str(rollback_error)
-                        }))
+                    transaction_aborted = False
                     
+                    # Only rollback to savepoint if it was successfully created
+                    if savepoint_created:
+                        try:
+                            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name};")
+                        except Exception as rollback_error:
+                            # If rollback fails, the transaction is likely already aborted
+                            logger.error(json.dumps({
+                                'event': 'savepoint_rollback_error',
+                                'osm_id': court_data.get('osm_id'),
+                                'error': str(rollback_error)
+                            }))
+                            transaction_aborted = True
+                    else:
+                        # Savepoint creation failed - transaction is aborted
+                        logger.error(json.dumps({
+                            'event': 'savepoint_creation_failed',
+                            'osm_id': court_data.get('osm_id'),
+                            'error': str(e),
+                            'message': 'Transaction aborted - unable to continue processing'
+                        }))
+                        transaction_aborted = True
+                    
+                    # Record error for current court
                     results['error_count'] += 1
                     results['failed_osm_ids'].append(court_data['osm_id'])
                     results['errors'].append({
@@ -284,6 +301,18 @@ class CourtDatabaseOperations:
                         'osm_id': court_data['osm_id'],
                         'error': str(e)
                     }))
+                    
+                    # If transaction is aborted, mark remaining items as failed and break
+                    if transaction_aborted:
+                        remaining_items = courts_batch[idx + 1:]
+                        for remaining_court in remaining_items:
+                            results['error_count'] += 1
+                            results['failed_osm_ids'].append(remaining_court.get('osm_id', 'unknown'))
+                            results['errors'].append({
+                                'osm_id': remaining_court.get('osm_id', 'unknown'),
+                                'error': 'Transaction aborted - unable to process remaining items'
+                            })
+                        break
             
             # Commit the transaction
             cursor.execute("COMMIT;")
