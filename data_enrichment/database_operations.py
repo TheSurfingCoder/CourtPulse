@@ -6,7 +6,7 @@ Handles PostgreSQL connections, UPSERT operations, and batch processing
 import json
 import logging
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 from psycopg2.pool import SimpleConnectionPool
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
@@ -101,12 +101,26 @@ class CourtDatabaseOperations:
             }))
             raise
     
+    def prepare_bounding_box_coords(self, bounding_box_coords: Any) -> Any:
+        """Convert bounding_box_coords to JSONB format for PostgreSQL"""
+        if bounding_box_coords is None:
+            return None
+        # Use psycopg2's Json adapter to properly convert to JSONB
+        # This handles lists, dicts, and other JSON-serializable types
+        return Json(bounding_box_coords)
+    
     def upsert_court(self, court_data: Dict[str, Any]) -> Tuple[bool, str]:
         """Upsert a single court record"""
         connection = None
         try:
             connection = self.db_manager.get_connection()
             cursor = connection.cursor()
+            
+            # Prepare court_data with JSONB conversion for bounding_box_coords
+            prepared_data = court_data.copy()
+            prepared_data['bounding_box_coords'] = self.prepare_bounding_box_coords(
+                court_data.get('bounding_box_coords')
+            )
             
             # Prepare the UPSERT query
             upsert_query = """
@@ -140,7 +154,7 @@ class CourtDatabaseOperations:
             """
             
             # Execute the query
-            cursor.execute(upsert_query, court_data)
+            cursor.execute(upsert_query, prepared_data)
             result = cursor.fetchone()
             
             connection.commit()
@@ -188,8 +202,18 @@ class CourtDatabaseOperations:
             # Start transaction
             cursor.execute("BEGIN;")
             
-            for court_data in courts_batch:
+            for idx, court_data in enumerate(courts_batch):
+                savepoint_name = f"sp_{idx}"
                 try:
+                    # Create a savepoint for this court
+                    cursor.execute(f"SAVEPOINT {savepoint_name};")
+                    
+                    # Prepare court_data with JSONB conversion for bounding_box_coords
+                    prepared_data = court_data.copy()
+                    prepared_data['bounding_box_coords'] = self.prepare_bounding_box_coords(
+                        court_data.get('bounding_box_coords')
+                    )
+                    
                     # Prepare the UPSERT query for this court
                     upsert_query = """
                     INSERT INTO courts (
@@ -221,8 +245,11 @@ class CourtDatabaseOperations:
                     RETURNING id, osm_id;
                     """
                     
-                    cursor.execute(upsert_query, court_data)
+                    cursor.execute(upsert_query, prepared_data)
                     result = cursor.fetchone()
+                    
+                    # Release the savepoint on success
+                    cursor.execute(f"RELEASE SAVEPOINT {savepoint_name};")
                     
                     results['success_count'] += 1
                     results['successful_osm_ids'].append(court_data['osm_id'])
@@ -234,6 +261,17 @@ class CourtDatabaseOperations:
                     }))
                     
                 except Exception as e:
+                    # Rollback to savepoint to allow other items to continue
+                    try:
+                        cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name};")
+                    except Exception as rollback_error:
+                        # If rollback fails, the transaction is likely already aborted
+                        logger.error(json.dumps({
+                            'event': 'savepoint_rollback_error',
+                            'osm_id': court_data.get('osm_id'),
+                            'error': str(rollback_error)
+                        }))
+                    
                     results['error_count'] += 1
                     results['failed_osm_ids'].append(court_data['osm_id'])
                     results['errors'].append({
