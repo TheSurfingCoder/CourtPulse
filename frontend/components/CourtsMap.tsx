@@ -371,10 +371,10 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         const initStartTime = performance.now();
         
         const cluster = new Supercluster({
-          radius: 40,
-          maxZoom: 16,
+          radius: 30,  // Reduced from 40 - points need to be closer together to cluster (moderately more declustered)
+          maxZoom: 14,  // Reduced from 16 - stop clustering at zoom 14, individual points show from zoom 14+ (moderately earlier declustering)
           minZoom: 0,
-          minPoints: 2
+          minPoints: 3  // Increased from 2 - need 3+ points to form a cluster (moderately less aggressive clustering)
         });
         
         // Loading points into supercluster
@@ -414,7 +414,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       // Viewport debounced
       
       setDebouncedViewport(viewport);
-    }, 500);
+    }, 200);
     
     return () => {
       if (debounceTimer.current) {
@@ -686,18 +686,18 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         });
       }
     } else {
-      // It's an individual court - center on it with a specific zoom level
+      // It's an individual court - center on it and show popup
       logEvent('court_clicked', {
         courtId: cluster.properties.id || cluster.id,
         courtName: cluster.properties.name,
         coordinates: { lng, lat }
       });
       
-      // Center on the individual court with a consistent zoom level
+      // Center on the individual court without changing zoom
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [lng, lat],
-          zoom: 18, // Specific zoom level for individual courts
+          zoom: viewport.zoom, // Keep current zoom level
           duration: 1000 // 1 second smooth animation
         });
       }
