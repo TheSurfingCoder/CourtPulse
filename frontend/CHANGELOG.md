@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.11.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.10.0...frontend-v1.11.0) (2025-11-29)
+
+
+### Features
+
+* update map marker interactions and clustering settings ([fa480c7](https://github.com/TheSurfingCoder/CourtPulse/commit/fa480c7c185a878a4c0f91b87cb7105539cd3ab5))
+* update map marker interactions and clustering settings ([12e7d82](https://github.com/TheSurfingCoder/CourtPulse/commit/12e7d82e0e760a3c11f189f480e6f8583d5eec55))
+
 ## [1.10.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.9.0...frontend-v1.10.0) (2025-11-16)
 
 
