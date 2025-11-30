@@ -1,240 +1,132 @@
-# CourtPulse Data Enrichment Pipeline
+# Data Enrichment Pipeline
 
-A production-ready Python pipeline for enriching OpenStreetMap court data with reverse geocoding and storing it in a Postgres database with PostGIS support.
+## Overview
 
-## Features
+This directory contains scripts and tools for enriching court data from OpenStreetMap using the Overpass API.
 
-- **GeoJSON Processing**: Parse OpenStreetMap court data from GeoJSON files
-- **Geometry Processing**: Calculate centroids using Shapely for accurate court locations
-- **Reverse Geocoding**: Pluggable geocoding providers (Nominatim, Google Places, MapTiler)
-- **Database Storage**: Store enriched data in Postgres with PostGIS for spatial queries
-- **Structured Logging**: JSON-formatted logging for monitoring and debugging
-- **Error Handling**: Robust error handling with detailed logging
-- **Rate Limiting**: Built-in rate limiting for API providers
+## Table Strategy
 
-## Installation
+### Current Tables
 
-1. Install dependencies:
+1. **`osm_facilities`** - Raw facility data from Overpass queries
+   - **Purpose**: Stores parks, playgrounds, schools, and other facilities queried from Overpass API
+   - **Data**: Facilities with names, geometry, and bounding boxes
+   - **Lifecycle**: Populated by `query_courts_and_facilities.py` before courts are matched
+   - **Use**: Temporary staging table for matching courts to facilities
+
+2. **`osm_courts_temp`** - Raw court data from Overpass queries  
+   - **Purpose**: Stores raw court data (leisure=pitch with sport tags) from Overpass API
+   - **Data**: Courts with geometry, sport type, and matched facility names
+   - **Lifecycle**: Populated by `query_courts_and_facilities.py`, then matched to facilities
+   - **Use**: Temporary staging table for processing Overpass results
+
+3. **`courts`** - Source of truth (production table)
+   - **Purpose**: Main production table used by backend API and frontend
+   - **Data**: Final processed court data with all metadata
+   - **Lifecycle**: Populated by data enrichment pipeline, updated by user edits
+   - **Use**: This is the table the application queries from
+
+### Strategy Decision
+
+**Question**: Do we keep separate tables for raw Overpass queries, or consolidate everything into `courts`?
+
+**Current Approach**:
+- ✅ **Keep `osm_facilities`** - Useful for:
+  - Re-matching courts if needed
+  - Updating facility data without re-running full pipeline
+  - Debugging matching issues
+  - Potential future use cases (showing facilities on map, etc.)
+
+- ❓ **`osm_courts_temp`** - Decision needed:
+  - **Option A (Keep)**: Keep as staging table for processing, then copy to `courts`
+    - Pros: Can re-process data without affecting production, easier debugging
+    - Cons: Data duplication, need to sync
+  
+  - **Option B (Remove)**: Insert directly into `courts` table
+    - Pros: Single source of truth, no sync needed, simpler
+    - Cons: Harder to debug, data directly in production table
+
+**Recommendation**: **Option B** - Insert directly into `courts` table
+- The `query_courts_and_facilities.py` script should insert matched courts directly into `courts`
+- Keep `osm_facilities` for facility reference data
+- Remove `osm_courts_temp` after migration complete
+
+### Migration Plan
+
+1. Update `query_courts_and_facilities.py` to insert into `courts` instead of `osm_courts_temp`
+2. Map `facility_name` from Overpass to appropriate column in `courts` (likely `photon_name` or new `facility_name`)
+3. Test with San Francisco data
+4. Once verified, drop `osm_courts_temp` table (optional cleanup)
+
+## Scripts
+
+### `query_courts_and_facilities.py`
+Main script for querying Overpass API and matching courts to facilities.
+
+**Usage**:
 ```bash
-pip install -r requirements.txt
+python3 query_courts_and_facilities.py "postgresql://user:pass@host:port/db"
 ```
 
-2. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your database credentials
+**What it does**:
+1. Queries Overpass for facilities (parks, playgrounds, schools)
+2. Queries Overpass for courts (leisure=pitch with sport tags)
+3. Matches courts to facilities using PostGIS spatial containment
+4. Inserts results into database tables
+
+### Other Scripts
+- `court_pipeline.py` - Old data enrichment pipeline (using Photon API)
+- `fetch_courts_data.py` - Fetches court data from Overpass (legacy)
+- Various test scripts for debugging and validation
+
+## Data Flow
+
+```
+Overpass API
+    ↓
+[Query Facilities] → osm_facilities (staging)
+    ↓
+[Query Courts] → Match with osm_facilities → courts (production)
+    ↓
+Frontend/Backend reads from → courts table
 ```
 
-3. Ensure Postgres with PostGIS is running and accessible.
+## Tables Strategy Summary
 
-## Quick Start
+### Keep Separate vs Consolidate
 
-### Basic Usage
+**Recommendation: Hybrid Approach**
 
-```python
-from data_enrichment import CourtDataEnricher, DatabaseManager, NominatimProvider
+1. **Keep `osm_facilities` separate** ✅
+   - Facilities are reference data that change infrequently
+   - Useful for re-matching courts without re-running full pipeline
+   - Can be queried independently for future features (show facilities on map)
 
-# Initialize components
-db_manager = DatabaseManager("postgresql://user:pass@localhost/courtpulse")
-geocoding_provider = NominatimProvider()
-enricher = CourtDataEnricher(db_manager, geocoding_provider)
+2. **Insert directly into `courts` table** ✅
+   - No need for `osm_courts_temp` as intermediate staging
+   - Courts are the source of truth - insert matched data directly
+   - Simpler architecture, no sync needed
 
-# Create database table
-db_manager.create_table_if_not_exists()
+3. **Final Structure:**
+   - `osm_facilities` → Staging/reference table (kept separate)
+   - `courts` → Production source of truth (direct insertion)
+   - ~~`osm_courts_temp`~~ → Remove after migration
 
-# Load and process courts
-courts = enricher.load_geojson("courts.geojson")
-for court in courts[:5]:  # Process first 5 courts
-    enriched_court = enricher.enrich_court(court)
-    db_manager.insert_court(enriched_court)
-```
+### Migration Strategy
 
-### Using Different Geocoding Providers
+The `query_courts_and_facilities.py` script should:
+1. Query and insert facilities into `osm_facilities`
+2. Query courts from Overpass
+3. Match courts to facilities using PostGIS
+4. **Insert matched courts directly into `courts` table** (not `osm_courts_temp`)
 
-#### Nominatim (Free)
-```python
-from data_enrichment import NominatimProvider
+This gives us:
+- Single source of truth (`courts`)
+- Facility reference data available separately (`osm_facilities`)
+- No intermediate staging table needed
 
-provider = NominatimProvider(
-    base_url="https://nominatim.openstreetmap.org",
-    user_agent="YourApp/1.0",
-    delay=1.0  # Rate limiting delay
-)
-```
+## Notes
 
-#### Google Places API
-```python
-from data_enrichment import GooglePlacesProvider
-
-provider = GooglePlacesProvider(
-    api_key="your_google_places_api_key",
-    delay=0.1
-)
-```
-
-## Database Schema
-
-The pipeline creates a `courts` table with the following structure:
-
-```sql
-CREATE TABLE courts (
-    id SERIAL PRIMARY KEY,
-    osm_id VARCHAR(255) UNIQUE NOT NULL,
-    geom GEOMETRY(POINT, 4326),
-    sport VARCHAR(100),
-    hoops VARCHAR(10),
-    fallback_name VARCHAR(255),
-    google_place_id VARCHAR(255),
-    enriched_name VARCHAR(255),
-    address TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Indexes
-- `idx_courts_osm_id`: On osm_id for fast lookups
-- `idx_courts_geom`: GIST index on geometry for spatial queries
-- `idx_courts_sport`: On sport for filtering
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_HOST` | Database host | localhost |
-| `DB_PORT` | Database port | 5432 |
-| `DB_NAME` | Database name | courtpulse |
-| `DB_USER` | Database user | postgres |
-| `DB_PASSWORD` | Database password | (empty) |
-| `GOOGLE_PLACES_API_KEY` | Google Places API key | (empty) |
-| `MAPTILER_API_KEY` | MapTiler API key | (empty) |
-| `NOMINATIM_BASE_URL` | Nominatim base URL | https://nominatim.openstreetmap.org |
-| `NOMINATIM_USER_AGENT` | User agent for Nominatim | CourtPulse/1.0 |
-| `NOMINATIM_DELAY` | Rate limiting delay | 1.0 |
-
-## API Providers
-
-### Nominatim
-- **Cost**: Free
-- **Rate Limit**: 1 request/second (configurable)
-- **Coverage**: Global
-- **Accuracy**: Good for most locations
-
-### Google Places
-- **Cost**: Paid (per request)
-- **Rate Limit**: Configurable
-- **Coverage**: Excellent
-- **Accuracy**: Very high
-
-### MapTiler
-- **Cost**: Paid (subscription-based)
-- **Rate Limit**: Based on subscription
-- **Coverage**: Global
-- **Accuracy**: High
-
-## Logging
-
-The pipeline uses structured JSON logging for all operations:
-
-```json
-{
-  "event": "court_enriched",
-  "osm_id": "way/28283137",
-  "coordinates": {"lat": 37.7500036, "lon": -122.4063442},
-  "has_address": true,
-  "has_place_id": true
-}
-```
-
-### Key Events Logged
-- Pipeline startup/shutdown
-- GeoJSON loading
-- Court enrichment
-- Database operations
-- API provider errors
-- Rate limiting
-
-## Error Handling
-
-The pipeline includes comprehensive error handling:
-
-- **Network Errors**: Retry logic for API calls
-- **Database Errors**: Transaction rollback and detailed logging
-- **Geometry Errors**: Skip invalid geometries with logging
-- **Rate Limiting**: Automatic delays between API calls
-
-## Performance Considerations
-
-### Rate Limiting
-- Nominatim: 1 request/second (configurable)
-- Google Places: Configurable based on quota
-- MapTiler: Based on subscription limits
-
-### Database Performance
-- Spatial indexes for fast geometry queries
-- Unique constraints to prevent duplicates
-- Batch processing support
-
-### Memory Usage
-- Processes one court at a time to minimize memory usage
-- Supports large GeoJSON files through streaming
-
-## Examples
-
-See `example_usage.py` for comprehensive examples including:
-
-- Basic pipeline usage
-- Different geocoding providers
-- Batch processing
-- Error handling
-
-## Running Examples
-
-```bash
-# Run all examples
-python example_usage.py
-
-# Run main pipeline with sample data
-python data_enrichment.py
-```
-
-## Development
-
-### Adding New Geocoding Providers
-
-1. Create a new class inheriting from `GeocodingProvider`
-2. Implement the `reverse_geocode(lat, lon)` method
-3. Return a tuple of `(address, place_id)`
-
-Example:
-```python
-class CustomProvider(GeocodingProvider):
-    def reverse_geocode(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[str]]:
-        # Your implementation
-        return address, place_id
-```
-
-### Testing
-
-```bash
-# Install test dependencies
-pip install pytest pytest-cov
-
-# Run tests
-pytest tests/
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Add tests
-4. Update documentation
-5. Submit a pull request
-
-## License
-
-This project is part of CourtPulse and follows the same license terms.
-
+- `courts_post_photon` - Legacy table from Photon import attempt (can be dropped - Photon doesn't have pitch data)
+- `courts_backups` - Backup table (can be kept for safety)
+- See `TABLE_AUDIT.md` for full database table analysis
