@@ -1,284 +1,187 @@
 """
-Populate cluster metadata for existing records
-Groups courts with same photon_name and nearby coordinates into clusters
+Populate cluster metadata for courts based on facility_name
+Groups courts with the same facility_name into clusters by assigning shared cluster_id (UUID)
+Runs entirely in the database using SQL for efficiency
 """
 
 import json
 import logging
 import os
 import sys
-import uuid
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from typing import Dict, Any, List, Tuple
-import math
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ClusterMetadataPopulator:
-    """Populates cluster metadata for existing database records"""
+    """Populates cluster metadata for courts based on facility_name using SQL"""
     
-    def __init__(self, connection_string: str, max_distance_km: float = 0.05):
+    def __init__(self, connection_string: str):
         self.connection_string = connection_string
-        self.max_distance_km = max_distance_km  # ~160 feet
         
+        logger.info(json.dumps({
+            'event': 'cluster_metadata_populator_initialized',
+            'method': 'database_sql'
+        }))
+    
     def get_connection(self):
         """Get database connection"""
         return psycopg2.connect(self.connection_string)
     
-    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate distance between two points using Haversine formula (returns km)"""
-        R = 6371.0  # Earth's radius in kilometers
-        
-        lat1_rad = math.radians(lat1)
-        lon1_rad = math.radians(lon1)
-        lat2_rad = math.radians(lat2)
-        lon2_rad = math.radians(lon2)
-        
-        dlat = lat2_rad - lat1_rad
-        dlon = lon2_rad - lon1_rad
-        
-        a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        
-        return R * c
-    
-    def get_courts_by_name_and_bbox(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Get all courts grouped by photon_name AND bounding_box_id (exclude generic names)"""
+    def populate_cluster_metadata(self) -> Dict[str, Any]:
+        """
+        Populate cluster_id for courts based on facility_name
+        Uses SQL to efficiently group and assign UUIDs in the database
+        """
         try:
             conn = self.get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             
-            query = """
-            SELECT 
-                id, osm_id, photon_name, bounding_box_id,
-                ST_Y(centroid::geometry) as lat,
-                ST_X(centroid::geometry) as lon,
-                hoops, sport
-            FROM courts 
-            WHERE photon_name IS NOT NULL 
-            AND bounding_box_id IS NOT NULL
-            ORDER BY photon_name, bounding_box_id, osm_id;
-            """
-            
-            cursor.execute(query)
-            results = cursor.fetchall()
-            
-            # Group by photon_name + bounding_box_id combination
-            courts_by_cluster = {}
-            for court in results:
-                # Create cluster key from name + bounding_box_id
-                cluster_key = f"{court['photon_name']}|{court['bounding_box_id']}"
-                if cluster_key not in courts_by_cluster:
-                    courts_by_cluster[cluster_key] = []
-                courts_by_cluster[cluster_key].append(dict(court))
-            
             logger.info(json.dumps({
-                'event': 'courts_grouped_by_name_and_bbox',
-                'unique_clusters': len(courts_by_cluster),
-                'total_courts': len(results)
+                'event': 'cluster_metadata_population_started',
+                'method': 'sql_based'
             }))
             
-            return courts_by_cluster
+            # Step 1: Get statistics before clustering
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_courts,
+                    COUNT(DISTINCT facility_name) as unique_facilities,
+                    COUNT(*) FILTER (WHERE facility_name IS NOT NULL) as courts_with_facility
+                FROM osm_courts_temp;
+            """)
+            stats_before = cursor.fetchone()
             
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'get_courts_error',
-                'error': str(e)
-            }))
-            raise
-        finally:
-            if conn:
-                conn.close()
-    
-    def create_bbox_clusters(self, courts_by_cluster: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-        """Create clusters from courts with same photon_name + bounding_box_id"""
-        all_clusters = []
-        
-        for cluster_key, courts in courts_by_cluster.items():
-            # Extract photon_name and bounding_box_id from cluster key
-            photon_name, bounding_box_id = cluster_key.split('|')
-            
-            # All courts in this group already have the same bounding_box_id
-            # So they form one cluster
-            cluster_id = str(uuid.uuid4())
-            cluster = {
-                'cluster_id': cluster_id,
-                'photon_name': photon_name,
-                'bounding_box_id': bounding_box_id,
-                'courts': courts,
-                'representative': courts[0],  # Use first court as representative
-                'size': len(courts)
-            }
-            all_clusters.append(cluster)
-            
-            logger.debug(json.dumps({
-                'event': 'bbox_cluster_created',
-                'photon_name': photon_name,
-                'bounding_box_id': bounding_box_id,
-                'cluster_size': len(courts),
-                'court_osm_ids': [court['osm_id'] for court in courts]
-            }))
-        
-        logger.info(json.dumps({
-            'event': 'bbox_clustering_completed',
-            'total_clusters': len(all_clusters),
-            'total_courts': sum(len(cluster['courts']) for cluster in all_clusters)
-        }))
-        
-        return all_clusters
-    
-    def cluster_courts_by_distance(self, courts: List[Dict[str, Any]], photon_name: str) -> List[Dict[str, Any]]:
-        """Cluster courts with same name by geographic distance"""
-        clusters = []
-        processed = set()
-        
-        for i, court in enumerate(courts):
-            if i in processed:
-                continue
-            
-            # Start new cluster
-            cluster_id = str(uuid.uuid4())
-            cluster_courts = [court]
-            processed.add(i)
-            
-            # Find nearby courts with same name
-            for j, other_court in enumerate(courts[i+1:], i+1):
-                if j in processed:
-                    continue
-                
-                distance = self.calculate_distance(
-                    court['lat'], court['lon'],
-                    other_court['lat'], other_court['lon']
+            # Step 2: Assign cluster_id based on facility_name using SQL
+            # This creates a UUID for each unique facility_name and assigns it to all courts with that facility
+            cursor.execute("""
+                WITH facility_clusters AS (
+                    SELECT DISTINCT 
+                        facility_name,
+                        gen_random_uuid() as cluster_id
+                    FROM osm_courts_temp
+                    WHERE facility_name IS NOT NULL
                 )
-                
-                # Only cluster courts of the same sport
-                if distance <= self.max_distance_km and court['sport'] == other_court['sport']:
-                    cluster_courts.append(other_court)
-                    processed.add(j)
+                UPDATE osm_courts_temp oc
+                SET cluster_id = fc.cluster_id
+                FROM facility_clusters fc
+                WHERE oc.facility_name = fc.facility_name
+                  AND oc.facility_name IS NOT NULL;
+            """)
             
-            # Create cluster
-            cluster = {
-                'cluster_id': cluster_id,
-                'photon_name': photon_name,
-                'courts': cluster_courts,
-                'representative': cluster_courts[0],  # First court as representative
-                'size': len(cluster_courts)
-            }
-            clusters.append(cluster)
+            updated_count = cursor.rowcount
             
-            logger.info(json.dumps({
-                'event': 'geographic_cluster_created',
-                'cluster_id': cluster_id,
-                'photon_name': photon_name,
-                'sport': cluster_courts[0]['sport'],
-                'cluster_size': len(cluster_courts),
-                'representative_osm_id': cluster_courts[0]['osm_id']
-            }))
-        
-        return clusters
-    
-    def update_cluster_metadata(self, clusters: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Update database with cluster metadata"""
-        stats = {'updated_courts': 0, 'created_clusters': 0}
-        
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            for cluster in clusters:
-                cluster_id = cluster['cluster_id']
-                cluster_size = cluster['size']
-                
-                # Update all courts in cluster
-                for court in cluster['courts']:
-                    update_query = """
-                    UPDATE courts 
-                    SET 
-                        cluster_id = %s,
-                        updated_at = NOW()
-                    WHERE id = %s;
-                    """
-                    
-                    cursor.execute(update_query, (
+            # Step 3: Get statistics after clustering
+            cursor.execute("""
+                SELECT 
+                    COUNT(DISTINCT cluster_id) as total_clusters,
+                    COUNT(*) FILTER (WHERE cluster_id IS NOT NULL) as courts_with_cluster,
+                    MAX(cluster_size) as largest_cluster_size
+                FROM (
+                    SELECT 
                         cluster_id,
-                        court['id']
-                    ))
-                    
-                    stats['updated_courts'] += 1
-                
-                stats['created_clusters'] += 1
-                
-                logger.debug(json.dumps({
-                    'event': 'cluster_metadata_updated',
-                    'cluster_id': cluster_id,
-                    'cluster_size': cluster_size,
-                    'photon_name': cluster['photon_name']
-                }))
+                        COUNT(*) OVER (PARTITION BY cluster_id) as cluster_size
+                    FROM osm_courts_temp
+                    WHERE cluster_id IS NOT NULL
+                ) cluster_stats;
+            """)
+            stats_after = cursor.fetchone()
+            
+            # Step 4: Get multi-court cluster count
+            cursor.execute("""
+                SELECT COUNT(*) as multi_court_clusters
+                FROM (
+                    SELECT cluster_id, COUNT(*) as court_count
+                    FROM osm_courts_temp
+                    WHERE cluster_id IS NOT NULL
+                    GROUP BY cluster_id
+                    HAVING COUNT(*) > 1
+                ) multi_clusters;
+            """)
+            multi_cluster_stats = cursor.fetchone()
             
             conn.commit()
             
-            logger.info(json.dumps({
-                'event': 'cluster_metadata_population_completed',
-                'stats': stats
-            }))
-            
-            return stats
-            
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(json.dumps({
-                'event': 'cluster_metadata_update_error',
-                'error': str(e)
-            }))
-            raise
-        finally:
-            if conn:
-                conn.close()
-    
-    def populate_all_cluster_metadata(self) -> Dict[str, Any]:
-        """Main method to populate cluster metadata"""
-        try:
-            logger.info(json.dumps({
-                'event': 'cluster_metadata_population_started',
-                'max_distance_km': self.max_distance_km
-            }))
-            
-            # Step 1: Get courts grouped by name + bounding_box_id
-            courts_by_cluster = self.get_courts_by_name_and_bbox()
-            
-            # Step 2: Create bounding box clusters
-            clusters = self.create_bbox_clusters(courts_by_cluster)
-            
-            # Step 3: Update database with cluster metadata
-            stats = self.update_cluster_metadata(clusters)
-            
-            # Step 4: Generate summary
             summary = {
-                'unique_clusters': len(courts_by_cluster),
-                'bbox_clusters': len(clusters),
-                'updated_courts': stats['updated_courts'],
-                'multi_court_clusters': len([c for c in clusters if c['size'] > 1]),
-                'largest_cluster_size': max(c['size'] for c in clusters) if clusters else 0,
-                'clustering_efficiency': round(((stats['updated_courts'] - len(clusters)) / stats['updated_courts']) * 100, 1) if stats['updated_courts'] > 0 else 0
+                'total_courts': stats_before['total_courts'],
+                'unique_facilities': stats_before['unique_facilities'],
+                'courts_with_facility': stats_before['courts_with_facility'],
+                'updated_courts': updated_count,
+                'total_clusters': stats_after['total_clusters'] or 0,
+                'courts_with_cluster': stats_after['courts_with_cluster'] or 0,
+                'multi_court_clusters': multi_cluster_stats['multi_court_clusters'] or 0,
+                'largest_cluster_size': stats_after['largest_cluster_size'] or 0
             }
             
             logger.info(json.dumps({
-                'event': 'cluster_metadata_population_summary',
+                'event': 'cluster_metadata_population_completed',
                 'summary': summary
             }))
             
             return summary
             
         except Exception as e:
+            if conn:
+                conn.rollback()
             logger.error(json.dumps({
                 'event': 'cluster_metadata_population_error',
                 'error': str(e)
             }))
             raise
+        finally:
+            if conn:
+                conn.close()
+    
+    def transfer_cluster_ids_to_courts(self) -> Dict[str, Any]:
+        """
+        Transfer cluster_id from osm_courts_temp to courts table
+        Matches courts by osm_id
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            logger.info(json.dumps({
+                'event': 'cluster_id_transfer_started',
+                'source_table': 'osm_courts_temp',
+                'target_table': 'courts'
+            }))
+            
+            # Transfer cluster_id from staging to production table
+            cursor.execute("""
+                UPDATE courts c
+                SET cluster_id = oc.cluster_id,
+                    updated_at = NOW()
+                FROM osm_courts_temp oc
+                WHERE c.osm_id = oc.osm_id
+                  AND oc.cluster_id IS NOT NULL;
+            """)
+            
+            updated_count = cursor.rowcount
+            
+            conn.commit()
+            
+            logger.info(json.dumps({
+                'event': 'cluster_id_transfer_completed',
+                'updated_courts': updated_count
+            }))
+            
+            return {'updated_courts': updated_count}
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logger.error(json.dumps({
+                'event': 'cluster_id_transfer_error',
+                'error': str(e)
+            }))
+            raise
+        finally:
+            if conn:
+                conn.close()
 
 def main():
     """Main function to populate cluster metadata"""
@@ -293,24 +196,34 @@ def main():
         db_password = os.getenv('DB_PASSWORD', 'password')
         connection_string = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
     
-    print("🗺️  POPULATING CLUSTER METADATA FOR FRONTEND")
+    print("🗺️  POPULATING CLUSTER METADATA (Database-Side)")
     print("="*60)
-    print("This will add cluster information to enable geographic")
-    print("clustering on the frontend while keeping separate records.")
+    print("This will assign cluster_id to courts based on facility_name.")
+    print("Clustering happens entirely in the database using SQL for efficiency.")
     print()
     
     try:
-        populator = ClusterMetadataPopulator(connection_string, max_distance_km=0.05)
-        summary = populator.populate_all_cluster_metadata()
+        populator = ClusterMetadataPopulator(connection_string)
         
-        print("📊 CLUSTER METADATA RESULTS:")
-        print(f"   Unique Clusters: {summary['unique_clusters']}")
-        print(f"   Bounding Box Clusters: {summary['bbox_clusters']}")
+        # Step 1: Populate cluster_id in staging table
+        summary = populator.populate_cluster_metadata()
+        
+        print("📊 CLUSTER METADATA RESULTS (osm_courts_temp):")
+        print(f"   Total Courts: {summary['total_courts']}")
+        print(f"   Unique Facilities: {summary['unique_facilities']}")
+        print(f"   Courts with Facility: {summary['courts_with_facility']}")
         print(f"   Updated Courts: {summary['updated_courts']}")
+        print(f"   Total Clusters: {summary['total_clusters']}")
         print(f"   Multi-Court Clusters: {summary['multi_court_clusters']}")
         print(f"   Largest Cluster: {summary['largest_cluster_size']} courts")
-        print(f"   Clustering Efficiency: {summary['clustering_efficiency']}%")
         print()
+        
+        # Step 2: Transfer to production table
+        transfer_summary = populator.transfer_cluster_ids_to_courts()
+        print(f"📤 TRANSFERRED TO COURTS TABLE:")
+        print(f"   Updated Courts: {transfer_summary['updated_courts']}")
+        print()
+        
         print("✅ Cluster metadata populated successfully!")
         print("🗺️  Frontend can now display clustered markers.")
         
@@ -318,10 +231,10 @@ def main():
         
     except Exception as e:
         print(f"❌ Error populating cluster metadata: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
-
-
