@@ -240,7 +240,7 @@ describe('CourtModel', () => {
       expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
       expect(mockClient.query).toHaveBeenNthCalledWith(
         3,
-        expect.stringContaining('SELECT id, cluster_id, photon_name'),
+        expect.stringContaining('SELECT id, cluster_id, facility_name'),
         [1]
       );
       expect(mockClient.query).toHaveBeenCalledWith(

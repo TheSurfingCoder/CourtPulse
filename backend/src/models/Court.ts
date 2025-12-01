@@ -5,7 +5,7 @@ import * as Sentry from '@sentry/node';
 export interface Court {
     id: number;
     name: string; // Maps to individual_court_name or fallback
-    cluster_group_name: string | null; // Maps to photon_name (cluster group name)
+    cluster_group_name: string | null; // Maps to facility_name (cluster group name)
     type: string; // Maps to sport
     lat: number; // From centroid
     lng: number; // From centroid
@@ -45,7 +45,7 @@ export class CourtModel {
             SELECT 
                 id, 
                 COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -67,7 +67,7 @@ export class CourtModel {
             SELECT 
                 id, 
                 COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -93,7 +93,7 @@ export class CourtModel {
             RETURNING 
                 id, 
                 COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -117,16 +117,16 @@ export class CourtModel {
             (key) => (sanitizedClusterFields as any)[key] !== undefined
         );
 
-        // Track photon_name parameter index directly when building fields array
+        // Track facility_name parameter index directly when building fields array
         // This avoids fragile regex parsing later
-        let photonNameParamIndex: number | null = null;
+        let facilityNameParamIndex: number | null = null;
 
         // Only process cluster_group_name from courtData if it's NOT in clusterFields
         // Cluster-level updates take precedence over per-court updates
         if (courtData.cluster_group_name !== undefined && sanitizedClusterFields.cluster_group_name === undefined) {
             const trimmedClusterName = courtData.cluster_group_name && courtData.cluster_group_name.trim() !== '' ? courtData.cluster_group_name.trim() : null;
-            photonNameParamIndex = paramCount;
-            fields.push(`photon_name = $${paramCount++}`);
+            facilityNameParamIndex = paramCount;
+            fields.push(`facility_name = $${paramCount++}`);
             values.push(trimmedClusterName);
         }
 
@@ -174,7 +174,7 @@ export class CourtModel {
                 await client.query(`SET LOCAL lock_timeout = '${LOCK_TIMEOUT_MS}ms'`);
 
                 const existingCourtResult = await client.query(`
-                    SELECT id, cluster_id, photon_name
+                    SELECT id, cluster_id, facility_name
                     FROM courts
                     WHERE id = $1
                     FOR UPDATE
@@ -187,12 +187,12 @@ export class CourtModel {
 
                 const existingCourt = existingCourtResult.rows[0];
 
-                // Track if we're updating photon_name in the per-court update and capture the new value
+                // Track if we're updating facility_name in the per-court update and capture the new value
                 // Use the directly tracked parameter index instead of fragile regex parsing
-                let updatedPhotonName: string | null = null;
-                if (photonNameParamIndex !== null) {
+                let updatedFacilityName: string | null = null;
+                if (facilityNameParamIndex !== null) {
                     // values array is 0-indexed, but params are 1-indexed, so subtract 1
-                    updatedPhotonName = values[photonNameParamIndex - 1] as string | null;
+                    updatedFacilityName = values[facilityNameParamIndex - 1] as string | null;
                 }
 
                 if (fields.length > 0) {
@@ -214,7 +214,7 @@ export class CourtModel {
                     const newClusterName = sanitizedClusterFields.cluster_group_name && sanitizedClusterFields.cluster_group_name.trim() !== ''
                         ? sanitizedClusterFields.cluster_group_name.trim()
                         : null;
-                    clusterAssignments.push(`photon_name = $${clusterParamIndex++}`);
+                    clusterAssignments.push(`facility_name = $${clusterParamIndex++}`);
                     clusterValues.push(newClusterName);
                 }
 
@@ -233,20 +233,20 @@ export class CourtModel {
 
                     let identifierClause = '';
                     if (existingCourt.cluster_id) {
-                        // Use cluster_id if available (most reliable, unaffected by photon_name updates)
+                        // Use cluster_id if available (most reliable, unaffected by facility_name updates)
                         identifierClause = `cluster_id = $${clusterParamIndex}`;
                         clusterValues.push(existingCourt.cluster_id);
                         clusterParamIndex++;
                     } else {
                         // Without cluster_id, we cannot safely identify other courts in the cluster.
-                        // Matching by photon_name alone is unsafe because multiple unrelated courts
+                        // Matching by facility_name alone is unsafe because multiple unrelated courts
                         // in different locations can share the same name. Fall back to updating
                         // only this specific court to avoid unintended matches.
                         logBusinessEvent('cluster_update_fallback_to_single_court', {
                             courtId: existingCourt.id,
                             reason: 'no_cluster_id',
-                            oldPhotonName: existingCourt.photon_name || null,
-                            newPhotonName: updatedPhotonName,
+                            oldFacilityName: existingCourt.facility_name || null,
+                            newFacilityName: updatedFacilityName,
                             clusterFields: Object.keys(sanitizedClusterFields),
                             message: 'Cannot safely update cluster without cluster_id. Updating single court only to prevent unintended matches.'
                         });
@@ -405,7 +405,7 @@ export class CourtModel {
             SELECT
                 id, 
                 COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(photon_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
                 sport as type,
                 ST_Y(centroid::geometry) as lat, 
                 ST_X(centroid::geometry) as lng,  

@@ -1,6 +1,6 @@
 """
-Populate cluster metadata for courts based on facility_name
-Groups courts with the same facility_name into clusters by assigning shared cluster_id (UUID)
+Populate cluster metadata for courts based on facility_name and sport
+Groups courts with the same facility_name AND sport into clusters by assigning shared cluster_id (UUID)
 Runs entirely in the database using SQL for efficiency
 """
 
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ClusterMetadataPopulator:
-    """Populates cluster metadata for courts based on facility_name using SQL"""
+    """Populates cluster metadata for courts based on facility_name and sport using SQL"""
     
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
@@ -33,7 +33,7 @@ class ClusterMetadataPopulator:
     
     def populate_cluster_metadata(self) -> Dict[str, Any]:
         """
-        Populate cluster_id for courts based on facility_name
+        Populate cluster_id for courts based on facility_name and sport
         Uses SQL to efficiently group and assign UUIDs in the database
         """
         try:
@@ -50,26 +50,31 @@ class ClusterMetadataPopulator:
                 SELECT 
                     COUNT(*) as total_courts,
                     COUNT(DISTINCT facility_name) as unique_facilities,
+                    COUNT(DISTINCT (facility_name, sport)) as unique_facility_sport_combos,
                     COUNT(*) FILTER (WHERE facility_name IS NOT NULL) as courts_with_facility
                 FROM osm_courts_temp;
             """)
             stats_before = cursor.fetchone()
             
-            # Step 2: Assign cluster_id based on facility_name using SQL
-            # This creates a UUID for each unique facility_name and assigns it to all courts with that facility
+            # Step 2: Assign cluster_id based on facility_name AND sport using SQL
+            # This creates a UUID for each unique (facility_name, sport) combination
             cursor.execute("""
-                WITH facility_clusters AS (
+                WITH facility_sport_clusters AS (
                     SELECT DISTINCT 
                         facility_name,
+                        sport,
                         gen_random_uuid() as cluster_id
                     FROM osm_courts_temp
                     WHERE facility_name IS NOT NULL
+                      AND sport IS NOT NULL
                 )
                 UPDATE osm_courts_temp oc
-                SET cluster_id = fc.cluster_id
-                FROM facility_clusters fc
-                WHERE oc.facility_name = fc.facility_name
-                  AND oc.facility_name IS NOT NULL;
+                SET cluster_id = fsc.cluster_id
+                FROM facility_sport_clusters fsc
+                WHERE oc.facility_name = fsc.facility_name
+                  AND oc.sport = fsc.sport
+                  AND oc.facility_name IS NOT NULL
+                  AND oc.sport IS NOT NULL;
             """)
             
             updated_count = cursor.rowcount
@@ -108,6 +113,7 @@ class ClusterMetadataPopulator:
             summary = {
                 'total_courts': stats_before['total_courts'],
                 'unique_facilities': stats_before['unique_facilities'],
+                'unique_facility_sport_combos': stats_before['unique_facility_sport_combos'],
                 'courts_with_facility': stats_before['courts_with_facility'],
                 'updated_courts': updated_count,
                 'total_clusters': stats_after['total_clusters'] or 0,
@@ -198,7 +204,7 @@ def main():
     
     print("🗺️  POPULATING CLUSTER METADATA (Database-Side)")
     print("="*60)
-    print("This will assign cluster_id to courts based on facility_name.")
+    print("This will assign cluster_id to courts based on facility_name AND sport.")
     print("Clustering happens entirely in the database using SQL for efficiency.")
     print()
     
@@ -211,6 +217,7 @@ def main():
         print("📊 CLUSTER METADATA RESULTS (osm_courts_temp):")
         print(f"   Total Courts: {summary['total_courts']}")
         print(f"   Unique Facilities: {summary['unique_facilities']}")
+        print(f"   Unique Facility-Sport Combos: {summary['unique_facility_sport_combos']}")
         print(f"   Courts with Facility: {summary['courts_with_facility']}")
         print(f"   Updated Courts: {summary['updated_courts']}")
         print(f"   Total Clusters: {summary['total_clusters']}")
