@@ -19,7 +19,7 @@ import logger, { logEvent, logError, logLifecycleEvent } from './logger';
 dotenv.config();
 
 const app = express(); 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 app.use(helmet());
 // CORS configuration with environment-based origins

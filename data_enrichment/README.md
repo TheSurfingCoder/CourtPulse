@@ -11,21 +11,21 @@
 
 ### Core Tables
 
-**`courts`** (Production - 10 rows, 256 kB)
+**`courts`** (Production - 10 rows, 296 kB)
 - **Purpose**: Production table serving backend API and frontend
-- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid` (geography Point), `cluster_id`, `individual_court_name`, `school` (boolean)
+- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid` (geography Point), `cluster_id` (UUID), `individual_court_name`, `facility_name`, `fallback_name`, `school` (boolean)
 - **Indexes**: 16 indexes including spatial (GIST) on `geom`/`centroid`, B-tree on `sport`, `cluster_id`, `region`, etc.
 - **Health**: ✅ Healthy (no dead tuples, recently analyzed, duplicate indexes removed)
 
-**`osm_facilities`** (Reference - 856 rows, 848 kB)
+**`osm_facilities`** (Reference - 856 rows, 2168 kB)
 - **Purpose**: Facilities (parks, playgrounds, schools) from Overpass API
 - **Key Columns**: `id` (PK), `osm_id` (unique), `name`, `facility_type`, `geom` (PostGIS Polygon), `bbox` (bounding box)
 - **Indexes**: GIST on `geom` and `bbox` for spatial queries
 - **Health**: ✅ Healthy (no dead tuples, recently analyzed)
 
-**`osm_courts_temp`** (Staging - 820 rows, 408 kB)
+**`osm_courts_temp`** (Staging - 820 rows, 832 kB)
 - **Purpose**: Raw court data from Overpass before processing
-- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid`, `facility_id` (FK → `osm_facilities`)
+- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid`, `facility_id` (FK → `osm_facilities`), `facility_name`, `cluster_id` (UUID)
 - **Indexes**: GIST on `centroid` for spatial matching
 - **Health**: ✅ Healthy (no dead tuples, recently analyzed)
 
@@ -156,8 +156,8 @@ python3 query_courts_and_facilities.py "postgresql://user:pass@host:port/db"
    - **Database → Frontend Mapping**:
      - `individual_court_name` → `name`
      - `facility_name` → `cluster_group_name`
-     - *Fallback chain for `name`: `enriched_name` → `fallback_name` → `'Unknown Court'`*
-     - *Fallback chain for `cluster_group_name`: `enriched_name` → `fallback_name` → `NULL`*
+     - *Fallback chain for `name`: `fallback_name` → `'Unknown Court'`*
+     - *Fallback chain for `cluster_group_name`: `'Unknown'` (if `facility_name` is NULL)*
    - **Frontend Display**:
      - **Popup**: Shows `cluster_group_name` as main heading, `name` as subtitle (if different)
      - **Marker tooltip**: Shows `name` for individual courts, point count for clusters

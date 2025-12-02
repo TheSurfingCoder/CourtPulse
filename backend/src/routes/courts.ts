@@ -254,7 +254,7 @@ router.put('/:id', async (req: express.Request, res: express.Response) => {
       }
       
       // Validate that cluster_fields only contains allowed keys
-      const allowedClusterFields = ['cluster_group_name', 'bounding_box_id', 'bounding_box_coords'];
+      const allowedClusterFields = ['cluster_group_name'];
       const invalidKeys = Object.keys(cluster_fields).filter(key => !allowedClusterFields.includes(key));
       
       if (invalidKeys.length > 0) {
@@ -270,22 +270,6 @@ router.put('/:id', async (req: express.Request, res: express.Response) => {
           success: false,
           message: 'cluster_fields.cluster_group_name must be a string or null'
         });
-      }
-      
-      if ('bounding_box_id' in cluster_fields && cluster_fields.bounding_box_id !== null && typeof cluster_fields.bounding_box_id !== 'string') {
-        return res.status(400).json({
-          success: false,
-          message: 'cluster_fields.bounding_box_id must be a string or null'
-        });
-      }
-      
-      if ('bounding_box_coords' in cluster_fields && cluster_fields.bounding_box_coords !== null) {
-        if (typeof cluster_fields.bounding_box_coords !== 'object' || Array.isArray(cluster_fields.bounding_box_coords)) {
-          return res.status(400).json({
-            success: false,
-            message: 'cluster_fields.bounding_box_coords must be an object or null'
-          });
-        }
       }
     }
     

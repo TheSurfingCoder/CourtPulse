@@ -32,8 +32,6 @@ export interface CourtInput {
 
 export interface ClusterFieldsInput {
     cluster_group_name?: string | null;
-    bounding_box_id?: string | null;
-    bounding_box_coords?: Record<string, unknown> | null;
 }
 
 export class CourtModel {
@@ -44,8 +42,8 @@ export class CourtModel {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -66,8 +64,8 @@ export class CourtModel {
         const result = await pool.query(`
             SELECT 
                 id, 
-                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -80,7 +78,7 @@ export class CourtModel {
                 updated_at
             FROM courts 
             WHERE sport = $1 AND centroid IS NOT NULL
-            ORDER BY COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court')
+            ORDER BY COALESCE(individual_court_name, fallback_name, 'Unknown Court')
         `, [type]);
         return result.rows;
     }
@@ -92,8 +90,8 @@ export class CourtModel {
             VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, 'sf_bay')
             RETURNING 
                 id, 
-                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
                 ST_X(centroid::geometry) as lat, 
                 ST_Y(centroid::geometry) as lng,
@@ -131,7 +129,7 @@ export class CourtModel {
         }
 
         if (courtData.name !== undefined && courtData.name !== null && courtData.name.trim() !== '') {
-            fields.push(`enriched_name = $${paramCount++}`);
+            fields.push(`fallback_name = $${paramCount++}`);
             values.push(courtData.name);
         }
 
@@ -218,15 +216,6 @@ export class CourtModel {
                     clusterValues.push(newClusterName);
                 }
 
-                if (sanitizedClusterFields.bounding_box_id !== undefined) {
-                    clusterAssignments.push(`bounding_box_id = $${clusterParamIndex++}`);
-                    clusterValues.push(sanitizedClusterFields.bounding_box_id);
-                }
-
-                if (sanitizedClusterFields.bounding_box_coords !== undefined) {
-                    clusterAssignments.push(`bounding_box_coords = $${clusterParamIndex++}`);
-                    clusterValues.push(sanitizedClusterFields.bounding_box_coords);
-                }
 
                 if (clusterAssignments.length > 0) {
                     clusterAssignments.push(`updated_at = NOW()`);
@@ -404,8 +393,8 @@ export class CourtModel {
         let query = `
             SELECT
                 id, 
-                COALESCE(individual_court_name, enriched_name, fallback_name, 'Unknown Court') as name,
-                COALESCE(facility_name, enriched_name, fallback_name, NULL) as cluster_group_name,
+                COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
+                COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type,
                 ST_Y(centroid::geometry) as lat, 
                 ST_X(centroid::geometry) as lng,  

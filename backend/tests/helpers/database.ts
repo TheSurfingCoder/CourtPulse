@@ -63,7 +63,6 @@ export const setupTestDatabase = async () => {
         sport VARCHAR(50) NOT NULL,
         hoops INTEGER,
         fallback_name VARCHAR(255),
-        enriched_name VARCHAR(255),
         surface_type VARCHAR(50),
         centroid GEOGRAPHY(POINT, 4326)
       )

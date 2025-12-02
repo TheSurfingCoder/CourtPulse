@@ -102,49 +102,33 @@ class CourtFacilityMatcher:
         self._setup_tables()
     
     def _setup_tables(self):
-        """Create tables for courts and facilities"""
+        """Verify tables exist (tables should be created via migrations)"""
         # Enable PostGIS
         self.cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
         
-        # Create facilities table
+        # Verify tables exist
         self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS osm_facilities (
-                id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                osm_id TEXT NOT NULL UNIQUE,
-                osm_type TEXT NOT NULL,  -- 'way' or 'relation'
-                name TEXT,
-                facility_type TEXT,  -- 'park', 'playground', 'school', etc.
-                geom GEOMETRY(Polygon, 4326),
-                bbox GEOMETRY(Polygon, 4326),  -- Bounding box for fast containment checks
-                tags JSONB,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            );
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name IN ('osm_facilities', 'osm_courts_temp')
         """)
+        existing_tables = [row[0] for row in self.cursor.fetchall()]
         
-        # Create courts table (temporary, for matching)
-        self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS osm_courts_temp (
-                id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                osm_id TEXT NOT NULL UNIQUE,
-                sport TEXT,
-                geom GEOMETRY(Polygon, 4326),
-                centroid GEOMETRY(Point, 4326),
-                tags JSONB,
-                facility_id BIGINT REFERENCES osm_facilities(id),
-                facility_name TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            );
-        """)
+        missing_tables = []
+        if 'osm_facilities' not in existing_tables:
+            missing_tables.append('osm_facilities')
+        if 'osm_courts_temp' not in existing_tables:
+            missing_tables.append('osm_courts_temp')
         
-        # Create indexes
-        self.cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_facilities_geom ON osm_facilities USING GIST(geom);
-            CREATE INDEX IF NOT EXISTS idx_facilities_bbox ON osm_facilities USING GIST(bbox);
-            CREATE INDEX IF NOT EXISTS idx_courts_centroid ON osm_courts_temp USING GIST(centroid);
-        """)
+        if missing_tables:
+            raise RuntimeError(
+                f"Missing required tables: {', '.join(missing_tables)}. "
+                "Please run migrations to create these tables first."
+            )
         
         self.conn.commit()
-        logger.info("Database tables created/verified")
+        logger.info("Database tables verified")
     
     def extract_geometry(self, element: Dict[str, Any]) -> Optional[Polygon]:
         """Extract polygon geometry from Overpass element"""
@@ -338,12 +322,27 @@ class CourtFacilityMatcher:
 
 def main():
     """Main execution"""
-    # Get connection string
-    connection_string = os.getenv('DATABASE_URL') or (sys.argv[1] if len(sys.argv) > 1 else None)
+    # Parse command line arguments
+    connection_string = None
+    sports = None
+    
+    # Parse arguments: connection_string [sports]
+    if len(sys.argv) > 1:
+        connection_string = sys.argv[1]
+    if len(sys.argv) > 2:
+        # Sports can be comma-separated: "basketball,tennis" or single: "basketball"
+        sports = [s.strip() for s in sys.argv[2].split(',')]
+    
+    # Fall back to environment variable if not provided
+    if not connection_string:
+        connection_string = os.getenv('DATABASE_URL')
     
     if not connection_string:
         print("Error: DATABASE_URL environment variable not set, or provide as argument")
-        print("Usage: python3 query_courts_and_facilities.py 'postgresql://user:pass@host:port/db'")
+        print("Usage: python3 query_courts_and_facilities.py 'postgresql://user:pass@host:port/db' [sports]")
+        print("Example: python3 query_courts_and_facilities.py 'postgresql://postgres@localhost:5432/db' basketball")
+        print("Example: python3 query_courts_and_facilities.py 'postgresql://postgres@localhost:5432/db' basketball,tennis")
+        print("If no sports specified, queries all sports: basketball,tennis,soccer,volleyball,pickleball")
         sys.exit(1)
     
     querier = OverpassQuerier()
@@ -365,10 +364,13 @@ def main():
         
         logger.info(f"   ✓ Query took {query1_time:.2f}s, Insert took {insert1_time:.2f}s, Total: {step1_total:.2f}s")
         
-        # Step 2: Query courts
+        # Step 2: Query courts (with optional sport filter)
         step2_start = time.time()
-        logger.info("Step 2: Querying courts...")
-        courts_data = querier.query_courts(SF_BBOX)
+        if sports:
+            logger.info(f"Step 2: Querying courts for sports: {sports}...")
+        else:
+            logger.info("Step 2: Querying courts for all sports...")
+        courts_data = querier.query_courts(SF_BBOX, sports=sports)
         query2_time = time.time() - step2_start
         
         step2_insert_start = time.time()

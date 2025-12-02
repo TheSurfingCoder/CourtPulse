@@ -141,10 +141,109 @@ class ClusterMetadataPopulator:
             if conn:
                 conn.close()
     
+    def transfer_courts_to_production(self) -> Dict[str, Any]:
+        """
+        Transfer courts from osm_courts_temp to courts table
+        Inserts new courts or updates existing ones by osm_id
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            logger.info(json.dumps({
+                'event': 'courts_transfer_started',
+                'source_table': 'osm_courts_temp',
+                'target_table': 'courts'
+            }))
+            
+            # Insert/update courts from staging to production table
+            cursor.execute("""
+                INSERT INTO courts (
+                    osm_id, sport, geom, centroid, fallback_name, 
+                    surface_type, cluster_id, facility_name, hoops, region, school
+                )
+                SELECT 
+                    oc.osm_id,
+                    oc.sport::sport_type,
+                    oc.geom,
+                    oc.centroid::geography,
+                    CASE 
+                        WHEN oc.sport = 'basketball' AND oc.tags->>'hoops' ~ '^[0-9]+$'
+                        THEN 'basketball court (' || (oc.tags->>'hoops')::integer || ' hoops)'
+                        WHEN oc.sport = 'basketball'
+                        THEN 'basketball court'
+                        WHEN oc.sport = 'tennis'
+                        THEN 'tennis court'
+                        WHEN oc.sport = 'soccer'
+                        THEN 'soccer field'
+                        WHEN oc.sport = 'volleyball'
+                        THEN 'volleyball court'
+                        WHEN oc.sport = 'pickleball'
+                        THEN 'pickleball court'
+                        ELSE oc.sport || ' court'
+                    END as fallback_name,
+                    CASE 
+                        WHEN oc.tags->>'surface' IN ('asphalt', 'concrete', 'wood', 'synthetic', 'clay', 'grass') 
+                        THEN (oc.tags->>'surface')::surface_type_enum
+                        ELSE NULL
+                    END as surface_type,
+                    oc.cluster_id,
+                    oc.facility_name,
+                    CASE 
+                        WHEN oc.tags->>'hoops' ~ '^[0-9]+$' 
+                        THEN (oc.tags->>'hoops')::integer
+                        ELSE NULL
+                    END as hoops,
+                    'sf_bay' as region,
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM osm_facilities ofac
+                            WHERE ofac.id = oc.facility_id
+                            AND ofac.facility_type IN ('school', 'university', 'college')
+                        ) THEN true
+                        ELSE false
+                    END as school
+                FROM osm_courts_temp oc
+                ON CONFLICT (osm_id) DO UPDATE SET
+                    sport = EXCLUDED.sport,
+                    geom = EXCLUDED.geom,
+                    centroid = EXCLUDED.centroid,
+                    fallback_name = EXCLUDED.fallback_name,
+                    surface_type = EXCLUDED.surface_type,
+                    cluster_id = EXCLUDED.cluster_id,
+                    facility_name = EXCLUDED.facility_name,
+                    hoops = EXCLUDED.hoops,
+                    school = EXCLUDED.school,
+                    updated_at = NOW();
+            """)
+            
+            inserted_count = cursor.rowcount
+            
+            conn.commit()
+            
+            logger.info(json.dumps({
+                'event': 'courts_transfer_completed',
+                'inserted_or_updated_courts': inserted_count
+            }))
+            
+            return {'inserted_or_updated_courts': inserted_count}
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logger.error(json.dumps({
+                'event': 'courts_transfer_error',
+                'error': str(e)
+            }))
+            raise
+        finally:
+            if conn:
+                conn.close()
+
     def transfer_cluster_ids_to_courts(self) -> Dict[str, Any]:
         """
         Transfer cluster_id from osm_courts_temp to courts table
-        Matches courts by osm_id
+        Matches courts by osm_id (updates existing rows only)
         """
         try:
             conn = self.get_connection()

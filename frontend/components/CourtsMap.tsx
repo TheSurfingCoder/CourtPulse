@@ -142,6 +142,23 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     return roundedBbox.join(',');
   };
 
+  // Helper function to merge courts arrays, removing duplicates by ID
+  const mergeCourts = (existingCourts: Court[], newCourts: Court[]): Court[] => {
+    const courtMap: Record<number, Court> = {};
+    
+    // Add existing courts to map
+    existingCourts.forEach(court => {
+      courtMap[court.id] = court;
+    });
+    
+    // Add new courts to map (will overwrite duplicates with newer data)
+    newCourts.forEach(court => {
+      courtMap[court.id] = court;
+    });
+    
+    return Object.values(courtMap);
+  };
+
   // Helper function to check if one bbox is contained within another
   const isBboxContained = (innerBbox: [number, number, number, number], outerBbox: [number, number, number, number]) => {
     const [innerWest, innerSouth, innerEast, innerNorth] = innerBbox;
@@ -501,7 +518,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       
       if (cachedResult) {
         // Use cached data with client-side filtering
-        setCourts(cachedResult);
+        // Merge cached courts with existing courts instead of replacing
+        setCourts(prevCourts => mergeCourts(prevCourts, cachedResult));
         onNeedsNewSearchChange(false);
         logEvent('filter_applied_from_cache', {
           filters: filters,
@@ -551,7 +569,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           cacheSize: Object.keys(courtCache.current).length
         });
         
-        setCourts(cachedResult);
+        // Merge cached courts with existing courts instead of replacing
+        setCourts(prevCourts => mergeCourts(prevCourts, cachedResult));
         onNeedsNewSearchChange(false);
         onLoadingChange(false);
         return;
@@ -647,7 +666,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
           filters: { ...filters }
         };
         
-        setCourts(filteredCourts);
+        // Merge new courts with existing courts instead of replacing
+        setCourts(prevCourts => mergeCourts(prevCourts, filteredCourts));
         onNeedsNewSearchChange(false);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');

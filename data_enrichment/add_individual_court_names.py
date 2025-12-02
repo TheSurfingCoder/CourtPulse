@@ -32,14 +32,14 @@ class IndividualCourtNameManager:
         """Get database connection"""
         return psycopg2.connect(self.connection_string)
     
-    def add_individual_court_name_column(self):
-        """Add individual_court_name column to courts table if it doesn't exist"""
+    def verify_individual_court_name_column(self):
+        """Verify individual_court_name column exists (should be created via migrations)"""
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            # Check if column already exists
+            # Check if column exists
             cursor.execute("""
                 SELECT column_name 
                 FROM information_schema.columns 
@@ -48,31 +48,23 @@ class IndividualCourtNameManager:
             
             if cursor.fetchone():
                 logger.info(json.dumps({
-                    'event': 'column_already_exists',
+                    'event': 'column_verified',
                     'column': 'individual_court_name'
                 }))
                 return True
-            
-            # Add the column
-            cursor.execute("""
-                ALTER TABLE courts 
-                ADD COLUMN individual_court_name VARCHAR(255)
-            """)
-            
-            conn.commit()
-            logger.info(json.dumps({
-                'event': 'column_added',
-                'column': 'individual_court_name'
-            }))
-            return True
+            else:
+                logger.error(json.dumps({
+                    'event': 'column_missing',
+                    'column': 'individual_court_name',
+                    'message': 'Column does not exist. Please run migrations to create it.'
+                }))
+                return False
             
         except Exception as e:
             logger.error(json.dumps({
-                'event': 'column_add_error',
+                'event': 'column_verification_error',
                 'error': str(e)
             }))
-            if conn:
-                conn.rollback()
             return False
         finally:
             if conn:
@@ -127,10 +119,12 @@ class IndividualCourtNameManager:
                 FROM (
                     SELECT 
                         cluster_id,
+                        individual_court_name,
                         COUNT(*) OVER (PARTITION BY cluster_id) as cluster_size
                     FROM courts
-                    WHERE individual_court_name IS NOT NULL
-                ) named_clusters;
+                    WHERE cluster_id IS NOT NULL
+                ) named_clusters
+                WHERE individual_court_name IS NOT NULL
             """)
             stats = cursor.fetchone()
             
@@ -138,9 +132,9 @@ class IndividualCourtNameManager:
             
             summary = {
                 'updated_courts': updated_count,
-                'courts_with_names': stats[0] or 0,
-                'clusters_with_names': stats[1] or 0,
-                'largest_named_cluster': stats[2] or 0
+                'courts_with_names': stats[0] if stats and stats[0] else 0,
+                'clusters_with_names': stats[1] if stats and stats[1] else 0,
+                'largest_named_cluster': stats[2] if stats and stats[2] else 0
             }
             
             logger.info(json.dumps({
@@ -157,52 +151,16 @@ class IndividualCourtNameManager:
             }))
             if conn:
                 conn.rollback()
-            return {'updated_courts': 0, 'error': str(e)}
+            return {
+                'updated_courts': 0,
+                'courts_with_names': 0,
+                'clusters_with_names': 0,
+                'largest_named_cluster': 0
+            }
         finally:
             if conn:
                 conn.close()
     
-    def clean_photon_names(self):
-        """Remove court count from existing photon_name values using SQL"""
-        conn = None
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            logger.info(json.dumps({
-                'event': 'photon_name_cleaning_started'
-            }))
-            
-            # Use SQL regex to remove court count patterns
-            cursor.execute("""
-                UPDATE courts
-                SET photon_name = REGEXP_REPLACE(photon_name, '\\s*\\(\\d+\\s+Courts?\\)', '', 'g')
-                WHERE photon_name ~ '\\(\\d+\\s+Courts?\\)';
-            """)
-            
-            updated_count = cursor.rowcount
-            
-            conn.commit()
-            
-            logger.info(json.dumps({
-                'event': 'photon_name_cleaning_completed',
-                'updated_count': updated_count
-            }))
-            
-            return updated_count
-            
-        except Exception as e:
-            logger.error(json.dumps({
-                'event': 'photon_name_cleaning_error',
-                'error': str(e)
-            }))
-            if conn:
-                conn.rollback()
-            return 0
-        finally:
-            if conn:
-                conn.close()
-
 def main():
     """Main function to add individual court names"""
     print("🏀 INDIVIDUAL COURT NAME MANAGER (Database-Side)")
@@ -220,21 +178,15 @@ def main():
     
     manager = IndividualCourtNameManager(connection_string)
     
-    # Step 1: Add column if needed
-    print("1. Checking individual_court_name column...")
-    if manager.add_individual_court_name_column():
-        print("   ✅ Column ready")
-    else:
-        print("   ❌ Failed to add column")
+    # Step 1: Verify column exists (should be created via migrations)
+    print("1. Verifying individual_court_name column...")
+    if not manager.verify_individual_court_name_column():
+        print("   ❌ Column does not exist. Please run migrations first.")
         return
+    print("   ✅ Column verified")
     
-    # Step 2: Clean existing photon names
-    print("\n2. Cleaning photon_name values...")
-    updated_photon = manager.clean_photon_names()
-    print(f"   ✅ Cleaned {updated_photon} photon_name values")
-    
-    # Step 3: Populate individual court names (database-side)
-    print("\n3. Populating individual court names (database-side SQL)...")
+    # Step 2: Populate individual court names (database-side)
+    print("\n2. Populating individual court names (database-side SQL)...")
     summary = manager.populate_individual_court_names()
     print(f"   ✅ Updated {summary['updated_courts']} courts with individual names")
     print(f"   📊 Clusters with names: {summary['clusters_with_names']}")

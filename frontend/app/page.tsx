@@ -35,7 +35,7 @@ export default function Home() {
   useEffect(() => {
     const fetchMetadataAndSetAllFilters = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
         const response = await fetch(`${apiUrl}/api/courts/metadata`);
         if (response.ok) {
           const result = await response.json();

@@ -43,7 +43,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     const fetchMetadata = async () => {
       try {
         setIsLoadingMetadata(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
         const response = await fetch(`${apiUrl}/api/courts/metadata`);
         if (response.ok) {
           const result = await response.json();

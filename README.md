@@ -61,15 +61,15 @@ npm run migrate
 npm run dev
 
 # Or individually:
-npm run dev:backend    # Backend on port 5000
+npm run dev:backend    # Backend on port 5001
 npm run dev:frontend   # Frontend on port 3000
 ```
 
 ## 📚 API Documentation
 
 Once the backend is running, visit:
-- **Swagger UI**: http://localhost:5000/api-docs
-- **Health Check**: http://localhost:5000/health
+- **Swagger UI**: http://localhost:5001/api-docs
+- **Health Check**: http://localhost:5001/health
 
 ## 🧪 Testing
 
@@ -148,7 +148,7 @@ DB_USER=postgres
 DB_PASSWORD=your_password
 
 # Server
-PORT=5000
+PORT=5001
 NODE_ENV=development
 
 # Security
@@ -158,7 +158,7 @@ CORS_ORIGIN=http://localhost:3000
 
 ### Frontend (.env)
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_API_URL=http://localhost:5001
 NEXT_PUBLIC_API_VERSION=v1
 ```
 
