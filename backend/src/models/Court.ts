@@ -455,7 +455,8 @@ export class CourtModel {
 
     static async getMetadata(): Promise<{ sports: string[]; surfaceTypes: string[] }> {
         const sportsResult = await pool.query(`SELECT DISTINCT sport FROM courts ORDER BY sport`);
-        const surfaceTypesResult = await pool.query(`SELECT DISTINCT surface_type FROM courts WHERE surface_type IS NOT NULL ORDER BY surface_type`);
+        // Use COALESCE to convert NULL to 'Unknown', matching how courts are displayed
+        const surfaceTypesResult = await pool.query(`SELECT DISTINCT COALESCE(surface_type::text, 'Unknown') as surface_type FROM courts ORDER BY surface_type`);
         
         return {
             sports: sportsResult.rows.map(row => row.sport),

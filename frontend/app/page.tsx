@@ -56,12 +56,6 @@ export default function Home() {
     fetchMetadataAndSetAllFilters();
   }, []);
 
-  const handleRefresh = () => {
-    // Trigger a manual search in the CourtsMap component
-    // This will be handled by the CourtsMap component's internal logic
-    console.log('Refresh triggered');
-  };
-
   const handleLoadingChange = (loading: boolean) => {
     setLoading(loading);
   };
@@ -122,8 +116,6 @@ export default function Home() {
       <main className="flex-1 flex flex-col w-full overflow-hidden">
         <CourtsMap 
           filters={filters}
-          onFiltersChange={setFilters}
-          onRefresh={handleRefresh}
           loading={loading}
           needsNewSearch={needsNewSearch}
           viewport={viewport}
