@@ -13,7 +13,8 @@ import requests
 import psycopg2
 from psycopg2.extras import Json
 from typing import Dict, List, Any, Optional, Tuple
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Point, Polygon, MultiPolygon, box
+from shapely.ops import unary_union
 from shapely.prepared import prep
 import sys
 import os
@@ -54,29 +55,57 @@ out geom;"""
         return self._execute_query(query)
     
     def query_facilities(self, bbox: Tuple[float, float, float, float]) -> Dict[str, Any]:
-        """Query for facilities: parks, playgrounds, schools"""
+        """Query for facilities: parks, playgrounds, schools, community centres, sports centres, stadiums, sports clubs, places of worship"""
         south, west, north, east = bbox
         
         query = f"""[out:json][timeout:90];
 (
   // Parks
+  node["leisure"="park"]({south},{west},{north},{east});
   way["leisure"="park"]({south},{west},{north},{east});
   relation["leisure"="park"]({south},{west},{north},{east});
   // Playgrounds
+  node["leisure"="playground"]({south},{west},{north},{east});
   way["leisure"="playground"]({south},{west},{north},{east});
   relation["leisure"="playground"]({south},{west},{north},{east});
   // Schools
+  node["amenity"="school"]({south},{west},{north},{east});
   way["amenity"="school"]({south},{west},{north},{east});
   relation["amenity"="school"]({south},{west},{north},{east});
+  node["building"="school"]({south},{west},{north},{east});
+  way["building"="school"]({south},{west},{north},{east});
+  relation["building"="school"]({south},{west},{north},{east});
   // Universities/colleges
+  node["amenity"="university"]({south},{west},{north},{east});
   way["amenity"="university"]({south},{west},{north},{east});
   relation["amenity"="university"]({south},{west},{north},{east});
+  node["amenity"="college"]({south},{west},{north},{east});
   way["amenity"="college"]({south},{west},{north},{east});
   relation["amenity"="college"]({south},{west},{north},{east});
+  // Community centres
+  node["amenity"="community_centre"]({south},{west},{north},{east});
+  way["amenity"="community_centre"]({south},{west},{north},{east});
+  relation["amenity"="community_centre"]({south},{west},{north},{east});
+  // Sports centres
+  node["leisure"="sports_centre"]({south},{west},{north},{east});
+  way["leisure"="sports_centre"]({south},{west},{north},{east});
+  relation["leisure"="sports_centre"]({south},{west},{north},{east});
+  // Stadiums
+  node["leisure"="stadium"]({south},{west},{north},{east});
+  way["leisure"="stadium"]({south},{west},{north},{east});
+  relation["leisure"="stadium"]({south},{west},{north},{east});
+  // Sports clubs
+  node["club"="sport"]({south},{west},{north},{east});
+  way["club"="sport"]({south},{west},{north},{east});
+  relation["club"="sport"]({south},{west},{north},{east});
+  // Places of worship
+  node["amenity"="place_of_worship"]({south},{west},{north},{east});
+  way["amenity"="place_of_worship"]({south},{west},{north},{east});
+  relation["amenity"="place_of_worship"]({south},{west},{north},{east});
 );
 out geom;"""
         
-        logger.info("Querying facilities (parks, playgrounds, schools)")
+        logger.info("Querying facilities (parks, playgrounds, schools, community centres, sports centres, stadiums, sports clubs, places of worship)")
         return self._execute_query(query)
     
     def _execute_query(self, query: str) -> Dict[str, Any]:
@@ -130,12 +159,29 @@ class CourtFacilityMatcher:
         self.conn.commit()
         logger.info("Database tables verified")
     
-    def extract_geometry(self, element: Dict[str, Any]) -> Optional[Polygon]:
-        """Extract polygon geometry from Overpass element"""
-        if element.get('type') != 'way':
-            # Relations are more complex, skip for now
-            return None
+    def extract_geometry(self, element: Dict[str, Any]) -> Optional[Any]:
+        """Extract geometry from Overpass element (node, way, or relation)"""
+        element_type = element.get('type')
         
+        if element_type == 'node':
+            return self._extract_node_geometry(element)
+        elif element_type == 'way':
+            return self._extract_way_geometry(element)
+        elif element_type == 'relation':
+            return self._extract_relation_geometry(element)
+        else:
+            return None
+    
+    def _extract_node_geometry(self, element: Dict[str, Any]) -> Optional[Point]:
+        """Extract point from a node element"""
+        lat = element.get('lat')
+        lon = element.get('lon')
+        if lat is not None and lon is not None:
+            return Point(lon, lat)
+        return None
+    
+    def _extract_way_geometry(self, element: Dict[str, Any]) -> Optional[Polygon]:
+        """Extract polygon from a way element"""
         geometry = element.get('geometry', [])
         if len(geometry) < 4:
             return None
@@ -154,6 +200,59 @@ class CourtFacilityMatcher:
         
         try:
             return Polygon(coords)
+        except:
+            return None
+    
+    def _extract_relation_geometry(self, element: Dict[str, Any]) -> Optional[Polygon]:
+        """Extract polygon from a relation (multipolygon) element"""
+        members = element.get('members', [])
+        if not members:
+            return None
+        
+        outer_rings = []
+        
+        for member in members:
+            # Only process outer rings (inner rings are holes, skip for simplicity)
+            if member.get('role') != 'outer':
+                continue
+            
+            geometry = member.get('geometry', [])
+            if len(geometry) < 4:
+                continue
+            
+            coords = []
+            for node in geometry:
+                if 'lat' in node and 'lon' in node:
+                    coords.append((node['lon'], node['lat']))
+            
+            if len(coords) < 4:
+                continue
+            
+            # Close polygon if not closed
+            if coords[0] != coords[-1]:
+                coords.append(coords[0])
+            
+            try:
+                ring = Polygon(coords)
+                if ring.is_valid:
+                    outer_rings.append(ring)
+            except:
+                continue
+        
+        if not outer_rings:
+            return None
+        
+        # If multiple outer rings, merge them into one polygon
+        try:
+            if len(outer_rings) == 1:
+                return outer_rings[0]
+            else:
+                # Use unary_union to merge multiple polygons
+                merged = unary_union(outer_rings)
+                # Return the convex hull if it's a MultiPolygon (simplification)
+                if isinstance(merged, MultiPolygon):
+                    return merged.convex_hull
+                return merged
         except:
             return None
     
@@ -177,22 +276,37 @@ class CourtFacilityMatcher:
                     facility_type = 'park'
                 elif tags.get('leisure') == 'playground':
                     facility_type = 'playground'
-                elif tags.get('amenity') == 'school':
+                elif tags.get('leisure') == 'sports_centre':
+                    facility_type = 'sports_centre'
+                elif tags.get('leisure') == 'stadium':
+                    facility_type = 'stadium'
+                elif tags.get('club') == 'sport':
+                    facility_type = 'sports_club'
+                elif tags.get('amenity') == 'school' or tags.get('building') == 'school':
                     facility_type = 'school'
                 elif tags.get('amenity') == 'university':
                     facility_type = 'university'
                 elif tags.get('amenity') == 'college':
                     facility_type = 'college'
+                elif tags.get('amenity') == 'community_centre':
+                    facility_type = 'community_centre'
+                elif tags.get('amenity') == 'place_of_worship':
+                    facility_type = 'place_of_worship'
                 
                 if not facility_type:
                     continue
                 
-                osm_type = 'way' if element.get('type') == 'way' else 'relation'
+                osm_type = element.get('type')  # 'node', 'way', or 'relation'
                 osm_id = f"{osm_type}/{element.get('id')}"
                 
-                # Create bounding box
-                bounds = geom.bounds  # (minx, miny, maxx, maxy)
-                bbox_poly = box(bounds[0], bounds[1], bounds[2], bounds[3])
+                # Create bounding box (for points, create a small buffer ~50m)
+                if isinstance(geom, Point):
+                    # ~0.0005 degrees ≈ 50 meters
+                    buffer = 0.0005
+                    bbox_poly = box(geom.x - buffer, geom.y - buffer, geom.x + buffer, geom.y + buffer)
+                else:
+                    bounds = geom.bounds  # (minx, miny, maxx, maxy)
+                    bbox_poly = box(bounds[0], bounds[1], bounds[2], bounds[3])
                 
                 # Insert into database
                 self.cursor.execute("""
@@ -243,14 +357,42 @@ class CourtFacilityMatcher:
                 centroid = geom.centroid
                 
                 # Find matching facility using PostGIS
+                # Step 1: Try containment matching (court inside facility polygon)
+                # Prefer smaller facilities (more specific) over larger ones (e.g., sports_centre over park)
                 self.cursor.execute("""
                     SELECT id, name
                     FROM osm_facilities
                     WHERE ST_Contains(geom, ST_GeomFromText(%s, 4326))
+                    ORDER BY ST_Area(geom::geography) ASC, name NULLS LAST
                     LIMIT 1;
                 """, (centroid.wkt,))
                 
                 result = self.cursor.fetchone()
+                
+                # Step 2: If no containment match OR containment found unnamed facility,
+                # try proximity matching (within 100m) to find a named facility
+                should_try_proximity = not result or (result is not None and result[1] is None)
+                
+                if should_try_proximity:
+                    containment_result = result  # Save containment result as fallback
+                    self.cursor.execute("""
+                        SELECT id, name, ST_Distance(geom::geography, ST_GeomFromText(%s, 4326)::geography) as dist
+                        FROM osm_facilities
+                        WHERE ST_DWithin(geom::geography, ST_GeomFromText(%s, 4326)::geography, 100)
+                        AND name IS NOT NULL
+                        ORDER BY dist
+                        LIMIT 1;
+                    """, (centroid.wkt, centroid.wkt))
+                    proximity_result = self.cursor.fetchone()
+                    
+                    # Prefer named proximity result over unnamed containment result
+                    if proximity_result:
+                        result = proximity_result
+                    elif containment_result:
+                        result = containment_result
+                    else:
+                        result = None
+                
                 facility_id = result[0] if result else None
                 facility_name = result[1] if result else None
                 

@@ -101,19 +101,36 @@ class SchoolChecker:
         
         if school_info:
             try:
-                # Update the court's facility info if it's a school
-                self.cursor.execute("""
-                    UPDATE osm_courts_temp
-                    SET facility_id = %s,
-                        facility_name = %s
-                    WHERE osm_id = %s
-                      AND (facility_id IS NULL OR facility_id != %s);
-                """, (
-                    school_info['school_id'],
-                    school_info['school_name'],
-                    court_osm_id,
-                    school_info['school_id']
-                ))
+                # Only update the court's facility info if:
+                # 1. The found school has a name, OR
+                # 2. The court currently has no facility_name
+                # This prevents overwriting named facilities with unnamed schools
+                if school_info['school_name']:
+                    self.cursor.execute("""
+                        UPDATE osm_courts_temp
+                        SET facility_id = %s,
+                            facility_name = %s
+                        WHERE osm_id = %s
+                          AND (facility_id IS NULL OR facility_id != %s);
+                    """, (
+                        school_info['school_id'],
+                        school_info['school_name'],
+                        court_osm_id,
+                        school_info['school_id']
+                    ))
+                else:
+                    # Found unnamed school - only update if court has no facility_name
+                    self.cursor.execute("""
+                        UPDATE osm_courts_temp
+                        SET facility_id = %s,
+                            facility_name = %s
+                        WHERE osm_id = %s
+                          AND facility_name IS NULL;
+                    """, (
+                        school_info['school_id'],
+                        school_info['school_name'],
+                        court_osm_id
+                    ))
                 
                 self.conn.commit()
                 
@@ -161,17 +178,36 @@ class SchoolChecker:
                 school_info = self.is_court_within_school(court['geometry_wkt'])
                 
                 if school_info:
-                    # Update court with school info
-                    self.cursor.execute("""
-                        UPDATE osm_courts_temp
-                        SET facility_id = %s,
-                            facility_name = %s
-                        WHERE osm_id = %s;
-                    """, (
-                        school_info['school_id'],
-                        school_info['school_name'],
-                        court['osm_id']
-                    ))
+                    # Only update if:
+                    # 1. The found school has a name, OR
+                    # 2. The court currently has no facility_name
+                    # This prevents overwriting named facilities with unnamed schools
+                    if school_info['school_name']:
+                        self.cursor.execute("""
+                            UPDATE osm_courts_temp
+                            SET facility_id = %s,
+                                facility_name = %s
+                            WHERE osm_id = %s
+                              AND (facility_id IS NULL OR facility_id != %s);
+                        """, (
+                            school_info['school_id'],
+                            school_info['school_name'],
+                            court['osm_id'],
+                            school_info['school_id']
+                        ))
+                    else:
+                        # Found unnamed school - only update if court has no facility_name
+                        self.cursor.execute("""
+                            UPDATE osm_courts_temp
+                            SET facility_id = %s,
+                                facility_name = %s
+                            WHERE osm_id = %s
+                              AND facility_name IS NULL;
+                        """, (
+                            school_info['school_id'],
+                            school_info['school_name'],
+                            court['osm_id']
+                        ))
                     courts_in_schools += 1
             
             self.conn.commit()

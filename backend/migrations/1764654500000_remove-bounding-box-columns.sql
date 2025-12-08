@@ -5,3 +5,5 @@
 -- Remove bounding_box columns
 ALTER TABLE courts DROP COLUMN IF EXISTS bounding_box_id;
 ALTER TABLE courts DROP COLUMN IF EXISTS bounding_box_coords;
+
+

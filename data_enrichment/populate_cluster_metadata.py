@@ -56,24 +56,25 @@ class ClusterMetadataPopulator:
             """)
             stats_before = cursor.fetchone()
             
-            # Step 2: Assign cluster_id based on facility_name AND sport using SQL
-            # This creates a UUID for each unique (facility_name, sport) combination
+            # Step 2: Assign cluster_id based on effective facility_name AND sport using SQL
+            # Use court's own OSM name if available, else use containing facility name
+            # This creates a UUID for each unique (effective_facility_name, sport) combination
             cursor.execute("""
                 WITH facility_sport_clusters AS (
                     SELECT DISTINCT 
-                        facility_name,
+                        COALESCE(NULLIF(tags->>'name', ''), facility_name) as effective_facility_name,
                         sport,
                         gen_random_uuid() as cluster_id
                     FROM osm_courts_temp
-                    WHERE facility_name IS NOT NULL
+                    WHERE COALESCE(NULLIF(tags->>'name', ''), facility_name) IS NOT NULL
                       AND sport IS NOT NULL
                 )
                 UPDATE osm_courts_temp oc
                 SET cluster_id = fsc.cluster_id
                 FROM facility_sport_clusters fsc
-                WHERE oc.facility_name = fsc.facility_name
+                WHERE COALESCE(NULLIF(oc.tags->>'name', ''), oc.facility_name) = fsc.effective_facility_name
                   AND oc.sport = fsc.sport
-                  AND oc.facility_name IS NOT NULL
+                  AND COALESCE(NULLIF(oc.tags->>'name', ''), oc.facility_name) IS NOT NULL
                   AND oc.sport IS NOT NULL;
             """)
             
@@ -167,6 +168,7 @@ class ClusterMetadataPopulator:
                     oc.sport::sport_type,
                     oc.geom,
                     oc.centroid::geography,
+                    -- Generic sport-based fallback name
                     CASE 
                         WHEN oc.sport = 'basketball' AND oc.tags->>'hoops' ~ '^[0-9]+$'
                         THEN 'basketball court (' || (oc.tags->>'hoops')::integer || ' hoops)'
@@ -188,7 +190,8 @@ class ClusterMetadataPopulator:
                         ELSE NULL
                     END as surface_type,
                     oc.cluster_id,
-                    oc.facility_name,
+                    -- Use court's own OSM name as facility_name if available, else use containing facility
+                    COALESCE(NULLIF(oc.tags->>'name', ''), oc.facility_name) as facility_name,
                     CASE 
                         WHEN oc.tags->>'hoops' ~ '^[0-9]+$' 
                         THEN (oc.tags->>'hoops')::integer

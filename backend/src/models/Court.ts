@@ -142,8 +142,14 @@ export class CourtModel {
             values.push(courtData.lng, courtData.lat);
         }
         if (courtData.surface) {
-            fields.push(`surface_type = $${paramCount++}`);
-            values.push(courtData.surface);
+            // "Unknown" is displayed for NULL values - skip update or set to NULL
+            if (courtData.surface === 'Unknown') {
+                fields.push(`surface_type = $${paramCount++}`);
+                values.push(null);
+            } else {
+                fields.push(`surface_type = $${paramCount++}`);
+                values.push(courtData.surface);
+            }
         }
         if (courtData.is_public !== undefined) {
             fields.push(`is_public = $${paramCount++}`);

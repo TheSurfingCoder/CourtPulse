@@ -86,6 +86,17 @@ class IndividualCourtNameManager:
                 'method': 'database_sql'
             }))
             
+            # First, clear all individual_court_name values to handle cluster changes
+            cursor.execute("""
+                UPDATE courts SET individual_court_name = NULL;
+            """)
+            cleared_count = cursor.rowcount
+            
+            logger.info(json.dumps({
+                'event': 'individual_court_names_cleared',
+                'cleared_count': cleared_count
+            }))
+            
             # Use SQL window function to assign sequential names within each cluster
             # Only assigns names to clusters with more than 1 court
             cursor.execute("""

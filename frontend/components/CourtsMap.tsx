@@ -432,7 +432,7 @@ export default function CourtsMap({
     
     try {
       onLoadingChange(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Calculate bounding box from current viewport
       const { bbox } = calculateBoundingBox(viewport);
@@ -685,7 +685,7 @@ export default function CourtsMap({
   // Handle save from edit modal
   const handleSaveCourt = async (updatedCourt: Court) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Map frontend fields to backend fields
       const updateData: Record<string, any> = {
@@ -738,26 +738,38 @@ export default function CourtsMap({
         throw new Error('Invalid response from server');
       }
 
-      // Update local state with server-returned data
       const serverUpdatedCourt = result.data;
-      setCourts(courts.map(c => c.id === serverUpdatedCourt.id ? {
-        id: serverUpdatedCourt.id,
-        name: serverUpdatedCourt.name,
-        type: serverUpdatedCourt.type,
-        lat: serverUpdatedCourt.lat,
-        lng: serverUpdatedCourt.lng,
-        surface: serverUpdatedCourt.surface,
-        is_public: serverUpdatedCourt.is_public,
-        school: serverUpdatedCourt.school,
-        cluster_group_name: serverUpdatedCourt.cluster_group_name,
-        created_at: serverUpdatedCourt.created_at,
-        updated_at: serverUpdatedCourt.updated_at
-      } : c));
       
       logEvent('court_updated', {
         courtId: serverUpdatedCourt.id,
         updatedData: serverUpdatedCourt
       });
+
+      // Clear current viewport's cache and re-fetch to get fresh data
+      // This ensures we see updated names (including cluster-wide changes)
+      const { bbox } = calculateBoundingBox(viewport);
+      const cacheKey = createCacheKey(bbox);
+      
+      // Remove current viewport's cache entry
+      if (courtCache.current.has(cacheKey)) {
+        courtCache.current.delete(cacheKey);
+        // Remove from order tracking
+        const orderIndex = cacheKeysOrder.current.indexOf(cacheKey);
+        if (orderIndex > -1) {
+          cacheKeysOrder.current.splice(orderIndex, 1);
+        }
+        // Remove courts belonging to this bbox from state
+        const courtsToRemove = courtsByBbox.current[cacheKey] || [];
+        const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
+        setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
+        delete courtsByBbox.current[cacheKey];
+      }
+      
+      // Re-fetch fresh data for the current viewport
+      // Small delay to ensure state updates have propagated
+      setTimeout(() => {
+        fetchCourtsForArea();
+      }, 100);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       logError(err, { context: 'Failed to update court' });

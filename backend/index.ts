@@ -77,7 +77,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 // Swagger API Documentation
-//When user visits http://localhost:5000/api-docs swagger UI loads with API docs
+//When user visits http://localhost:5001/api-docs swagger UI loads with API docs
 //Developers can see all endpoints, test them, and understand API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
