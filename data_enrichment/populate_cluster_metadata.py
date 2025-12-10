@@ -161,7 +161,7 @@ class ClusterMetadataPopulator:
             cursor.execute("""
                 INSERT INTO courts (
                     osm_id, sport, geom, centroid, fallback_name, 
-                    surface_type, cluster_id, facility_name, hoops, region, school
+                    surface_type, cluster_id, facility_name, hoops, region, school, is_public
                 )
                 SELECT 
                     oc.osm_id,
@@ -205,7 +205,13 @@ class ClusterMetadataPopulator:
                             AND ofac.facility_type IN ('school', 'university', 'college')
                         ) THEN true
                         ELSE false
-                    END as school
+                    END as school,
+                    -- Extract access tag from OSM: public/yes = true, private/no = false, else NULL
+                    CASE 
+                        WHEN LOWER(oc.tags->>'access') IN ('public', 'yes') THEN true
+                        WHEN LOWER(oc.tags->>'access') IN ('private', 'no') THEN false
+                        ELSE NULL
+                    END as is_public
                 FROM osm_courts_temp oc
                 ON CONFLICT (osm_id) DO UPDATE SET
                     sport = EXCLUDED.sport,
@@ -217,6 +223,7 @@ class ClusterMetadataPopulator:
                     facility_name = EXCLUDED.facility_name,
                     hoops = EXCLUDED.hoops,
                     school = EXCLUDED.school,
+                    is_public = EXCLUDED.is_public,
                     updated_at = NOW();
             """)
             

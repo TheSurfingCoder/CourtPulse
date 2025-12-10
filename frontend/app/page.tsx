@@ -12,10 +12,12 @@ export default function Home() {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
   }>({
     sport: [], // Show all sports initially
     surface_type: [],
-    school: undefined
+    school: undefined,
+    is_public: undefined // Show all by default
   });
 
   const [loading, setLoading] = useState(false);
@@ -44,7 +46,8 @@ export default function Home() {
             setFilters({
               sport: result.data.sports || [],
               surface_type: result.data.surfaceTypes || [],
-              school: undefined
+              school: undefined,
+              is_public: undefined // Show all by default
             });
           }
         }

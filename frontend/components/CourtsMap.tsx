@@ -16,7 +16,7 @@ interface Court {
   lat: number;
   lng: number;
   surface: string;
-  is_public: boolean;
+  is_public: boolean | null;
   school: boolean;
   cluster_group_name: string | null;
   created_at: string;
@@ -29,6 +29,7 @@ interface CourtsMapProps {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
   };
   loading: boolean;
   needsNewSearch: boolean;
@@ -75,6 +76,9 @@ export default function CourtsMap({
       'soccer': '⚽',
       'volleyball': '🏐',
       'pickleball': '🏓',
+      'beachvolleyball': '🏐',
+      'american_football': '🏈',
+      'baseball': '⚾',
       'other': '🏟️'
     };
     return icons[sportType] || icons['other'];
@@ -243,6 +247,19 @@ export default function CourtsMap({
       
       // Apply school filter if school is specified
       if (filters.school !== undefined && court.school !== filters.school) return false;
+      
+      // Apply is_public filter if specified (undefined = show all)
+      if (filters.is_public !== undefined) {
+        // filters.is_public can be true (public), false (private), or null (unknown)
+        if (filters.is_public === null) {
+          // Show only courts with unknown access
+          if (court.is_public !== null) return false;
+        } else {
+          // Show only courts with matching access
+          if (court.is_public !== filters.is_public) return false;
+        }
+      }
+      
       return true;
     });
   }, [courts, filters]);
@@ -410,7 +427,7 @@ export default function CourtsMap({
       totalCourts: courts.length,
       filteredCourts: filteredCourts.length
     });
-  }, [filters.sport, filters.surface_type, filters.school, courts.length, filteredCourts.length]);
+  }, [filters.sport, filters.surface_type, filters.school, filters.is_public, courts.length, filteredCourts.length]);
 
   // Detect when user has moved to a new area requiring search (using debounced viewport to avoid excessive calculations)
   useEffect(() => {
@@ -927,7 +944,7 @@ export default function CourtsMap({
                       lat: selectedCluster.geometry.coordinates[1],
                       lng: selectedCluster.geometry.coordinates[0],
                       surface: selectedCluster.properties.surface || 'Unknown',
-                      is_public: selectedCluster.properties.is_public || false,
+                      is_public: selectedCluster.properties.is_public ?? null, // Preserve null for unknown access
                       school: selectedCluster.properties.school || false,
                       cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
                       created_at: new Date().toISOString(),

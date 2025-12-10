@@ -38,7 +38,7 @@ class OverpassQuerier:
     def query_courts(self, bbox: Tuple[float, float, float, float], sports: List[str] = None) -> Dict[str, Any]:
         """Query for courts: leisure=pitch with sport tags"""
         if sports is None:
-            sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'pickleball']
+            sports = ['basketball', 'tennis', 'soccer', 'volleyball', 'pickleball', 'beachvolleyball', 'american_football', 'baseball']
         
         south, west, north, east = bbox
         sport_queries = []
@@ -484,7 +484,7 @@ def main():
         print("Usage: python3 query_courts_and_facilities.py 'postgresql://user:pass@host:port/db' [sports]")
         print("Example: python3 query_courts_and_facilities.py 'postgresql://postgres@localhost:5432/db' basketball")
         print("Example: python3 query_courts_and_facilities.py 'postgresql://postgres@localhost:5432/db' basketball,tennis")
-        print("If no sports specified, queries all sports: basketball,tennis,soccer,volleyball,pickleball")
+        print("If no sports specified, queries all sports: basketball,tennis,soccer,volleyball,pickleball,beachvolleyball,american_football,baseball")
         sys.exit(1)
     
     querier = OverpassQuerier()

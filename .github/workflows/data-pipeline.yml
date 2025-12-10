@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       region:
-        description: 'Region to process'
+        description: 'Region to process (used for backup/rollback)'
         required: true
         type: choice
         options:
@@ -14,29 +14,11 @@ on:
           - sf_bay_test
           - nyc
           - london
-      batch_size:
-        description: 'Batch size for processing'
-        required: false
-        type: number
-        default: 50
-      max_features:
-        description: 'Maximum features to process (leave empty for all)'
-        required: false
-        type: number
-      test_mode:
-        description: 'Run in test mode (limits to 50 features)'
-        required: false
-        type: boolean
-        default: false
       sports:
-        description: 'Sports to fetch (comma-separated)'
+        description: 'Sports to fetch (comma-separated, leave empty for all)'
         required: false
         type: string
-        default: 'basketball,tennis,soccer,volleyball,pickleball'
-      test_bbox:
-        description: 'Test bounding box (south,west,north,east) - leave empty for full region'
-        required: false
-        type: string
+        default: ''
 
 jobs:
   data-pipeline:
@@ -83,58 +65,23 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
       
-      - name: Fetch court data from Overpass API
-        run: |
-          cd data_enrichment
-          # Use manual trigger inputs
-          SPORTS="${{ github.event.inputs.sports }}"
-          TEST_BBOX="${{ github.event.inputs.test_bbox }}"
-          REGION="${{ github.event.inputs.region }}"
-          
-          echo "🔍 Fetching court data from Overpass API"
-          echo "  Region: $REGION"
-          echo "  Sports: $SPORTS"
-          echo "  Test bbox: ${TEST_BBOX:-'(using full region)'}"
-          
-          # Build fetch command
-          if [ -n "$TEST_BBOX" ]; then
-            python fetch_courts_data.py \
-              --bbox "$TEST_BBOX" \
-              --sports "$SPORTS" \
-              --output export.geojson
-          else
-            python fetch_courts_data.py \
-              --region "$REGION" \
-              --sports "$SPORTS" \
-              --output export.geojson
-          fi
-      
       - name: Run data pipeline
         run: |
           cd data_enrichment
-          # Use manual trigger inputs
-          ENVIRONMENT="production"
-          REGION="${{ github.event.inputs.region }}"
-          BATCH_SIZE="${{ github.event.inputs.batch_size }}"
-          MAX_FEATURES="${{ github.event.inputs.max_features }}"
-          TEST_MODE="${{ github.event.inputs.test_mode }}"
+          SPORTS="${{ github.event.inputs.sports }}"
           # Set SSL environment variable for psycopg2
           export PGSSLMODE=require
           
-          # Debug: Print the actual values being used
-          echo "🔍 Debug - Workflow Input Values:"
-          echo "  Environment: $ENVIRONMENT"
-          echo "  Region: $REGION"
-          echo "  Batch Size: $BATCH_SIZE"
-          echo "  Max Features: $MAX_FEATURES"
-          echo "  Test Mode: $TEST_MODE"
-          echo "  Test Mode Type: $(echo $TEST_MODE | od -c)"
-          # Run the clustered pipeline for better API efficiency
-          python run_full_pipeline.py \
-            --connection-string ${{ secrets.PRODUCTION_DATABASE_URL }} \
-            --batch-size $BATCH_SIZE \
-            ${{ github.event.inputs.max_features && format('--max-features {0}', github.event.inputs.max_features) || '' }} \
-            ${{ github.event.inputs.test_mode == 'true' && '--test-mode' || '' }}
+          echo "🏀 Running data enrichment pipeline"
+          echo "  Sports filter: ${SPORTS:-'(all sports: basketball, tennis, soccer, volleyball, pickleball)'}"
+          
+          # Run pipeline - uses DATABASE_URL env var for connection
+          # Pass sports as second arg if specified (first arg is connection string)
+          if [ -n "$SPORTS" ]; then
+            python run_full_pipeline.py "$DATABASE_URL" "$SPORTS"
+          else
+            python run_full_pipeline.py "$DATABASE_URL"
+          fi
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           PGSSLMODE: require
