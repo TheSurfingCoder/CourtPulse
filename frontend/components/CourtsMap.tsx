@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { logEvent, logError } from '../lib/logger-with-backend';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
 
@@ -421,12 +420,6 @@ export default function CourtsMap({
     }
     
     // Filters are applied via filteredCourts useMemo, no action needed here
-    // Just log the filter change
-    logEvent('filter_applied', {
-      filters: filters,
-      totalCourts: courts.length,
-      filteredCourts: filteredCourts.length
-    });
   }, [filters.sport, filters.surface_type, filters.school, filters.is_public, courts.length, filteredCourts.length]);
 
   // Detect when user has moved to a new area requiring search (using debounced viewport to avoid excessive calculations)
@@ -457,10 +450,7 @@ export default function CourtsMap({
       
       // Check if this area has already been searched
       if (courtCache.current.has(cacheKey)) {
-        logEvent('area_already_searched', {
-          cacheKey: cacheKey,
-          cacheSize: courtCache.current.size
-        });
+        console.log('Area already searched, using cache');
         onNeedsNewSearchChange(false);
         onLoadingChange(false);
         return;
@@ -468,7 +458,7 @@ export default function CourtsMap({
       
       // Check if zoom level allows searching
       if (viewport.zoom <= 11) {
-        logEvent('search_skipped_low_zoom', {zoom: viewport.zoom});
+        console.log('Zoom too low for search:', viewport.zoom);
         onLoadingChange(false);
         return;
       }
@@ -486,11 +476,7 @@ export default function CourtsMap({
           const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
           setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
           delete courtsByBbox.current[oldestKey];
-          
-          logEvent('cache_evicted', {
-            evictedKey: oldestKey,
-            courtsRemoved: courtsToRemove.length
-          });
+          console.log('Cache evicted:', oldestKey, 'removed', courtsToRemove.length, 'courts');
         }
       }
       
@@ -500,10 +486,7 @@ export default function CourtsMap({
         bbox: bbox.join(',')
       });
       
-      logEvent('api_search_started', {
-        bbox: bbox,
-        zoom: viewport.zoom
-      });
+      console.log('Fetching courts for bbox:', bbox, 'zoom:', viewport.zoom);
       
       const response = await fetch(`${apiUrl}/api/courts/search?${queryParams.toString()}`, {
         method: 'GET',
@@ -538,19 +521,14 @@ export default function CourtsMap({
         // Add all courts to accumulated state (no filtering - filters applied via filteredCourts)
         setCourts(prevCourts => mergeCourts(prevCourts, result.data));
         
-        logEvent('courts_fetched', {
-          courtCount: result.data.length,
-          cacheKey: cacheKey,
-          cacheSize: courtCache.current.size
-        });
+        console.log('Fetched', result.data.length, 'courts');
         
         onNeedsNewSearchChange(false);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
-      logEvent('fetch_courts_error', {error: errorMessage});
+      console.error('Failed to fetch courts:', err);
       onNeedsNewSearchChange(false);
     } finally {
       onLoadingChange(false);
@@ -563,13 +541,7 @@ export default function CourtsMap({
     
     if (cluster.properties.cluster && supercluster) {
       // It's a cluster - center and zoom in
-      logEvent('cluster_clicked', {
-        clusterId: cluster.id,
-        pointCount: cluster.properties.point_count,
-        coordinates: { lng, lat }
-      });
-      
-      // Zoom in on the cluster
+      console.log('Cluster clicked:', cluster.properties.point_count, 'courts');
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [lng, lat],
@@ -579,13 +551,7 @@ export default function CourtsMap({
       }
     } else {
       // It's an individual court - center on it and show popup
-      logEvent('court_clicked', {
-        courtId: cluster.properties.id || cluster.id,
-        courtName: cluster.properties.name,
-        coordinates: { lng, lat }
-      });
-      
-      // Center on the individual court without changing zoom
+      console.log('Court clicked:', cluster.properties.name);
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [lng, lat],
@@ -684,12 +650,8 @@ export default function CourtsMap({
 
   // Handle map type change
   const handleMapTypeChange = (newMapType: 'streets' | 'satellite') => {
+    console.log('Map type changed to:', newMapType);
     setMapType(newMapType);
-    logEvent('map_type_changed', {
-      from: mapType,
-      to: newMapType,
-      timestamp: new Date().toISOString()
-    });
   };
 
   // Handle edit button click
@@ -756,11 +718,7 @@ export default function CourtsMap({
       }
 
       const serverUpdatedCourt = result.data;
-      
-      logEvent('court_updated', {
-        courtId: serverUpdatedCourt.id,
-        updatedData: serverUpdatedCourt
-      });
+      console.log('Court updated:', serverUpdatedCourt.id, serverUpdatedCourt.name);
 
       // Clear current viewport's cache and re-fetch to get fresh data
       // This ensures we see updated names (including cluster-wide changes)
@@ -788,8 +746,7 @@ export default function CourtsMap({
         fetchCourtsForArea();
       }, 100);
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      logError(err, { context: 'Failed to update court' });
+      console.error('Failed to update court:', error);
       alert('Failed to update court. Please try again.');
     }
   };

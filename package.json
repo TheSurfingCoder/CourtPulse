@@ -33,7 +33,6 @@
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.8.1",
-    "@types/pino": "^7.0.4",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
     "commitizen": "^4.3.0",
@@ -56,10 +55,7 @@
     ]
   },
   "dependencies": {
-    "@sentry/cli": "^2.56.0",
-    "pino": "^9.11.0",
-    "pino-http": "^10.5.0",
-    "pino-pretty": "^13.1.1"
+    "@sentry/cli": "^2.56.0"
   },
   "config": {
     "commitizen": {

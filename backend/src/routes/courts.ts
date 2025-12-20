@@ -1,7 +1,6 @@
 //courts model
 import express from 'express';
 import { CourtModel } from '../models/Court';
-import { logEvent, logError, logBusinessEvent } from '../../logger';
 import { searchRateLimit } from '../middleware/rateLimiter';
 
 const router = express.Router();
@@ -77,16 +76,6 @@ router.get('/search', searchRateLimit, async (req: express.Request, res: express
     });
     
     const courts = await CourtModel.searchCourts(filters);
-    
-    logBusinessEvent('courts_search_completed', {
-      filters: filters,
-      resultCount: courts.length,
-      request: {
-        method: req.method,
-        url: req.url,
-        query: req.query
-      }
-    });
     
     return res.json({
       success: true,
@@ -192,15 +181,7 @@ router.post('/', async (req: express.Request, res: express.Response) => {
       is_public: is_public ?? true
     });
 
-    logBusinessEvent('court_created', {
-      message: 'Successfully created court',
-      courtId: court.id,
-      courtName: court.name,
-      request: {
-        method: req.method,
-        url: req.url
-      }
-    });
+    console.log('Court created:', court.id, court.name);
 
     return res.status(201).json({
       success: true,

@@ -1,5 +1,4 @@
 import pool from '../../config/database';
-import { logBusinessEvent, logError } from '../../logger';
 import * as Sentry from '@sentry/node';
 
 export interface Court {
@@ -233,19 +232,12 @@ export class CourtModel {
                         clusterValues.push(existingCourt.cluster_id);
                         clusterParamIndex++;
                     } else {
-                        // Without cluster_id, we cannot safely identify other courts in the cluster.
-                        // Matching by facility_name alone is unsafe because multiple unrelated courts
-                        // in different locations can share the same name. Fall back to updating
-                        // only this specific court to avoid unintended matches.
-                        logBusinessEvent('cluster_update_fallback_to_single_court', {
-                            courtId: existingCourt.id,
-                            reason: 'no_cluster_id',
-                            oldFacilityName: existingCourt.facility_name || null,
-                            newFacilityName: updatedFacilityName,
-                            clusterFields: Object.keys(sanitizedClusterFields),
-                            message: 'Cannot safely update cluster without cluster_id. Updating single court only to prevent unintended matches.'
-                        });
-                        identifierClause = `id = $${clusterParamIndex}`;
+                    // Without cluster_id, we cannot safely identify other courts in the cluster.
+                    // Matching by facility_name alone is unsafe because multiple unrelated courts
+                    // in different locations can share the same name. Fall back to updating
+                    // only this specific court to avoid unintended matches.
+                    console.warn('Cluster update fallback: no cluster_id for court', existingCourt.id);
+                    identifierClause = `id = $${clusterParamIndex}`;
                         clusterValues.push(existingCourt.id);
                         clusterParamIndex++;
                     }
@@ -297,15 +289,7 @@ export class CourtModel {
                 
                 if ((isDeadlock || isLockTimeout) && attempt < MAX_RETRIES - 1) {
                     const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-                    logBusinessEvent('court_update_retry', {
-                        courtId: id,
-                        attempt: attempt + 1,
-                        maxRetries: MAX_RETRIES,
-                        errorCode: error.code,
-                        errorMessage: error.message,
-                        retryDelayMs: delay,
-                        reason: isDeadlock ? 'deadlock' : 'lock_timeout'
-                    });
+                    console.warn(`Court update retry ${attempt + 1}/${MAX_RETRIES}:`, isDeadlock ? 'deadlock' : 'lock_timeout');
                     
                     // Wait before retrying with exponential backoff
                     await new Promise(resolve => setTimeout(resolve, delay));
@@ -313,15 +297,7 @@ export class CourtModel {
                 }
                 
                 // If not a retryable error or max retries reached, log and capture in Sentry
-                logError(error, {
-                    event: 'court_update_failed',
-                    courtId: id,
-                    attempt: attempt + 1,
-                    maxRetries: MAX_RETRIES,
-                    errorCode: error.code,
-                    isDeadlock,
-                    isLockTimeout
-                });
+                console.error('Court update failed:', { courtId: id, errorCode: error.code, attempt: attempt + 1 });
 
                 // Capture in Sentry with rich context for lock timeout/deadlock errors
                 if (isDeadlock || isLockTimeout) {
