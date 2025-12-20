@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.6.0...backend-v1.7.0) (2025-12-20)
+
+
+### Features
+
+* add public/private access tracking from OSM data ([e2b6798](https://github.com/TheSurfingCoder/CourtPulse/commit/e2b6798d35ae015f2d1c25610ebbaf67b4e15880))
+* improve facility matching and court editing workflow ([bb4cda8](https://github.com/TheSurfingCoder/CourtPulse/commit/bb4cda8c5ac461f12b572f84d44a36f478614dbf))
+* **sentry:** enable distributed tracing across frontend services ([87561af](https://github.com/TheSurfingCoder/CourtPulse/commit/87561af58901f9a47ab9f91de120304de355cb31))
+* switch cluster_group_name mapping from photon_name to facility_name ([31c9bb9](https://github.com/TheSurfingCoder/CourtPulse/commit/31c9bb983917726b8f3c4b779d6f317269d9a164))
+
+
+### Bug Fixes
+
+* merge courts from different areas instead of replacing them ([133d22b](https://github.com/TheSurfingCoder/CourtPulse/commit/133d22b4c88ea38406d2874d5bfcbdc9424de20d))
+* resolve enriched_name column and UnboundLocalError bugs ([563f79f](https://github.com/TheSurfingCoder/CourtPulse/commit/563f79f73d7bee20641838a436403bfea32518ad))
+
 ## [1.6.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.5.0...backend-v1.6.0) (2025-11-16)
 
 

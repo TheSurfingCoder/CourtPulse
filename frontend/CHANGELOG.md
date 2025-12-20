@@ -1,5 +1,19 @@
 # @courtpulse/frontend
 
+## [1.12.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.11.0...frontend-v1.12.0) (2025-12-20)
+
+
+### Features
+
+* add public/private access tracking from OSM data ([e2b6798](https://github.com/TheSurfingCoder/CourtPulse/commit/e2b6798d35ae015f2d1c25610ebbaf67b4e15880))
+* improve facility matching and court editing workflow ([bb4cda8](https://github.com/TheSurfingCoder/CourtPulse/commit/bb4cda8c5ac461f12b572f84d44a36f478614dbf))
+* **sentry:** enable distributed tracing across frontend services ([87561af](https://github.com/TheSurfingCoder/CourtPulse/commit/87561af58901f9a47ab9f91de120304de355cb31))
+
+
+### Bug Fixes
+
+* merge courts from different areas instead of replacing them ([133d22b](https://github.com/TheSurfingCoder/CourtPulse/commit/133d22b4c88ea38406d2874d5bfcbdc9424de20d))
+
 ## [1.11.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.10.0...frontend-v1.11.0) (2025-11-29)
 
 
