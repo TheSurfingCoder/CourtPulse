@@ -68,13 +68,6 @@ class SchoolChecker:
                     'facility_type': result['facility_type'],
                     'osm_id': result['osm_id']
                 }
-                
-                logger.info(json.dumps({
-                    'event': 'court_within_school_found',
-                    'school_name': result['name'],
-                    'facility_type': result['facility_type']
-                }))
-                
                 return school_info
             
             return None
