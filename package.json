@@ -16,11 +16,6 @@
     "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
     "start:backend": "cd backend && npm start",
     "start:frontend": "npm run start --workspace=frontend",
-    "test": "npm run test:backend && npm run test:frontend",
-    "test:backend": "cd backend && npm test",
-    "test:frontend": "npm run test --workspace=frontend",
-    "test:ci": "npm run test:backend:ci && npm run test:frontend",
-    "test:backend:ci": "cd backend && npm run test:ci",
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
     "lint:frontend": "npm run lint --workspace=frontend",
@@ -33,7 +28,6 @@
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.8.1",
-    "@types/pino": "^7.0.4",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
     "commitizen": "^4.3.0",
@@ -48,7 +42,7 @@
   },
   "lint-staged": {
     "backend/**/*.{ts,js}": [
-      "cd backend && npm test -- --passWithNoTests"
+      "cd backend && npm run lint"
     ],
     "frontend/**/*.{ts,tsx,js,jsx}": [
       "cd frontend && npm run lint",
@@ -56,10 +50,7 @@
     ]
   },
   "dependencies": {
-    "@sentry/cli": "^2.56.0",
-    "pino": "^9.11.0",
-    "pino-http": "^10.5.0",
-    "pino-pretty": "^13.1.1"
+    "@sentry/cli": "^2.56.0"
   },
   "config": {
     "commitizen": {

@@ -20,6 +20,12 @@ Sentry.init({
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
+
+  // Enable distributed tracing - propagate trace headers to backend
+  tracePropagationTargets: [
+    "localhost",
+    /^https:\/\/courtpulse-backend\.onrender\.com/,
+  ],
   // Disable logs to avoid conflict with Pino logging
   enableLogs: false,
 

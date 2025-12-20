@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { logEvent, logError, logBusinessEvent } from '../lib/logger-with-backend';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
 
@@ -16,28 +15,21 @@ interface Court {
   lat: number;
   lng: number;
   surface: string;
-  is_public: boolean;
+  is_public: boolean | null;
   school: boolean;
   cluster_group_name: string | null;
   created_at: string;
   updated_at: string;
 }
 
-
-//used for React prop-passing for styling
 interface CourtsMapProps {
   className?: string;
   filters: {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
   };
-  onFiltersChange: (filters: {
-    sport: string[];
-    surface_type: string[];
-    school: boolean | undefined;
-  }) => void;
-  onRefresh: () => void;
   loading: boolean;
   needsNewSearch: boolean;
   viewport: { longitude: number; latitude: number; zoom: number };
@@ -49,9 +41,7 @@ interface CourtsMapProps {
 
 export default function CourtsMap({ 
   className = '', 
-  filters: externalFilters, 
-  onFiltersChange, 
-  onRefresh, 
+  filters, 
   loading: externalLoading, 
   needsNewSearch: externalNeedsNewSearch, 
   viewport: externalViewport,
@@ -60,44 +50,22 @@ export default function CourtsMap({
   onViewportChange,
   onRateLimitExceeded
 }: CourtsMapProps) {
-  const [courts, setCourts] = useState<Court[]>([]); //array of court objects from API
-  // Use external loading state only - no internal loading state
-  const [error, setError] = useState<string | null>(null); // 
-  const [selectedCluster, setSelectedCluster] = useState<any>(null); //used for popup trigger
-  const [clusterDetails, setClusterDetails] = useState<Court[]>([]); //array of courts in selected cluster
-  const [mapLoaded, setMapLoaded] = useState(false); //true when Maplibre GL finishes loading tiles/rendering.
-  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets'); //current map type
-  const [editingCourt, setEditingCourt] = useState<Court | null>(null); //court being edited
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false); //edit modal state
-/*
-Why both:
-loading - Data isn't ready yet
-mapLoaded - Data is ready, but map isn't rendered yet
-loading=true → fetch data → loading=false → map renders → mapLoaded=true → show markers
-*/
 
-  // Ref for immediate court data updates (prevents flickering)
-  const courtsRef = useRef<Court[]>([]);
-  
-  // Ref for map instance to control centering and zooming
+  const [courts, setCourts] = useState<Court[]>([]);
+  const [selectedCluster, setSelectedCluster] = useState<any>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
+  const [editingCourt, setEditingCourt] = useState<Court | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [viewport, setViewport] = useState(externalViewport);
+  const [debouncedViewport, setDebouncedViewport] = useState(externalViewport);
+
   const mapRef = useRef<MapRef | null>(null);
-  
-  const [viewport, setViewport] = useState(externalViewport); //updates on every mouse / zoom 
-  
-  // Debounced viewport for cluster calculations
-  const [debouncedViewport, setDebouncedViewport] = useState(externalViewport); //same thing as viewport but delayed every 500ms
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Update parent when viewport changes
   useEffect(() => {
     onViewportChange(viewport);
   }, [viewport, onViewportChange]);
-  
-  // Debounce timer ref
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null); //debouncertimer ref. good to use ref here
-  
-  // Use external filters only - no internal state
-  const filters = externalFilters!;
-  const setFilters = onFiltersChange!;
   
   // Helper function to get sport-specific icon
   const getSportIcon = (sportType: string): string => {
@@ -107,21 +75,21 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       'soccer': '⚽',
       'volleyball': '🏐',
       'pickleball': '🏓',
+      'beachvolleyball': '🏐',
+      'american_football': '🏈',
+      'baseball': '⚾',
       'other': '🏟️'
     };
     return icons[sportType] || icons['other'];
   };
   
-  // Court data cache for performance optimization (caches raw API responses)
-  // Cache key format: "west,south,east,north" (bbox only, no zoom)
-  const courtCache = useRef<Record<string, Court[]>>({});
-  const MAX_CACHE_SIZE = 50; // Limit cache size to prevent memory issues
-  
-  // Track last searched area for smart re-query detection
-  const lastSearchedArea = useRef<{
-    bbox: [number, number, number, number];
-    filters: { sport: string[]; surface_type: string[]; school: boolean | undefined };
-  } | null>(null);
+  // Track searched areas by bbox keys (format: "west,south,east,north")
+  // Set for fast lookup, array for insertion order (for eviction)
+  const courtCache = useRef<Set<string>>(new Set());
+  const cacheKeysOrder = useRef<string[]>([]); // Track insertion order for eviction
+  // Map to track which courts belong to which bbox (for eviction only)
+  const courtsByBbox = useRef<Record<string, Court[]>>({});
+  const MAX_CACHE_SIZE = 10;
 
   // Use external needsNewSearch state only - no internal state
 
@@ -140,6 +108,23 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     // Round bbox coordinates to 1 decimal place for better cache hits (0.1 degrees = ~7 miles)
     const roundedBbox = bbox.map(coord => Math.round(coord * 10) / 10);
     return roundedBbox.join(',');
+  };
+
+  // Helper function to merge courts arrays, removing duplicates by ID
+  const mergeCourts = (existingCourts: Court[], newCourts: Court[]): Court[] => {
+    const courtMap: Record<number, Court> = {};
+    
+    // Add existing courts to map
+    existingCourts.forEach(court => {
+      courtMap[court.id] = court;
+    });
+    
+    // Add new courts to map (will overwrite duplicates with newer data)
+    newCourts.forEach(court => {
+      courtMap[court.id] = court;
+    });
+    
+    return Object.values(courtMap);
   };
 
   // Helper function to check if one bbox is contained within another
@@ -171,77 +156,38 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     return intersectionArea / unionArea;
   };
 
-  // Helper function to find cache hit based on coverage area
-  const findCacheHit = (searchBbox: [number, number, number, number], filters: { sport: string[]; surface_type: string[]; school: boolean | undefined }, shouldLog: boolean = true) => {
-    // Round search bbox to same precision as cache keys
-    const roundedSearchBbox: [number, number, number, number] = searchBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
+
+  // Helper function to check if user has moved to a new area requiring search
+  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number]) => {
+    // If no areas have been searched, don't trigger new search (let initial search run elsewhere)
+    if (courtCache.current.size === 0) return false;
     
-    // Check cache for coverage area hit
+    // Round current bbox to same precision as cache keys
+    const roundedCurrentBbox: [number, number, number, number] = currentBbox.map(coord => Math.round(coord * 10) / 10) as [number, number, number, number];
     
-    for (const [cacheKey, cachedCourts] of Object.entries(courtCache.current)) {
+    // Check if current area is contained within any searched area
+    for (const cacheKey of Array.from(courtCache.current)) {
       const [cacheWest, cacheSouth, cacheEast, cacheNorth] = cacheKey.split(',').map(Number);
       const cacheBbox: [number, number, number, number] = [cacheWest, cacheSouth, cacheEast, cacheNorth];
       
-      // Check if search area is within cached area
-      
-      // Check if search area is within cached area (using rounded coordinates)
-      if (isBboxContained(roundedSearchBbox, cacheBbox)) {
-        // Found coverage cache hit - filter client-side
-        
-        // Filter cached results client-side
-        const filteredCourts = cachedCourts.filter((court: Court) => {
-          // If sport is selected but no surface types, show nothing
-          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
-          // If surface types are selected but no sport, show nothing
-          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
-          // Apply sport filter if both are selected
-          if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
-          // Apply surface filter if both are selected
-          if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
-          if (filters.school !== undefined && court.school !== filters.school) return false;
-          return true;
-        });
-        
-        // Log cache hit only when explicitly requested (for actual searches/filters, not viewport checks)
-        if (shouldLog && process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
-          logEvent('coverage_cache_hit', {
-            cacheKey: cacheKey,
-            searchBbox: searchBbox,
-            cacheBbox: cacheBbox,
-            originalCourtCount: cachedCourts.length,
-            filteredCourtCount: filteredCourts.length,
-            filters: filters
-          });
-        }
-        
-        return filteredCourts;
+      if (isBboxContained(roundedCurrentBbox, cacheBbox)) {
+        return false; // Area is fully contained in a searched area, no need to search
       }
     }
     
-    // No cache hit found
-    
-    return null; // No cache hit
-  };
-
-  // Helper function to check if user has moved to a new area requiring search
-  const shouldTriggerNewSearch = (currentBbox: [number, number, number, number], currentFilters: { sport: string[]; surface_type: string[]; school: boolean | undefined }) => {
-    if (!lastSearchedArea.current) return false;
-    
-    // Check if we have cached data that can cover this area
-    const cachedResult = findCacheHit(currentBbox, currentFilters, false); // Don't log for viewport checks
-    if (cachedResult) {
-      return false; // No need to search - we have this area cached
+    // Check if current area has < 50% overlap with ANY searched area
+    // If >= 50% overlap with any searched area, we might not need a new search
+    for (const cacheKey of Array.from(courtCache.current)) {
+      const [cacheWest, cacheSouth, cacheEast, cacheNorth] = cacheKey.split(',').map(Number);
+      const cacheBbox: [number, number, number, number] = [cacheWest, cacheSouth, cacheEast, cacheNorth];
+      const overlap = calculateBboxOverlap(currentBbox, cacheBbox);
+      if (overlap >= 0.5) {
+        return false; // Significant overlap with searched area, no need to search
+      }
     }
     
-    // Check if current area is contained within last searched area (cache hit)
-    const { bbox: lastBbox } = lastSearchedArea.current;
-    if (isBboxContained(currentBbox, lastBbox)) {
-      return false; // No need to search - we have this area cached
-    }
-    
-    // Check if current area has < 50% overlap with last searched area (new area)
-    const overlap = calculateBboxOverlap(currentBbox, lastBbox);
-    return overlap < 0.5;
+    // No overlap with any searched area - trigger new search
+    return true;
   };
 
   // Calculate bounding box from actual map viewport bounds
@@ -284,63 +230,43 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     };
   };
 
-  // Check if two bounding boxes overlap
-  const doBoundingBoxesOverlap = (bbox1: [number, number, number, number], bbox2: [number, number, number, number]) => {
-    const [west1, south1, east1, north1] = bbox1;
-    const [west2, south2, east2, north2] = bbox2;
-    
-    // Two rectangles overlap if one is not completely to the left, right, top, or bottom of the other
-    return !(east1 < west2 || west1 > east2 || north1 < south2 || south1 > north2);
-  };
 
-  // Check if a point is within a bounding box
-  const isPointInBoundingBox = (point: { lng: number; lat: number }, bbox: [number, number, number, number]) => {
-    const [west, south, east, north] = bbox;
-    return point.lng >= west && point.lng <= east && point.lat >= south && point.lat <= north;
-  };
-
-  // Get courts from cache that overlap with the current search area
-  const getOverlappingCourtsFromCache = (searchBbox: [number, number, number, number], filters: any) => {
-    const overlappingCourts: Court[] = [];
-    const cacheKeys = Object.keys(courtCache.current);
-    
-    for (const cacheKey of cacheKeys) {
-      // Parse cache key to get bbox and filters
-      const parts = cacheKey.split(':');
-      if (parts.length >= 3) {
-        const cacheBbox = parts[1].split(',').map(coord => parseFloat(coord)) as [number, number, number, number];
-        const cacheFilters = JSON.parse(parts.slice(2).join(':'));
-        
-        // Check if filters match and bboxes overlap
-        if (JSON.stringify(cacheFilters) === JSON.stringify(filters) && 
-            doBoundingBoxesOverlap(searchBbox, cacheBbox)) {
-          
-          const cachedCourts = courtCache.current[cacheKey];
-          logEvent('cache_overlap_found', {cacheKey: cacheKey,
-            cacheBbox: cacheBbox,
-            searchBbox: searchBbox,
-            overlappingCourtCount: cachedCourts.length});
-          
-          overlappingCourts.push(...cachedCourts);
+  // Filter accumulated courts based on current filters (regardless of viewport)
+  const filteredCourts = useMemo(() => {
+    return courts.filter((court: Court) => {
+      // If no sports selected, show nothing
+      if (filters.sport.length === 0) return false;
+      // Apply sport filter
+      if (!filters.sport.includes(court.type)) return false;
+      
+      // If no surfaces selected, show nothing
+      if (filters.surface_type.length === 0) return false;
+      // Apply surface filter
+      if (!filters.surface_type.includes(court.surface)) return false;
+      
+      // Apply school filter if school is specified
+      if (filters.school !== undefined && court.school !== filters.school) return false;
+      
+      // Apply is_public filter if specified (undefined = show all)
+      if (filters.is_public !== undefined) {
+        // filters.is_public can be true (public), false (private), or null (unknown)
+        if (filters.is_public === null) {
+          // Show only courts with unknown access
+          if (court.is_public !== null) return false;
+        } else {
+          // Show only courts with matching access
+          if (court.is_public !== filters.is_public) return false;
         }
       }
-    }
-    
-    // Remove duplicates based on court ID
-    const uniqueCourts = overlappingCourts.filter((court, index, self) => 
-      index === self.findIndex(c => c.id === court.id)
-    );
-    
-    return uniqueCourts;
-  };
+      
+      return true;
+    });
+  }, [courts, filters]);
 
-  // Convert courts to GeoJSON features for supercluster
-  //takes the data fetch / data stored in courts and stores it in mappoints which is an array of objects
+  // Convert filtered courts to GeoJSON features for supercluster
+  //takes the filtered courts and stores it in mappoints which is an array of objects
   const mapPoints = useMemo(() => {
-    // DEBUGGING: Comment out ref system temporarily
-    // const courtsData = courtsRef.current.length > 0 ? courtsRef.current : courts;
-    
-    return courts.map(court => ({
+    return filteredCourts.map(court => ({
       type: 'Feature' as const,
       properties: { 
         id: court.id,
@@ -356,14 +282,14 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         coordinates: [court.lng, court.lat] // GeoJSON format: [longitude, latitude]
       }
     }));
-  }, [courts]);
+  }, [filteredCourts]);
 
   // DEBUGGING: Comment out ALL clustering logic
   const [supercluster, setSupercluster] = useState<Supercluster | null>(null);
 
-  // Initialize Supercluster when mapPoints change
+  // Initialize Supercluster when filtered courts change
   useEffect(() => {
-    if (mapPoints.length > 0) {
+    if (filteredCourts.length > 0) {
   // Initializing supercluster
       
       try {
@@ -438,7 +364,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Get clusters for current viewport (using debounced viewport)
   const clusters = useMemo(() => {
-    const calcStartTime = performance.now();
     
     if (!supercluster) return [];
     
@@ -479,58 +404,37 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     // Note: Filters are already set by parent component
     const timer = setTimeout(() => {
       // Initial search triggered
-      fetchCourtsWithFilters();
+      fetchCourtsForArea();
     }, 100);
     
     return () => clearTimeout(timer);
   }, []);
 
-  // Handle filter changes - check cache first, then search if needed
+  // Handle filter changes - filters are applied client-side to accumulated courts
+  // No API call needed, just filter the existing courts state
   useEffect(() => {
     // Skip initial render to prevent double calls with initial useEffect
-    const isInitialRender = !lastSearchedArea.current;
+    const isInitialRender = courtCache.current.size === 0;
     if (isInitialRender) {
       return;
     }
     
-    // Debounce filter changes to avoid excessive API calls
-    const filterTimer = setTimeout(() => {
-      // Check if we have cached data that can be filtered client-side
-      const { bbox } = calculateBoundingBox(viewport);
-      const cachedResult = findCacheHit(bbox, filters);
-      
-      if (cachedResult) {
-        // Use cached data with client-side filtering
-        setCourts(cachedResult);
-        onNeedsNewSearchChange(false);
-        logEvent('filter_applied_from_cache', {
-          filters: filters,
-          courtCount: cachedResult.length
-        });
-      } else {
-        // No cache hit, need to search
-        logEvent('filter_change_requires_search', {filters: filters});
-        fetchCourtsWithFilters();
-      }
-    }, 300); // 300ms debounce
-    
-    return () => clearTimeout(filterTimer);
-  }, [filters.sport, filters.surface_type, filters.school]);
+    // Filters are applied via filteredCourts useMemo, no action needed here
+  }, [filters.sport, filters.surface_type, filters.school, filters.is_public, courts.length, filteredCourts.length]);
 
-  // Detect when user has moved to a new area requiring search
+  // Detect when user has moved to a new area requiring search (using debounced viewport to avoid excessive calculations)
   useEffect(() => {
-    if (!lastSearchedArea.current) return;
+    if (courtCache.current.size === 0) return; // Skip if no areas searched yet
     
-    const { bbox } = calculateBoundingBox(viewport);
-    const shouldSearch = shouldTriggerNewSearch(bbox, filters);
+    const { bbox } = calculateBoundingBox(debouncedViewport);
+    const shouldSearch = shouldTriggerNewSearch(bbox);
     
     // Update needsNewSearch state
-    
     onNeedsNewSearchChange(shouldSearch);
-  }, [viewport.longitude, viewport.latitude, viewport.zoom]);
+  }, [debouncedViewport.longitude, debouncedViewport.latitude, debouncedViewport.zoom]);
 
 
-  const fetchCourtsWithFilters = async () => {
+  const fetchCourtsForArea = async () => {
     // Prevent multiple simultaneous requests
     if (externalLoading) {
       return;
@@ -538,20 +442,15 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     
     try {
       onLoadingChange(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Calculate bounding box from current viewport
       const { bbox } = calculateBoundingBox(viewport);
+      const cacheKey = createCacheKey(bbox);
       
-      // Check for coverage area cache hit first
-      const cachedResult = findCacheHit(bbox, filters);
-      if (cachedResult) {
-        logEvent('cache_hit', {
-          courtCount: cachedResult.length,
-          cacheSize: Object.keys(courtCache.current).length
-        });
-        
-        setCourts(cachedResult);
+      // Check if this area has already been searched
+      if (courtCache.current.has(cacheKey)) {
+        console.log('Area already searched, using cache');
         onNeedsNewSearchChange(false);
         onLoadingChange(false);
         return;
@@ -559,26 +458,35 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       
       // Check if zoom level allows searching
       if (viewport.zoom <= 11) {
-        logEvent('search_skipped_low_zoom', {zoom: viewport.zoom});
-        
-        setCourts([]);
+        console.log('Zoom too low for search:', viewport.zoom);
         onLoadingChange(false);
         return;
       }
       
-      // Build query parameters - DON'T include filters to get raw data for caching
+      // Manage cache size - evict oldest if at max
+      if (courtCache.current.size >= MAX_CACHE_SIZE) {
+        const oldestKey = cacheKeysOrder.current[0];
+        if (oldestKey) {
+          // Remove from cache
+          courtCache.current.delete(oldestKey);
+          cacheKeysOrder.current.shift();
+          
+          // Remove courts from state that belong to this bbox
+          const courtsToRemove = courtsByBbox.current[oldestKey] || [];
+          const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
+          setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
+          delete courtsByBbox.current[oldestKey];
+          console.log('Cache evicted:', oldestKey, 'removed', courtsToRemove.length, 'courts');
+        }
+      }
+      
+      // Build query parameters - get all courts in area (no filters)
       const queryParams = new URLSearchParams({
         zoom: viewport.zoom.toString(),
         bbox: bbox.join(',')
       });
       
-      // Note: We don't add filters to query params here because we want raw data for caching
-      // Filters will be applied client-side to the cached data
-      
-      logEvent('api_search_started', {
-        filters: filters,
-        zoom: viewport.zoom
-      });
+      console.log('Fetching courts for bbox:', bbox, 'zoom:', viewport.zoom);
       
       const response = await fetch(`${apiUrl}/api/courts/search?${queryParams.toString()}`, {
         method: 'GET',
@@ -602,63 +510,25 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       
       const result = await response.json();
       
-      // Search completed
-      
       if (result.success && Array.isArray(result.data)) {
-        // NEW CACHING STRATEGY: Store by coverage area only (no zoom, no filters)
-        const cacheKey = createCacheKey(bbox);
+        // Add bbox to cache
+        courtCache.current.add(cacheKey);
+        cacheKeysOrder.current.push(cacheKey);
         
-        // Manage cache size
-        const cacheKeys = Object.keys(courtCache.current);
-        if (cacheKeys.length >= MAX_CACHE_SIZE) {
-          // Remove oldest entry (first key)
-          const firstKey = cacheKeys[0];
-          delete courtCache.current[firstKey];
-          // Cache entry evicted
-        }
+        // Track which courts belong to this bbox (for eviction)
+        courtsByBbox.current[cacheKey] = result.data;
         
-        // Store the raw API response (all courts in this area)
-        courtCache.current[cacheKey] = result.data;
+        // Add all courts to accumulated state (no filtering - filters applied via filteredCourts)
+        setCourts(prevCourts => mergeCourts(prevCourts, result.data));
         
-        // Apply filters client-side to the raw data
-        const filteredCourts = result.data.filter((court: Court) => {
-          // If sport is selected but no surface types, show nothing
-          if (filters.sport.length > 0 && filters.surface_type.length === 0) return false;
-          // If surface types are selected but no sport, show nothing
-          if (filters.surface_type.length > 0 && filters.sport.length === 0) return false;
-          // Apply sport filter if both are selected
-          if (filters.sport.length > 0 && !filters.sport.includes(court.type)) return false;
-          // Apply surface filter if both are selected
-          if (filters.surface_type.length > 0 && !filters.surface_type.includes(court.surface)) return false;
-          if (filters.school !== undefined && court.school !== filters.school) return false;
-          return true;
-        });
+        console.log('Fetched', result.data.length, 'courts');
         
-        logEvent('cache_stored', {
-          courtCount: result.data.length,
-          filteredCourtCount: filteredCourts.length,
-          cacheSize: Object.keys(courtCache.current).length,
-          filters: filters
-        });
-        
-        // Update last searched area for smart re-query detection
-        lastSearchedArea.current = {
-          bbox: bbox,
-          filters: { ...filters }
-        };
-        
-        setCourts(filteredCourts);
         onNeedsNewSearchChange(false);
       } else {
         throw new Error(result.message || 'Failed to fetch courts');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch courts';
-      // Don't set error state - just log it and continue with empty courts
-      logEvent('fetch_courts_with_filters_error', {error: errorMessage});
-      
-      // Set empty courts array so map still renders
-      setCourts([]);
+      console.error('Failed to fetch courts:', err);
       onNeedsNewSearchChange(false);
     } finally {
       onLoadingChange(false);
@@ -671,13 +541,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
     
     if (cluster.properties.cluster && supercluster) {
       // It's a cluster - center and zoom in
-      logEvent('cluster_clicked', {
-        clusterId: cluster.id,
-        pointCount: cluster.properties.point_count,
-        coordinates: { lng, lat }
-      });
-      
-      // Zoom in on the cluster
+      console.log('Cluster clicked:', cluster.properties.point_count, 'courts');
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [lng, lat],
@@ -687,13 +551,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       }
     } else {
       // It's an individual court - center on it and show popup
-      logEvent('court_clicked', {
-        courtId: cluster.properties.id || cluster.id,
-        courtName: cluster.properties.name,
-        coordinates: { lng, lat }
-      });
-      
-      // Center on the individual court without changing zoom
+      console.log('Court clicked:', cluster.properties.name);
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [lng, lat],
@@ -716,7 +574,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      setClusterDetails([courtDetail]);
       setSelectedCluster(cluster);
     }
   };
@@ -793,12 +650,8 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
 
   // Handle map type change
   const handleMapTypeChange = (newMapType: 'streets' | 'satellite') => {
+    console.log('Map type changed to:', newMapType);
     setMapType(newMapType);
-    logEvent('map_type_changed', {
-      from: mapType,
-      to: newMapType,
-      timestamp: new Date().toISOString()
-    });
   };
 
   // Handle edit button click
@@ -811,7 +664,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
   // Handle save from edit modal
   const handleSaveCourt = async (updatedCourt: Court) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Map frontend fields to backend fields
       const updateData: Record<string, any> = {
@@ -864,29 +717,36 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
         throw new Error('Invalid response from server');
       }
 
-      // Update local state with server-returned data
       const serverUpdatedCourt = result.data;
-      setCourts(courts.map(c => c.id === serverUpdatedCourt.id ? {
-        id: serverUpdatedCourt.id,
-        name: serverUpdatedCourt.name,
-        type: serverUpdatedCourt.type,
-        lat: serverUpdatedCourt.lat,
-        lng: serverUpdatedCourt.lng,
-        surface: serverUpdatedCourt.surface,
-        is_public: serverUpdatedCourt.is_public,
-        school: serverUpdatedCourt.school,
-        cluster_group_name: serverUpdatedCourt.cluster_group_name,
-        created_at: serverUpdatedCourt.created_at,
-        updated_at: serverUpdatedCourt.updated_at
-      } : c));
+      console.log('Court updated:', serverUpdatedCourt.id, serverUpdatedCourt.name);
+
+      // Clear current viewport's cache and re-fetch to get fresh data
+      // This ensures we see updated names (including cluster-wide changes)
+      const { bbox } = calculateBoundingBox(viewport);
+      const cacheKey = createCacheKey(bbox);
       
-      logEvent('court_updated', {
-        courtId: serverUpdatedCourt.id,
-        updatedData: serverUpdatedCourt
-      });
+      // Remove current viewport's cache entry
+      if (courtCache.current.has(cacheKey)) {
+        courtCache.current.delete(cacheKey);
+        // Remove from order tracking
+        const orderIndex = cacheKeysOrder.current.indexOf(cacheKey);
+        if (orderIndex > -1) {
+          cacheKeysOrder.current.splice(orderIndex, 1);
+        }
+        // Remove courts belonging to this bbox from state
+        const courtsToRemove = courtsByBbox.current[cacheKey] || [];
+        const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
+        setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
+        delete courtsByBbox.current[cacheKey];
+      }
+      
+      // Re-fetch fresh data for the current viewport
+      // Small delay to ensure state updates have propagated
+      setTimeout(() => {
+        fetchCourtsForArea();
+      }, 100);
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      logError(err, { context: 'Failed to update court' });
+      console.error('Failed to update court:', error);
       alert('Failed to update court. Please try again.');
     }
   };
@@ -908,7 +768,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
       {/* Refresh Button Overlay - Centered */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
         <button
-          onClick={fetchCourtsWithFilters}
+          onClick={fetchCourtsForArea}
           disabled={viewport.zoom <= 11}
           className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg ${
             viewport.zoom <= 11
@@ -1007,7 +867,6 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
             latitude={selectedCluster.geometry.coordinates[1]}
             onClose={() => {
               setSelectedCluster(null);
-              setClusterDetails([]);
             }}
             closeButton={true}
             closeOnClick={false}
@@ -1042,7 +901,7 @@ loading=true → fetch data → loading=false → map renders → mapLoaded=true
                       lat: selectedCluster.geometry.coordinates[1],
                       lng: selectedCluster.geometry.coordinates[0],
                       surface: selectedCluster.properties.surface || 'Unknown',
-                      is_public: selectedCluster.properties.is_public || false,
+                      is_public: selectedCluster.properties.is_public ?? null, // Preserve null for unknown access
                       school: selectedCluster.properties.school || false,
                       cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
                       created_at: new Date().toISOString(),

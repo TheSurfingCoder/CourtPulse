@@ -8,11 +8,13 @@ interface FilterBarProps {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
   };
   setFilters: (filters: {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined;
   }) => void;
 }
 
@@ -26,17 +28,19 @@ export default function FilterBar({
   const [isSportsDropdownOpen, setIsSportsDropdownOpen] = useState(false);
   const [isSurfacesDropdownOpen, setIsSurfacesDropdownOpen] = useState(false);
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const [isAccessDropdownOpen, setIsAccessDropdownOpen] = useState(false);
   
   const sportsDropdownRef = useRef<HTMLDivElement>(null);
   const surfacesDropdownRef = useRef<HTMLDivElement>(null);
   const locationDropdownRef = useRef<HTMLDivElement>(null);
+  const accessDropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch metadata on mount
   useEffect(() => {
     const fetchMetadata = async () => {
       try {
         setIsLoadingMetadata(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
         const response = await fetch(`${apiUrl}/api/courts/metadata`);
         if (response.ok) {
           const result = await response.json();
@@ -61,11 +65,13 @@ export default function FilterBar({
       if (
         (sportsDropdownRef.current && !sportsDropdownRef.current.contains(event.target as Node)) &&
         (surfacesDropdownRef.current && !surfacesDropdownRef.current.contains(event.target as Node)) &&
-        (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target as Node))
+        (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target as Node)) &&
+        (accessDropdownRef.current && !accessDropdownRef.current.contains(event.target as Node))
       ) {
         setIsSportsDropdownOpen(false);
         setIsSurfacesDropdownOpen(false);
         setIsLocationDropdownOpen(false);
+        setIsAccessDropdownOpen(false);
       }
     };
 
@@ -100,15 +106,23 @@ export default function FilterBar({
     });
   };
 
+  const toggleAccess = (accessValue: boolean | null | undefined) => {
+    setFilters({
+      ...filters,
+      is_public: filters.is_public === accessValue ? undefined : accessValue
+    });
+  };
+
   const clearAllFilters = () => {
     setFilters({
       sport: [],
       surface_type: [],
-      school: undefined
+      school: undefined,
+      is_public: undefined
     });
   };
 
-  const hasActiveFilters = filters.sport.length > 0 || filters.surface_type.length > 0 || filters.school !== undefined;
+  const hasActiveFilters = filters.sport.length > 0 || filters.surface_type.length > 0 || filters.school !== undefined || filters.is_public !== undefined;
 
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-3">
@@ -212,6 +226,61 @@ export default function FilterBar({
                   className="mr-2"
                 />
                 <span className="text-sm">Non-Schools Only</span>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Access Filter - Radio button style for public/private/unknown */}
+        <div className="relative" ref={accessDropdownRef}>
+          <button
+            onClick={() => setIsAccessDropdownOpen(!isAccessDropdownOpen)}
+            className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer flex items-center gap-2"
+          >
+            <span>Access {filters.is_public === true ? '(Public)' : filters.is_public === false ? '(Private)' : filters.is_public === null ? '(Unknown)' : ''}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-500 pointer-events-none transition-transform ${isAccessDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isAccessDropdownOpen && (
+            <div className="absolute top-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[200px]">
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="access"
+                  checked={filters.is_public === undefined}
+                  onChange={() => toggleAccess(undefined)}
+                  className="mr-2"
+                />
+                <span className="text-sm">All Access Types</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="access"
+                  checked={filters.is_public === true}
+                  onChange={() => toggleAccess(true)}
+                  className="mr-2"
+                />
+                <span className="text-sm">Public Only</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="access"
+                  checked={filters.is_public === false}
+                  onChange={() => toggleAccess(false)}
+                  className="mr-2"
+                />
+                <span className="text-sm">Private Only</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="access"
+                  checked={filters.is_public === null}
+                  onChange={() => toggleAccess(null)}
+                  className="mr-2"
+                />
+                <span className="text-sm">Unknown Only</span>
               </label>
             </div>
           )}

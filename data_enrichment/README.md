@@ -1,240 +1,177 @@
-# CourtPulse Data Enrichment Pipeline
+# Data Enrichment Pipeline
 
-A production-ready Python pipeline for enriching OpenStreetMap court data with reverse geocoding and storing it in a Postgres database with PostGIS support.
+## Overview
 
-## Features
+• Scripts for enriching court data from OpenStreetMap using the Overpass API
+• Queries facilities (parks, schools) and courts (leisure=pitch) separately
+• Matches courts to facilities using PostGIS spatial containment
+• Stores results in staging tables, then processes into production `courts` table
 
-- **GeoJSON Processing**: Parse OpenStreetMap court data from GeoJSON files
-- **Geometry Processing**: Calculate centroids using Shapely for accurate court locations
-- **Reverse Geocoding**: Pluggable geocoding providers (Nominatim, Google Places, MapTiler)
-- **Database Storage**: Store enriched data in Postgres with PostGIS for spatial queries
-- **Structured Logging**: JSON-formatted logging for monitoring and debugging
-- **Error Handling**: Robust error handling with detailed logging
-- **Rate Limiting**: Built-in rate limiting for API providers
+## Data Model & Schema
 
-## Installation
+### Core Tables
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+**`courts`** (Production - 10 rows, 296 kB)
+- **Purpose**: Production table serving backend API and frontend
+- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid` (geography Point), `cluster_id` (UUID), `individual_court_name`, `facility_name`, `fallback_name`, `school` (boolean)
+- **Indexes**: 16 indexes including spatial (GIST) on `geom`/`centroid`, B-tree on `sport`, `cluster_id`, `region`, etc.
+- **Health**: ✅ Healthy (no dead tuples, recently analyzed, duplicate indexes removed)
 
-2. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your database credentials
-```
+**`osm_facilities`** (Reference - 856 rows, 2168 kB)
+- **Purpose**: Facilities (parks, playgrounds, schools) from Overpass API
+- **Key Columns**: `id` (PK), `osm_id` (unique), `name`, `facility_type`, `geom` (PostGIS Polygon), `bbox` (bounding box)
+- **Indexes**: GIST on `geom` and `bbox` for spatial queries
+- **Health**: ✅ Healthy (no dead tuples, recently analyzed)
 
-3. Ensure Postgres with PostGIS is running and accessible.
+**`osm_courts_temp`** (Staging - 820 rows, 832 kB)
+- **Purpose**: Raw court data from Overpass before processing
+- **Key Columns**: `id` (PK), `osm_id` (unique), `sport`, `geom` (PostGIS Polygon), `centroid`, `facility_id` (FK → `osm_facilities`), `facility_name`, `cluster_id` (UUID)
+- **Indexes**: GIST on `centroid` for spatial matching
+- **Health**: ✅ Healthy (no dead tuples, recently analyzed)
 
-## Quick Start
+**`courts_backups`** (Metadata - 0 rows, 24 kB)
+- **Purpose**: Tracks backup names and regions for rollback scripts
+- **Key Columns**: `id`, `backup_name`, `region`, `created_at`
 
-### Basic Usage
+## Overpass API Data Structures
 
-```python
-from data_enrichment import CourtDataEnricher, DatabaseManager, NominatimProvider
+### Facilities Query Response
 
-# Initialize components
-db_manager = DatabaseManager("postgresql://user:pass@localhost/courtpulse")
-geocoding_provider = NominatimProvider()
-enricher = CourtDataEnricher(db_manager, geocoding_provider)
+**Query**: Parks, playgrounds, schools, universities, colleges
 
-# Create database table
-db_manager.create_table_if_not_exists()
-
-# Load and process courts
-courts = enricher.load_geojson("courts.geojson")
-for court in courts[:5]:  # Process first 5 courts
-    enriched_court = enricher.enrich_court(court)
-    db_manager.insert_court(enriched_court)
-```
-
-### Using Different Geocoding Providers
-
-#### Nominatim (Free)
-```python
-from data_enrichment import NominatimProvider
-
-provider = NominatimProvider(
-    base_url="https://nominatim.openstreetmap.org",
-    user_agent="YourApp/1.0",
-    delay=1.0  # Rate limiting delay
-)
-```
-
-#### Google Places API
-```python
-from data_enrichment import GooglePlacesProvider
-
-provider = GooglePlacesProvider(
-    api_key="your_google_places_api_key",
-    delay=0.1
-)
-```
-
-## Database Schema
-
-The pipeline creates a `courts` table with the following structure:
-
-```sql
-CREATE TABLE courts (
-    id SERIAL PRIMARY KEY,
-    osm_id VARCHAR(255) UNIQUE NOT NULL,
-    geom GEOMETRY(POINT, 4326),
-    sport VARCHAR(100),
-    hoops VARCHAR(10),
-    fallback_name VARCHAR(255),
-    google_place_id VARCHAR(255),
-    enriched_name VARCHAR(255),
-    address TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Indexes
-- `idx_courts_osm_id`: On osm_id for fast lookups
-- `idx_courts_geom`: GIST index on geometry for spatial queries
-- `idx_courts_sport`: On sport for filtering
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_HOST` | Database host | localhost |
-| `DB_PORT` | Database port | 5432 |
-| `DB_NAME` | Database name | courtpulse |
-| `DB_USER` | Database user | postgres |
-| `DB_PASSWORD` | Database password | (empty) |
-| `GOOGLE_PLACES_API_KEY` | Google Places API key | (empty) |
-| `MAPTILER_API_KEY` | MapTiler API key | (empty) |
-| `NOMINATIM_BASE_URL` | Nominatim base URL | https://nominatim.openstreetmap.org |
-| `NOMINATIM_USER_AGENT` | User agent for Nominatim | CourtPulse/1.0 |
-| `NOMINATIM_DELAY` | Rate limiting delay | 1.0 |
-
-## API Providers
-
-### Nominatim
-- **Cost**: Free
-- **Rate Limit**: 1 request/second (configurable)
-- **Coverage**: Global
-- **Accuracy**: Good for most locations
-
-### Google Places
-- **Cost**: Paid (per request)
-- **Rate Limit**: Configurable
-- **Coverage**: Excellent
-- **Accuracy**: Very high
-
-### MapTiler
-- **Cost**: Paid (subscription-based)
-- **Rate Limit**: Based on subscription
-- **Coverage**: Global
-- **Accuracy**: High
-
-## Logging
-
-The pipeline uses structured JSON logging for all operations:
-
+**Response Structure**:
 ```json
 {
-  "event": "court_enriched",
-  "osm_id": "way/28283137",
-  "coordinates": {"lat": 37.7500036, "lon": -122.4063442},
-  "has_address": true,
-  "has_place_id": true
+  "elements": [
+    {
+      "type": "way" | "relation",
+      "id": 123456789,
+      "tags": {
+        "leisure": "park" | "playground",
+        "amenity": "school" | "university" | "college",
+        "name": "Facility Name"
+      },
+      "geometry": [
+        {"lat": 37.7890, "lon": -122.4090},
+        {"lat": 37.7891, "lon": -122.4091},
+        ...
+      ]
+    }
+  ]
 }
 ```
 
-### Key Events Logged
-- Pipeline startup/shutdown
-- GeoJSON loading
-- Court enrichment
-- Database operations
-- API provider errors
-- Rate limiting
 
-## Error Handling
+### Courts Query Response
 
-The pipeline includes comprehensive error handling:
+**Query**: `leisure=pitch` with `sport` tags (basketball, tennis, soccer, volleyball, pickleball)
 
-- **Network Errors**: Retry logic for API calls
-- **Database Errors**: Transaction rollback and detailed logging
-- **Geometry Errors**: Skip invalid geometries with logging
-- **Rate Limiting**: Automatic delays between API calls
+**Response Structure**:
+```json
+{
+  "elements": [
+    {
+      "type": "way",
+      "id": 987654321,
+      "tags": {
+        "leisure": "pitch",
+        "sport": "basketball" | "tennis" | "soccer" | "volleyball" | "pickleball",
+        "hoops": "2" (optional),
+        "surface": "asphalt" (optional),
+        ... (other OSM tags)
+      },
+      "geometry": [
+        {"lat": 37.7890, "lon": -122.4090},
+        {"lat": 37.7891, "lon": -122.4091},
+        ...
+      ]
+    }
+  ]
+}
+```
 
-## Performance Considerations
+**Fields Used**:
+• `type` - Always "way" for courts
+• `id` - OSM element ID
+• `tags.sport` - Required: sport type
+• `tags.hoops` - Optional: number of hoops (basketball)
+• `tags.surface` - Optional: surface type
+• `geometry` - Array of coordinate objects forming polygon boundary
 
-### Rate Limiting
-- Nominatim: 1 request/second (configurable)
-- Google Places: Configurable based on quota
-- MapTiler: Based on subscription limits
+## Data Flow
 
-### Database Performance
-- Spatial indexes for fast geometry queries
-- Unique constraints to prevent duplicates
-- Batch processing support
+• Overpass API → Query Facilities → `osm_facilities` table
+• Overpass API → Query Courts → Validate → Match to facilities → `osm_courts_temp` table
+• `osm_courts_temp` → Process/cluster → `courts` table (production)
+• Frontend/Backend → Read from `courts` table
 
-### Memory Usage
-- Processes one court at a time to minimize memory usage
-- Supports large GeoJSON files through streaming
+## Scripts
 
-## Examples
+### `query_courts_and_facilities.py`
 
-See `example_usage.py` for comprehensive examples including:
+**Main import script**
 
-- Basic pipeline usage
-- Different geocoding providers
-- Batch processing
-- Error handling
-
-## Running Examples
-
+**Usage**:
 ```bash
-# Run all examples
-python example_usage.py
-
-# Run main pipeline with sample data
-python data_enrichment.py
+python3 query_courts_and_facilities.py "postgresql://user:pass@host:port/db"
 ```
 
-## Development
+**Steps**:
+1. Query Overpass for facilities (parks, playgrounds, schools)
+2. Insert facilities into `osm_facilities` table
+3. Query Overpass for courts (leisure=pitch with sport tags)
+4. For each court, find containing facility using PostGIS `ST_Contains` (spatial containment)
+5. Insert courts into `osm_courts_temp` with matched `facility_name`
+6. **Note**: This script does facility matching, not clustering. Clustering happens later based on `facility_name`
 
-### Adding New Geocoding Providers
+### Other Scripts
 
-1. Create a new class inheriting from `GeocodingProvider`
-2. Implement the `reverse_geocode(lat, lon)` method
-3. Return a tuple of `(address, place_id)`
+• `validation.py` - Validates court data structure, coordinates, and business logic
+• `school_checker.py` - Checks if courts are within school facilities using PostGIS spatial queries
+• `populate_cluster_metadata.py` - Database-side clustering: groups courts by `facility_name` AND `sport` using SQL, assigns shared `cluster_id` (UUID) in database, transfers to `courts` table
+• `add_individual_court_names.py` - Database-side naming: uses SQL window functions to assign sequential names ("Court 1", "Court 2") within each cluster
 
-Example:
-```python
-class CustomProvider(GeocodingProvider):
-    def reverse_geocode(self, lat: float, lon: float) -> Tuple[Optional[str], Optional[str]]:
-        # Your implementation
-        return address, place_id
-```
+## Processing Pipeline
 
-### Testing
+1. **Import** - `query_courts_and_facilities.py` populates staging tables
+2. **Validation** - Validate court data before further processing
+   - GeoJSON structure (geometry, properties)
+   - Coordinate validity (ranges, format)
+   - Required fields (osm_id/@id, sport)
+   - Data types (sport values, hoops as integers)
+   - Business logic (basketball hoops, reasonable counts)
+3. **Clustering** - Group courts by facility_name and sport
+   - **When**: Post-processing step after data is in `osm_courts_temp` (standalone script)
+   - **How**: `populate_cluster_metadata.py` uses SQL to group by `facility_name` AND `sport` in database, assigns shared `cluster_id` (UUID) via `gen_random_uuid()`, then transfers to `courts` table
+   - **Location**: Database-side (SQL) - efficient single-query operation, no in-memory processing
+   - **Result**: Courts with same `facility_name` AND `sport` share same `cluster_id` (e.g., all basketball courts at "Golden Gate Park" = one cluster, all tennis courts = separate cluster)
+4. **School Detection** - `school_checker.py` identifies courts within schools
+   - PostGIS spatial containment (ST_Contains)
+   - Checks against school/university/college facilities
+   - Updates facility matching for school courts
+5. **Naming** - Assign individual court names within clusters
+   - **Flow**: `add_individual_court_names.py` uses database-side SQL with window functions (`ROW_NUMBER()`) to assign sequential names ("Court 1", "Court 2", etc.) within each cluster
+   - **Ordering**: Courts ordered by `id` for consistent naming within each cluster
+   - **Location**: Database-side (SQL) - single UPDATE query with window functions, no Python loops
+   - **Database → Frontend Mapping**:
+     - `individual_court_name` → `name`
+     - `facility_name` → `cluster_group_name`
+     - *Fallback chain for `name`: `fallback_name` → `'Unknown Court'`*
+     - *Fallback chain for `cluster_group_name`: `'Unknown'` (if `facility_name` is NULL)*
+   - **Frontend Display**:
+     - **Popup**: Shows `cluster_group_name` as main heading, `name` as subtitle (if different)
+     - **Marker tooltip**: Shows `name` for individual courts, point count for clusters
+     - **Marker icon**: Sport emoji for individual courts, number for clusters
+   - **Examples**:
+     - **Single court cluster**: `individual_court_name = NULL` → `name = "basketball court (2 hoops)"` (from `fallback_name`)
+     - **Multi-court cluster** (Golden Gate Park, 3 basketball courts, same `facility_name` + `sport`):
+       - Court 1: `name = "Court 1"`, `cluster_group_name = "Golden Gate Park"`, `sport = "basketball"`
+       - Court 2: `name = "Court 2"`, `cluster_group_name = "Golden Gate Park"`, `sport = "basketball"`
+       - Court 3: `name = "Court 3"`, `cluster_group_name = "Golden Gate Park"`, `sport = "basketball"`
+     - **Mixed facility** (Lowell High School, 2 basketball + 1 tennis):
+       - Basketball Court 1: `name = "Court 1"`, `cluster_id = "uuid-456"`, `sport = "basketball"`
+       - Basketball Court 2: `name = "Court 2"`, `cluster_id = "uuid-456"`, `sport = "basketball"`
+       - Tennis Court: `name = "Court 1"`, `cluster_id = "uuid-789"`, `sport = "tennis"` (different cluster due to different sport)
+6. **Transfer** - Move processed data to `courts` table
 
-```bash
-# Install test dependencies
-pip install pytest pytest-cov
-
-# Run tests
-pytest tests/
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Add tests
-4. Update documentation
-5. Submit a pull request
-
-## License
-
-This project is part of CourtPulse and follows the same license terms.
 

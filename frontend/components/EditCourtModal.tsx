@@ -10,7 +10,7 @@ interface CourtData {
   lat: number;
   lng: number;
   surface: string;
-  is_public: boolean;
+  is_public: boolean | null;
   school: boolean;
   cluster_group_name: string | null;
   created_at: string;
@@ -43,7 +43,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     const fetchMetadata = async () => {
       try {
         setIsLoadingMetadata(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
         const response = await fetch(`${apiUrl}/api/courts/metadata`);
         if (response.ok) {
           const result = await response.json();
@@ -86,7 +86,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
       name: formData.name.trim() || null,
       type: formData.type.trim() || court.type,
       surface: formData.surface.trim() || court.surface,
-      is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : court.is_public,
+      is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : null, // Empty string means unknown (null)
       school: formData.school === 'true'
     };
 

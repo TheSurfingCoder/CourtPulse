@@ -12,10 +12,12 @@ export default function Home() {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
+    is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
   }>({
     sport: [], // Show all sports initially
     surface_type: [],
-    school: undefined
+    school: undefined,
+    is_public: undefined // Show all by default
   });
 
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export default function Home() {
   useEffect(() => {
     const fetchMetadataAndSetAllFilters = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
         const response = await fetch(`${apiUrl}/api/courts/metadata`);
         if (response.ok) {
           const result = await response.json();
@@ -44,7 +46,8 @@ export default function Home() {
             setFilters({
               sport: result.data.sports || [],
               surface_type: result.data.surfaceTypes || [],
-              school: undefined
+              school: undefined,
+              is_public: undefined // Show all by default
             });
           }
         }
@@ -55,12 +58,6 @@ export default function Home() {
 
     fetchMetadataAndSetAllFilters();
   }, []);
-
-  const handleRefresh = () => {
-    // Trigger a manual search in the CourtsMap component
-    // This will be handled by the CourtsMap component's internal logic
-    console.log('Refresh triggered');
-  };
 
   const handleLoadingChange = (loading: boolean) => {
     setLoading(loading);
@@ -122,8 +119,6 @@ export default function Home() {
       <main className="flex-1 flex flex-col w-full overflow-hidden">
         <CourtsMap 
           filters={filters}
-          onFiltersChange={setFilters}
-          onRefresh={handleRefresh}
           loading={loading}
           needsNewSearch={needsNewSearch}
           viewport={viewport}
