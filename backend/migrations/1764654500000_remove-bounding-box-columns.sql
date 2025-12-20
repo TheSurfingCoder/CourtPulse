@@ -9,3 +9,6 @@ ALTER TABLE courts DROP COLUMN IF EXISTS bounding_box_coords;
 
 
 
+
+
+
