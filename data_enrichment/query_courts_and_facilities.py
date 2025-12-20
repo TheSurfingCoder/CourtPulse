@@ -324,7 +324,7 @@ class CourtFacilityMatcher:
                     continue
                 
                 osm_type = element.get('type')  # 'node', 'way', or 'relation'
-                osm_id = f"{osm_type}/{element.get('id')}"
+                osm_id = element.get('id')  # numeric ID only
                 
                 # Create bounding box (for points, create a small buffer ~50m)
                 if isinstance(geom, Point):
@@ -378,7 +378,7 @@ class CourtFacilityMatcher:
                 
                 tags = element.get('tags', {})
                 sport = tags.get('sport')
-                osm_id = f"way/{element.get('id')}"
+                osm_id = element.get('id')  # numeric ID only
                 
                 # Get centroid
                 centroid = geom.centroid
