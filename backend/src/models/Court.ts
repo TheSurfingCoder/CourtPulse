@@ -85,7 +85,7 @@ export class CourtModel {
     static async create(courtData: CourtInput): Promise<Court> {
         const { name, type, lat, lng, surface, is_public } = courtData;
         const result = await pool.query(`
-            INSERT INTO courts (enriched_name, sport, centroid, surface_type, is_public, region)
+            INSERT INTO courts (fallback_name, sport, centroid, surface_type, is_public, region)
             VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, 'sf_bay')
             RETURNING 
                 id, 

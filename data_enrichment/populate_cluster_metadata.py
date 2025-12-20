@@ -36,6 +36,7 @@ class ClusterMetadataPopulator:
         Populate cluster_id for courts based on facility_name and sport
         Uses SQL to efficiently group and assign UUIDs in the database
         """
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -147,6 +148,7 @@ class ClusterMetadataPopulator:
         Transfer courts from osm_courts_temp to courts table
         Inserts new courts or updates existing ones by osm_id
         """
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -255,6 +257,7 @@ class ClusterMetadataPopulator:
         Transfer cluster_id from osm_courts_temp to courts table
         Matches courts by osm_id (updates existing rows only)
         """
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
