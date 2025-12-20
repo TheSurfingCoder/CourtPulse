@@ -131,9 +131,14 @@ class CourtFacilityMatcher:
         self._setup_tables()
     
     def _setup_tables(self):
-        """Create staging tables if they don't exist"""
+        """Create staging tables (drop and recreate to ensure correct schema)"""
         # Enable PostGIS
         self.cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+        
+        # Drop existing staging tables to ensure correct schema
+        # These are staging tables - data is transient and repopulated each run
+        self.cursor.execute("DROP TABLE IF EXISTS osm_courts_temp CASCADE;")
+        self.cursor.execute("DROP TABLE IF EXISTS osm_facilities CASCADE;")
         
         # Create osm_facilities staging table
         self.cursor.execute("""
