@@ -131,19 +131,25 @@ class CourtFacilityMatcher:
         self._setup_tables()
     
     def _setup_tables(self):
-        """Create staging tables if they don't exist"""
+        """Create staging tables (drop and recreate to ensure correct schema)"""
         # Enable PostGIS
         self.cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+        
+        # Drop existing staging tables to ensure correct schema
+        # These are staging tables - data is transient and repopulated each run
+        self.cursor.execute("DROP TABLE IF EXISTS osm_courts_temp CASCADE;")
+        self.cursor.execute("DROP TABLE IF EXISTS osm_facilities CASCADE;")
         
         # Create osm_facilities staging table
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS osm_facilities (
                 id SERIAL PRIMARY KEY,
                 osm_id BIGINT UNIQUE,
+                osm_type VARCHAR(20),
                 name VARCHAR(255),
                 facility_type VARCHAR(50),
                 geom GEOMETRY(GEOMETRY, 4326),
-                bbox_polygon GEOMETRY(POLYGON, 4326),
+                bbox GEOMETRY(POLYGON, 4326),
                 tags JSONB,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -157,9 +163,11 @@ class CourtFacilityMatcher:
                 osm_id BIGINT UNIQUE,
                 sport VARCHAR(50),
                 surface VARCHAR(100),
+                geom GEOMETRY(GEOMETRY, 4326),
                 centroid GEOMETRY(POINT, 4326),
                 tags JSONB,
                 facility_id INTEGER REFERENCES osm_facilities(id),
+                facility_name VARCHAR(255),
                 cluster_id UUID,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -169,7 +177,8 @@ class CourtFacilityMatcher:
         # Create indexes for performance
         self.cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_osm_facilities_geom ON osm_facilities USING GIST(geom);
-            CREATE INDEX IF NOT EXISTS idx_osm_facilities_bbox ON osm_facilities USING GIST(bbox_polygon);
+            CREATE INDEX IF NOT EXISTS idx_osm_facilities_bbox ON osm_facilities USING GIST(bbox);
+            CREATE INDEX IF NOT EXISTS idx_osm_courts_temp_geom ON osm_courts_temp USING GIST(geom);
             CREATE INDEX IF NOT EXISTS idx_osm_courts_temp_centroid ON osm_courts_temp USING GIST(centroid);
             CREATE INDEX IF NOT EXISTS idx_osm_courts_temp_facility ON osm_courts_temp(facility_id);
         """)
