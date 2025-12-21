@@ -108,19 +108,39 @@ out geom;"""
         logger.info("Querying facilities (parks, playgrounds, schools, community centres, sports centres, stadiums, sports clubs, places of worship)")
         return self._execute_query(query)
     
-    def _execute_query(self, query: str) -> Dict[str, Any]:
-        """Execute Overpass query"""
-        try:
-            response = requests.post(
-                self.base_url,
-                data={'data': query},
-                timeout=120
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            logger.error(f"Query failed: {e}")
-            raise
+    def _execute_query(self, query: str, max_retries: int = 3) -> Dict[str, Any]:
+        """Execute Overpass query with retry logic and fallback endpoints"""
+        endpoints = [
+            self.base_url,
+            'https://overpass.kumi.systems/api/interpreter',  # Mirror
+        ]
+        backoff_seconds = 30
+        
+        for attempt in range(max_retries):
+            # Alternate between endpoints on retries
+            endpoint = endpoints[attempt % len(endpoints)]
+            
+            try:
+                logger.info(f"Querying {endpoint} (attempt {attempt + 1}/{max_retries})")
+                response = requests.post(
+                    endpoint,
+                    data={'data': query},
+                    timeout=180  # Increased timeout
+                )
+                response.raise_for_status()
+                return response.json()
+            except (requests.Timeout, requests.HTTPError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = backoff_seconds * (2 ** attempt)  # 30s, 60s
+                    logger.warning(f"Overpass API failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Query failed after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Query failed: {e}")
+                raise
 
 class CourtFacilityMatcher:
     """Matches courts to facilities using bounding box containment"""
