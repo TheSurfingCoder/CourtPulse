@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.8.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.7.0...backend-v1.8.0) (2025-12-21)
+
+
+### Features
+
+* add facility_name column to courts table ([86d29f1](https://github.com/TheSurfingCoder/CourtPulse/commit/86d29f13cf8f83ea1a942eadd0b7477335d56a91))
+* **sentry:** add console logging integration and environment config ([bed65c9](https://github.com/TheSurfingCoder/CourtPulse/commit/bed65c9a8c3c74e214ca0d4a7156769aa688bb5e))
+* **sentry:** add console logging integration and environment config ([29cfb74](https://github.com/TheSurfingCoder/CourtPulse/commit/29cfb74764c5ef139896debce5ac45ce8113cb72))
+
+
+### Bug Fixes
+
+* add Sentry tracing headers to CORS allowedHeaders ([81e0bae](https://github.com/TheSurfingCoder/CourtPulse/commit/81e0bae22aa9ca5bc4569153c2fdcabf677b97b6))
+* add Sentry tracing headers to CORS allowedHeaders ([721683f](https://github.com/TheSurfingCoder/CourtPulse/commit/721683fd22a59c15c2ae320d3b3154da263c7716))
+* drop unused materialized views before removing photon_name column ([a8e1d3f](https://github.com/TheSurfingCoder/CourtPulse/commit/a8e1d3fc6d794d05be6560d7cc4f479e0edb41b1))
+* drop unused materialized views before removing photon_name column ([6648fa9](https://github.com/TheSurfingCoder/CourtPulse/commit/6648fa9c87cc975812aa0346f5ba07c39f0b5067))
+* make osm_courts_temp migration conditional ([e5229d7](https://github.com/TheSurfingCoder/CourtPulse/commit/e5229d71d26257d961daf89d4cbb6d14c5e438f4))
+* make osm_courts_temp migration conditional ([286212c](https://github.com/TheSurfingCoder/CourtPulse/commit/286212c03ccd67bc44981620e63a772d889a0903))
+* make osm_facilities migration conditional ([4a8f5d1](https://github.com/TheSurfingCoder/CourtPulse/commit/4a8f5d14270e6b372bafd39630d1cc6d5c4debc3))
+* make osm_facilities migration conditional ([a4e0287](https://github.com/TheSurfingCoder/CourtPulse/commit/a4e02877589858bee6ca6b13d5ba8daaa8341d83))
+* remove jest from tsconfig types after test removal ([12ab51b](https://github.com/TheSurfingCoder/CourtPulse/commit/12ab51b68d032e05781d15cdfd6c7374ccfb4d18))
+* remove jest from tsconfig types after test removal ([c98bf82](https://github.com/TheSurfingCoder/CourtPulse/commit/c98bf820a0060e1dc77fc36a80f8eb400af03af0))
+
 ## [1.7.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.6.0...backend-v1.7.0) (2025-12-20)
 
 

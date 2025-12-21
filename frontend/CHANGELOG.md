@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.13.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.12.0...frontend-v1.13.0) (2025-12-21)
+
+
+### Features
+
+* **sentry:** add console logging integration and environment config ([bed65c9](https://github.com/TheSurfingCoder/CourtPulse/commit/bed65c9a8c3c74e214ca0d4a7156769aa688bb5e))
+* **sentry:** add console logging integration and environment config ([29cfb74](https://github.com/TheSurfingCoder/CourtPulse/commit/29cfb74764c5ef139896debce5ac45ce8113cb72))
+
 ## [1.12.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.11.0...frontend-v1.12.0) (2025-12-20)
 
 
