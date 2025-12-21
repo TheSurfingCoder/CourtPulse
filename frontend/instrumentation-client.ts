@@ -16,6 +16,8 @@ Sentry.init({
   // Add optional integrations for additional features
   integrations: [
     Sentry.replayIntegration(),
+    // Console logging integration - send console.log, console.warn, and console.error to Sentry
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
   ],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
@@ -26,8 +28,8 @@ Sentry.init({
     "localhost",
     /^https:\/\/courtpulse-backend\.onrender\.com/,
   ],
-  // Disable logs to avoid conflict with Pino logging
-  enableLogs: false,
+  // Enable logs to be sent to Sentry
+  enableLogs: true,
 
   // Define how likely Replay events are sampled.
   // This sets the sample rate to be 10%. You may want this to be 100% while
