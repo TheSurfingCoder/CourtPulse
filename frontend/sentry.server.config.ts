@@ -13,6 +13,11 @@ Sentry.init({
   // Explicit release identifier for frontend server-side
   release: `frontend@${process.env.npm_package_version || '1.2.0'}`,
 
+  // Console logging integration - send console.log, console.warn, and console.error to Sentry
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+  ],
+
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
 
@@ -22,8 +27,8 @@ Sentry.init({
     /^https:\/\/courtpulse-backend\.onrender\.com/,
   ],
 
-  // Disable logs to avoid conflict with Pino logging
-  enableLogs: false,
+  // Enable logs to be sent to Sentry
+  enableLogs: true,
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,

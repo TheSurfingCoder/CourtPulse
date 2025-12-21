@@ -16,10 +16,12 @@ Sentry.init({
   // https://docs.sentry.io/platforms/javascript/guides/node/configuration/options/#sendDefaultPii
   sendDefaultPii: true,
   
-  // profiling
+  // profiling and logging integrations
   integrations: [
     // Add our Profiling integration
     nodeProfilingIntegration(),
+    // Console logging integration - send console.log, console.warn, and console.error to Sentry
+    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
   ],
   
   // performance
