@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import * as Sentry from '@sentry/nextjs';
+import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
@@ -508,9 +509,13 @@ export default function CourtsMap({
       }
       
       if (err instanceof NetworkError) {
-        console.error('Network error fetching courts:', err.message);
+        toast.error('Unable to load courts', {
+          description: 'The server may be temporarily unavailable. Please try again.'
+        });
       } else if (err instanceof APIError) {
-        console.error(`API error [${err.code}]:`, err.message);
+        toast.error('Failed to load courts', {
+          description: err.message
+        });
       } else {
         console.error('Unexpected error fetching courts:', err);
       }
@@ -685,6 +690,10 @@ export default function CourtsMap({
       // Use API layer
       const serverUpdatedCourt = await updateCourt(updatedCourt.id, updateData);
       console.log('Court updated:', serverUpdatedCourt.id, serverUpdatedCourt.name);
+      
+      toast.success('Court updated', {
+        description: serverUpdatedCourt.name || 'Changes saved successfully'
+      });
 
       // Clear current viewport's cache and re-fetch
       const { bbox } = calculateBoundingBox(viewport);
@@ -715,20 +724,31 @@ export default function CourtsMap({
       });
       
       // User-friendly error messages based on exception type
-      let userMessage = 'Failed to update court. Please try again.';
-      
       if (err instanceof NetworkError) {
-        userMessage = 'Unable to connect. Please check your internet connection.';
+        toast.error('Unable to connect', {
+          description: 'The server may be temporarily unavailable. Please try again.'
+        });
       } else if (err instanceof APIError) {
         if (err.code === 'COURT_NOT_FOUND') {
-          userMessage = 'This court no longer exists.';
+          toast.error('Court not found', {
+            description: 'This court no longer exists.'
+          });
         } else if (err.code === 'VALIDATION_ERROR') {
-          userMessage = err.message;
+          toast.error('Validation error', {
+            description: err.message
+          });
+        } else {
+          toast.error('Update failed', {
+            description: err.message
+          });
         }
+      } else {
+        toast.error('Update failed', {
+          description: 'Please try again.'
+        });
       }
       
       console.error('Failed to update court:', err);
-      alert(userMessage);
     }
   };
 

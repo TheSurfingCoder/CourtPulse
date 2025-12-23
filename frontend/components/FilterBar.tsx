@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, SlidersIcon } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface FilterBarProps {
   filters: {
@@ -51,6 +52,9 @@ export default function FilterBar({
         }
       } catch (error) {
         console.error('Failed to fetch metadata:', error);
+        toast.error('Unable to load filter options', {
+          description: 'Some filters may be unavailable.'
+        });
       } finally {
         setIsLoadingMetadata(false);
       }

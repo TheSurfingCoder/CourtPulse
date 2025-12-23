@@ -41,10 +41,11 @@ Sentry.init({
   enableLogs: true,
   
   // Disable Sentry in development environment
-  beforeSend(event) {
-    if (process.env.SENTRY_ENVIRONMENT === "development" || process.env.NODE_ENV === "development") {
-      return null; // Drop event in development
-    }
-    return event;
-  },
+  // TODO: Uncomment after testing to disable dev events
+  // beforeSend(event) {
+  //   if (process.env.SENTRY_ENVIRONMENT === "development" || process.env.NODE_ENV === "development") {
+  //     return null; // Drop event in development
+  //   }
+  //   return event;
+  // },
 });
