@@ -1,100 +1,126 @@
-//comment
 import { Request, Response, NextFunction } from 'express';
 import * as Sentry from '@sentry/node';
+import { 
+  AppException, 
+  ValidationException, 
+  NotFoundException, 
+  DatabaseException,
+  TransientException,
+  RateLimitException 
+} from '../exceptions';
 
-export interface AppError extends Error {
-  statusCode?: number;
-  isOperational?: boolean;
-  code?: number;
-}
-
-export class CustomError extends Error implements AppError {
-  statusCode: number;
-  isOperational: boolean;
-
-  constructor(message: string, statusCode: number = 500) {
-    super(message);
-    this.statusCode = statusCode;
-    this.isOperational = true;
-
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
-
+/**
+ * Central error handler for all exceptions.
+ * 
+ * This is the HTTP BOUNDARY - all errors flow here and get:
+ * 1. Captured in Sentry with tags (Sentry handles trace linking via sentry-trace header)
+ * 2. Transformed into consistent HTTP responses
+ */
 export const errorHandler = (
-  err: AppError,
+  err: Error,
   req: Request,
-  res: Response
+  res: Response,
+  _next: NextFunction
 ) => {
-  let error = { ...err };
-  error.message = err.message;
+  // Determine if this is an operational error (expected) vs programming error (bug)
+  const isOperational = err instanceof AppException && err.isOperational;
 
-  // Log error for debugging (existing structured logging)
-  console.error(JSON.stringify({
-    level: 'error',
-    message: 'Request error occurred',
-    error: {
-      name: err.name,
-      message: err.message,
-      stack: err.stack
-    },
-    request: {
-      method: req.method,
-      url: req.url,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    },
-    timestamp: new Date().toISOString()
-  }));
-
-  // Send error to Sentry with context
+  // Capture in Sentry with rich context
+  // Sentry automatically links traces via sentry-trace/baggage headers
   Sentry.withScope((scope: Sentry.Scope) => {
     scope.setTag('errorType', err.name);
+    scope.setTag('isOperational', String(isOperational));
+    
+    if (err instanceof AppException) {
+      scope.setTag('errorCode', err.code);
+      scope.setTag('statusCode', String(err.statusCode));
+    }
+    
     scope.setContext('request', {
       method: req.method,
       url: req.url,
+      path: req.path,
+      query: req.query,
       userAgent: req.get('User-Agent'),
-      ip: req.ip,
-      headers: req.headers
+      ip: req.ip
     });
-    scope.setLevel('error');
+    
+    // Set severity based on error type
+    if (err instanceof ValidationException || err instanceof NotFoundException) {
+      scope.setLevel('warning');
+    } else if (err instanceof DatabaseException || !isOperational) {
+      scope.setLevel('error');
+    } else {
+      scope.setLevel('info');
+    }
+    
     Sentry.captureException(err);
   });
 
-  // Handle specific error types
-  if (err.name === 'ValidationError') {
-    const message = Object.values(err).map((val: any) => val.message).join(', ');
-    error = new CustomError(message, 400);
+  // Build response based on exception type
+  if (err instanceof AppException) {
+    const response: Record<string, unknown> = {
+      success: false,
+      error: err.message,
+      code: err.code
+    };
+
+    // Add stack trace in development
+    if (process.env.NODE_ENV === 'development') {
+      response.stack = err.stack;
+    }
+
+    // Add retry-after header for rate limiting
+    if (err instanceof RateLimitException) {
+      res.setHeader('Retry-After', err.retryAfter);
+    }
+
+    // Add retry-after header for transient errors
+    if (err instanceof TransientException && err.retryAfter) {
+      res.setHeader('Retry-After', err.retryAfter);
+    }
+
+    return res.status(err.statusCode).json(response);
   }
 
-  if (err.name === 'CastError') {
-    const message = 'Resource not found';
-    error = new CustomError(message, 404);
-  }
-
-  if (err.code === 11000) {
-    const message = 'Duplicate field value entered';
-    error = new CustomError(message, 400);
-  }
-
-  if (err.name === 'JsonWebTokenError') {
-    const message = 'Invalid token';
-    error = new CustomError(message, 401);
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    const message = 'Token expired';
-    error = new CustomError(message, 401);
-  }
-
-  res.status(error.statusCode || 500).json({
+  // Handle unknown/programming errors
+  // Don't expose internal details to clients
+  const response: Record<string, unknown> = {
     success: false,
-    message: error.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+    error: 'An unexpected error occurred',
+    code: 'INTERNAL_ERROR'
+  };
+
+  // Add details in development
+  if (process.env.NODE_ENV === 'development') {
+    response.message = err.message;
+    response.stack = err.stack;
+  }
+
+  return res.status(500).json(response);
 };
 
-export const notFound = (req: Request, res: Response, next: NextFunction) => {
-  const error = new CustomError(`Route ${req.originalUrl} not found`, 404);
-  next(error);
+/**
+ * 404 handler for unknown routes
+ */
+export const notFound = (req: Request, _res: Response, next: NextFunction) => {
+  const { RouteNotFoundException } = require('../exceptions');
+  next(new RouteNotFoundException(req.originalUrl));
+};
+
+/**
+ * Async handler wrapper - catches async errors and passes to errorHandler
+ * 
+ * Usage:
+ *   router.get('/courts', asyncHandler(async (req, res) => {
+ *     const courts = await CourtModel.findAll();
+ *     res.json({ success: true, data: courts });
+ *   }));
+ */
+export const asyncHandler = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>
+) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 };
