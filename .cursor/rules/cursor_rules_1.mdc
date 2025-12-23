@@ -1,0 +1,977 @@
+# Exception Handling Guidelines for Full-Stack TypeScript Applications
+
+## Core Philosophy: Catch at Boundaries, Throw Everywhere Else
+
+Exceptions should bubble UP through your application layers until they reach a boundary where they can be:
+1. Transformed into appropriate responses (HTTP status codes, user messages)
+2. Logged with sufficient context for debugging
+3. Captured to monitoring tools (Sentry, DataDog, etc.)
+
+```
+┌─────────────────────────────────────────────┐
+│  Frontend UI Components                     │ ← USER BOUNDARY (catch here)
+├─────────────────────────────────────────────┤
+│  Frontend API Layer (fetch calls)           │ ← NETWORK BOUNDARY (catch here)
+├─────────────────────────────────────────────┤
+│  Backend API Routes                         │ ← HTTP BOUNDARY (catch here)
+├─────────────────────────────────────────────┤
+│  Business Logic / Models                    │ ← throw, don't catch
+├─────────────────────────────────────────────┤
+│  Database Queries                           │ ← throw, don't catch
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## Layer-by-Layer Exception Handling Rules
+
+### Layer 1: Database Layer (Throw, Don't Catch)
+
+**Rule:** Let database errors bubble up. Only throw more specific errors if needed.
+
+```typescript
+// ✅ GOOD: Just throw if there's an error
+export async function getCourtsByGeography(lat: number, lng: number, radius: number) {
+  const { data, error } = await supabase
+    .rpc('courts_within_radius', { lat, lng, radius });
+  
+  if (error) {
+    throw new Error(`Database query failed: ${error.message}`);
+  }
+  
+  return data;
+}
+
+// ✅ GOOD: Transform specific database errors into meaningful ones
+export async function createReservation(courtId: string, userId: string, timeSlot: string) {
+  const { data, error } = await supabase
+    .from('reservations')
+    .insert({ court_id: courtId, user_id: userId, time_slot: timeSlot })
+    .select()
+    .single();
+  
+  if (error) {
+    if (error.code === '23505') { // PostgreSQL unique constraint violation
+      throw new Error('Time slot already reserved');
+    }
+    if (error.code === '23503') { // Foreign key violation
+      throw new Error('Invalid court or user ID');
+    }
+    throw new Error(`Database error: ${error.message}`);
+  }
+  
+  return data;
+}
+
+// ❌ BAD: Don't catch and return null/undefined
+export async function getCourtsByGeography(lat: number, lng: number, radius: number) {
+  try {
+    const { data } = await supabase.rpc('courts_within_radius', { lat, lng, radius });
+    return data;
+  } catch (error) {
+    console.error(error);
+    return null; // Hides the error from caller!
+  }
+}
+```
+
+**Key Points:**
+- Never swallow errors with try-catch at this layer
+- Transform database-specific error codes into readable messages
+- Let all errors bubble up to business logic layer
+
+---
+
+### Layer 2: Business Logic / Models (Throw Custom Exceptions)
+
+**Rule:** Define custom exception classes for business domain errors. Transform technical errors into business errors.
+
+```typescript
+// Define custom exceptions that represent business outcomes
+export class CourtNotFoundError extends Error {
+  constructor(courtId: string) {
+    super(`Court ${courtId} not found`);
+    this.name = 'CourtNotFoundError';
+  }
+}
+
+export class ReservationConflictError extends Error {
+  constructor(timeSlot: string) {
+    super(`Time slot ${timeSlot} is already reserved`);
+    this.name = 'ReservationConflictError';
+  }
+}
+
+export class InvalidCoordinatesError extends Error {
+  constructor(lat: number, lng: number) {
+    super(`Invalid coordinates: ${lat}, ${lng}`);
+    this.name = 'InvalidCoordinatesError';
+  }
+}
+
+export class Court {
+  // ✅ GOOD: Throw domain-specific errors
+  static async findNearby(lat: number, lng: number, radius: number = 5) {
+    // Validate inputs
+    if (!isFinite(lat) || !isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw new InvalidCoordinatesError(lat, lng);
+    }
+    
+    // Let database layer throw
+    const courts = await getCourtsByGeography(lat, lng, radius);
+    
+    if (!courts || courts.length === 0) {
+      throw new CourtNotFoundError('nearby');
+    }
+    
+    return courts;
+  }
+  
+  // ✅ GOOD: Transform database errors into business errors
+  static async reserve(courtId: string, userId: string, timeSlot: string) {
+    try {
+      const reservation = await createReservation(courtId, userId, timeSlot);
+      return reservation;
+    } catch (error) {
+      // Transform database errors into business domain errors
+      if (error instanceof Error && error.message.includes('already reserved')) {
+        throw new ReservationConflictError(timeSlot);
+      }
+      // Unknown errors bubble up unchanged
+      throw error;
+    }
+  }
+}
+
+// ❌ BAD: Catching without adding value
+export class Court {
+  static async findNearby(lat: number, lng: number, radius: number = 5) {
+    try {
+      const courts = await getCourtsByGeography(lat, lng, radius);
+      return courts;
+    } catch (error) {
+      console.error('Error finding courts:', error);
+      throw error; // Just re-throwing adds no value
+    }
+  }
+}
+```
+
+**Key Points:**
+- Create custom exception classes for each business error scenario
+- Exception names should be self-documenting (ReservationConflictError, CourtNotFoundError)
+- Only catch if you're transforming errors into business domain errors
+- Use instanceof checks for exception hierarchy
+
+---
+
+### Layer 3: Backend API Routes (CATCH at HTTP Boundary)
+
+**Rule:** This is the first layer where you MUST catch all exceptions. Transform them into appropriate HTTP responses.
+
+```typescript
+// app/api/courts/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
+import { Court, CourtNotFoundError, InvalidCoordinatesError } from '@/lib/models/Court';
+
+// ✅ GOOD: Comprehensive error handling at HTTP boundary
+export async function GET(request: NextRequest) {
+  const correlationId = request.headers.get('x-correlation-id') || crypto.randomUUID();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const lat = parseFloat(searchParams.get('lat') || '');
+    const lng = parseFloat(searchParams.get('lng') || '');
+    const radius = parseFloat(searchParams.get('radius') || '5');
+    
+    // Early validation (fail fast)
+    if (isNaN(lat) || isNaN(lng)) {
+      return NextResponse.json(
+        { error: 'Invalid coordinates provided', code: 'INVALID_PARAMS' },
+        { status: 400 }
+      );
+    }
+    
+    // Call business logic - let it throw
+    const courts = await Court.findNearby(lat, lng, radius);
+    
+    return NextResponse.json({ courts });
+    
+  } catch (error) {
+    // CRITICAL: Catch ALL errors at this boundary
+    
+    // Log to Sentry with context
+    Sentry.captureException(error, {
+      tags: { 
+        endpoint: '/api/courts',
+        correlationId,
+        method: 'GET'
+      },
+      extra: {
+        lat: request.nextUrl.searchParams.get('lat'),
+        lng: request.nextUrl.searchParams.get('lng'),
+        radius: request.nextUrl.searchParams.get('radius')
+      }
+    });
+    
+    // Map business exceptions to HTTP responses
+    if (error instanceof InvalidCoordinatesError) {
+      return NextResponse.json(
+        { error: 'Invalid coordinates provided', code: 'INVALID_COORDINATES' },
+        { status: 400 }
+      );
+    }
+    
+    if (error instanceof CourtNotFoundError) {
+      return NextResponse.json(
+        { error: 'No courts found in this area', code: 'NOT_FOUND' },
+        { status: 404 }
+      );
+    }
+    
+    // Unknown errors get generic 500
+    console.error('Unexpected error in GET /api/courts:', error);
+    return NextResponse.json(
+      { error: 'An unexpected error occurred', code: 'INTERNAL_ERROR' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const correlationId = crypto.randomUUID();
+  
+  try {
+    const body = await request.json();
+    const { courtId, userId, timeSlot } = body;
+    
+    // Validation
+    if (!courtId || !userId || !timeSlot) {
+      return NextResponse.json(
+        { error: 'Missing required fields', code: 'MISSING_FIELDS' },
+        { status: 400 }
+      );
+    }
+    
+    const reservation = await Court.reserve(courtId, userId, timeSlot);
+    
+    return NextResponse.json({ reservation }, { status: 201 });
+    
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { endpoint: '/api/reservations', correlationId }
+    });
+    
+    if (error instanceof ReservationConflictError) {
+      return NextResponse.json(
+        { 
+          error: 'This time slot is already reserved',
+          code: 'RESERVATION_CONFLICT'
+        },
+        { status: 409 }
+      );
+    }
+    
+    console.error('Unexpected error in POST /api/reservations:', error);
+    return NextResponse.json(
+      { error: 'Failed to create reservation', code: 'INTERNAL_ERROR' },
+      { status: 500 }
+    );
+  }
+}
+
+// ❌ BAD: Not catching errors
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const lat = parseFloat(searchParams.get('lat') || '');
+  const lng = parseFloat(searchParams.get('lng') || '');
+  
+  // If this throws, Next.js will show generic 500 with no context
+  const courts = await Court.findNearby(lat, lng);
+  
+  return NextResponse.json({ courts });
+}
+
+// ❌ BAD: Inconsistent error responses
+export async function GET(request: NextRequest) {
+  try {
+    const courts = await Court.findNearby(lat, lng);
+    return NextResponse.json({ courts });
+  } catch (error) {
+    // Returning different response shapes is confusing for clients
+    if (error instanceof CourtNotFoundError) {
+      return NextResponse.json({ message: 'Not found' }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+```
+
+**HTTP Status Code Guidelines:**
+- `400 Bad Request` - Invalid input from client (validation errors)
+- `401 Unauthorized` - Missing or invalid authentication
+- `403 Forbidden` - Authenticated but not authorized
+- `404 Not Found` - Resource doesn't exist
+- `409 Conflict` - Resource state conflict (e.g., already reserved)
+- `422 Unprocessable Entity` - Valid syntax but semantic errors
+- `500 Internal Server Error` - Unexpected server errors
+- `503 Service Unavailable` - Temporary unavailability (use with circuit breakers)
+
+**Error Response Format (be consistent):**
+```typescript
+{
+  error: string,      // Human-readable message
+  code: string,       // Machine-readable error code
+  details?: object    // Optional additional context
+}
+```
+
+---
+
+### Layer 4: Frontend API Layer (CATCH at Network Boundary)
+
+**Rule:** Transform fetch errors and HTTP errors into typed exceptions that UI components can handle.
+
+```typescript
+// lib/api/courtsApi.ts
+
+// Define frontend-specific exceptions
+export class NetworkError extends Error {
+  constructor(message: string, public statusCode?: number) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+export class APIError extends Error {
+  constructor(
+    message: string, 
+    public code?: string, 
+    public statusCode?: number,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+// ✅ GOOD: Comprehensive error transformation
+export async function fetchNearbyCourts(lat: number, lng: number, radius: number = 5) {
+  const correlationId = crypto.randomUUID();
+  
+  try {
+    const response = await fetch(
+      `/api/courts?lat=${lat}&lng=${lng}&radius=${radius}`,
+      {
+        headers: {
+          'x-correlation-id': correlationId
+        }
+      }
+    );
+    
+    // Check for HTTP errors
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new APIError(
+        errorData.error || 'Failed to fetch courts',
+        errorData.code,
+        response.status,
+        errorData.details
+      );
+    }
+    
+    const data = await response.json();
+    return data.courts;
+    
+  } catch (error) {
+    // Transform network errors (offline, timeout, DNS failure)
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new NetworkError('Unable to connect to server. Please check your internet connection.');
+    }
+    
+    // Re-throw API errors as-is
+    if (error instanceof APIError) {
+      throw error;
+    }
+    
+    // Unknown errors
+    console.error('Unexpected error in fetchNearbyCourts:', error);
+    throw new NetworkError('An unexpected error occurred');
+  }
+}
+
+export async function createReservation(courtId: string, userId: string, timeSlot: string) {
+  const correlationId = crypto.randomUUID();
+  
+  try {
+    const response = await fetch('/api/reservations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-correlation-id': correlationId
+      },
+      body: JSON.stringify({ courtId, userId, timeSlot })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new APIError(
+        errorData.error,
+        errorData.code,
+        response.status
+      );
+    }
+    
+    const data = await response.json();
+    return data.reservation;
+    
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new NetworkError('Connection failed. Please try again.');
+    }
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new NetworkError('An unexpected error occurred');
+  }
+}
+
+// ❌ BAD: Not checking response.ok
+export async function fetchNearbyCourts(lat: number, lng: number) {
+  const response = await fetch(`/api/courts?lat=${lat}&lng=${lng}`);
+  const data = await response.json(); // This might be an error object!
+  return data.courts; // Might be undefined
+}
+
+// ❌ BAD: Swallowing errors
+export async function fetchNearbyCourts(lat: number, lng: number) {
+  try {
+    const response = await fetch(`/api/courts?lat=${lat}&lng=${lng}`);
+    return await response.json();
+  } catch (error) {
+    console.error(error);
+    return []; // Caller has no idea an error occurred
+  }
+}
+```
+
+**Key Points:**
+- Always check `response.ok` before parsing JSON
+- Transform TypeError (network failures) into NetworkError
+- Preserve error codes from backend for specific handling
+- Include correlation IDs for distributed tracing
+
+---
+
+### Layer 5: Frontend UI Components (CATCH at User Boundary)
+
+**Rule:** This is the final boundary. Transform all exceptions into user-friendly messages and UI states.
+
+```typescript
+// components/CourtsMap.tsx
+'use client';
+
+import { useState } from 'react';
+import { fetchNearbyCourts, NetworkError, APIError } from '@/lib/api/courtsApi';
+import * as Sentry from '@sentry/nextjs';
+
+// ✅ GOOD: Comprehensive error handling with user-friendly messages
+export default function CourtsMap() {
+  const [courts, setCourts] = useState([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function loadCourts(lat: number, lng: number) {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const courtsData = await fetchNearbyCourts(lat, lng, 5);
+      setCourts(courtsData);
+      
+    } catch (err) {
+      // USER BOUNDARY: Transform into user-friendly messages
+      
+      // Log to Sentry with context
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap' },
+        extra: { lat, lng }
+      });
+      
+      // Map exceptions to user messages
+      if (err instanceof NetworkError) {
+        setError('Unable to connect. Please check your internet connection and try again.');
+      } else if (err instanceof APIError) {
+        switch (err.code) {
+          case 'NOT_FOUND':
+            setError('No courts found in this area. Try expanding your search radius.');
+            break;
+          case 'INVALID_COORDINATES':
+            setError('Invalid location. Please select a different area.');
+            break;
+          default:
+            setError('Something went wrong. Please try again.');
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
+      
+      console.error('Error loading courts:', err);
+      
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      {loading && <div className="loading-spinner">Loading courts...</div>}
+      
+      {error && (
+        <div className="error-banner" role="alert">
+          <span className="error-icon">⚠️</span>
+          {error}
+          <button onClick={() => loadCourts(lat, lng)}>Try Again</button>
+        </div>
+      )}
+      
+      {!loading && !error && courts.length === 0 && (
+        <div className="empty-state">
+          No courts found. Try a different location.
+        </div>
+      )}
+      
+      {/* Map rendering */}
+    </div>
+  );
+}
+
+// ✅ GOOD: Specific error handling for reservation conflicts
+export function ReservationForm({ courtId, userId }: Props) {
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(timeSlot: string) {
+    setError(null);
+    setSuccess(false);
+    setSubmitting(true);
+    
+    try {
+      await createReservation(courtId, userId, timeSlot);
+      setSuccess(true);
+      
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { component: 'ReservationForm' },
+        extra: { courtId, timeSlot }
+      });
+      
+      if (err instanceof APIError) {
+        switch (err.code) {
+          case 'RESERVATION_CONFLICT':
+            setError('This time slot was just reserved. Please choose another time.');
+            break;
+          case 'MISSING_FIELDS':
+            setError('Please fill in all required fields.');
+            break;
+          default:
+            setError('Failed to create reservation. Please try again.');
+        }
+      } else if (err instanceof NetworkError) {
+        setError('Connection lost. Please check your internet and try again.');
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(selectedTime); }}>
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
+      
+      {success && (
+        <div className="success-message" role="status">
+          ✓ Reservation confirmed!
+        </div>
+      )}
+      
+      <button type="submit" disabled={submitting}>
+        {submitting ? 'Reserving...' : 'Reserve Court'}
+      </button>
+    </form>
+  );
+}
+
+// ❌ BAD: Showing technical errors to users
+export default function CourtsMap() {
+  const [error, setError] = useState<string | null>(null);
+  
+  async function loadCourts(lat: number, lng: number) {
+    try {
+      const courts = await fetchNearbyCourts(lat, lng);
+      setCourts(courts);
+    } catch (err) {
+      // Don't show technical error messages to users!
+      setError(err.message); // "Database query failed: relation courts_nearby does not exist"
+    }
+  }
+  
+  return <div>{error && <div>{error}</div>}</div>;
+}
+
+// ❌ BAD: Not handling errors at all
+export default function CourtsMap() {
+  async function loadCourts(lat: number, lng: number) {
+    // If this throws, it will crash the component
+    const courts = await fetchNearbyCourts(lat, lng);
+    setCourts(courts);
+  }
+}
+```
+
+**User Message Guidelines:**
+- **Network errors:** "Unable to connect. Please check your internet connection."
+- **Not found:** "No results found. Try [specific action]."
+- **Validation:** "Please [specific fix needed]."
+- **Conflicts:** "[What happened]. Please [alternative action]."
+- **Unknown errors:** "Something went wrong. Please try again."
+- Always provide a path forward (retry button, alternative action, contact support)
+
+---
+
+## Exception Hierarchy for Distributed Systems
+
+When building microservices or calling external APIs, use exception hierarchies that map to recovery strategies:
+
+```typescript
+// Base exception
+export class ServiceException extends Error {
+  constructor(message: string, public serviceName?: string) {
+    super(message);
+    this.name = 'ServiceException';
+  }
+}
+
+// Transient errors (retry these)
+export class TransientException extends ServiceException {
+  constructor(message: string, serviceName?: string) {
+    super(message, serviceName);
+    this.name = 'TransientException';
+  }
+}
+
+export class NetworkTimeoutException extends TransientException {
+  constructor(serviceName: string, timeoutMs: number) {
+    super(`${serviceName} timed out after ${timeoutMs}ms`, serviceName);
+    this.name = 'NetworkTimeoutException';
+  }
+}
+
+export class ServiceUnavailableException extends TransientException {
+  constructor(serviceName: string) {
+    super(`${serviceName} is temporarily unavailable`, serviceName);
+    this.name = 'ServiceUnavailableException';
+  }
+}
+
+export class RateLimitException extends TransientException {
+  constructor(serviceName: string, public retryAfter: number) {
+    super(`Rate limit exceeded for ${serviceName}`, serviceName);
+    this.name = 'RateLimitException';
+  }
+}
+
+// Permanent errors (don't retry)
+export class PermanentException extends ServiceException {
+  constructor(message: string, serviceName?: string) {
+    super(message, serviceName);
+    this.name = 'PermanentException';
+  }
+}
+
+export class ValidationException extends PermanentException {}
+export class AuthenticationException extends PermanentException {}
+export class AuthorizationException extends PermanentException {}
+export class ResourceNotFoundException extends PermanentException {}
+
+// Compensatable errors (need rollback/compensation)
+export class CompensatableException extends ServiceException {
+  constructor(message: string, serviceName?: string) {
+    super(message, serviceName);
+    this.name = 'CompensatableException';
+  }
+}
+
+export class PaymentFailedException extends CompensatableException {}
+export class InventoryReservationException extends CompensatableException {}
+```
+
+**Recovery strategy based on exception type:**
+
+```typescript
+async function processOrder(orderData: OrderData) {
+  try {
+    return await createOrder(orderData);
+  } catch (error) {
+    // Retry transient errors
+    if (error instanceof TransientException) {
+      if (error instanceof RateLimitException) {
+        await sleep(error.retryAfter * 1000);
+      }
+      return await retryWithExponentialBackoff(() => createOrder(orderData));
+    }
+    
+    // Compensate for partial failures
+    if (error instanceof CompensatableException) {
+      await compensateOrder(orderData);
+      throw new OrderFailedException('Order failed and was rolled back', error);
+    }
+    
+    // Permanent errors - fail fast
+    throw error;
+  }
+}
+```
+
+---
+
+## Distributed Tracing with Correlation IDs
+
+Every request should have a correlation ID that flows through all services:
+
+```typescript
+// Backend: Generate or accept correlation ID
+export async function GET(request: NextRequest) {
+  const correlationId = request.headers.get('x-correlation-id') || crypto.randomUUID();
+  
+  try {
+    // Pass to downstream services
+    const data = await fetch('https://external-api.com/data', {
+      headers: { 'x-correlation-id': correlationId }
+    });
+    
+    return NextResponse.json({ data });
+  } catch (error) {
+    // Include in logs
+    Sentry.captureException(error, {
+      tags: { correlationId }
+    });
+    
+    console.error(`[${correlationId}] Error in GET /api/data:`, error);
+    
+    return NextResponse.json(
+      { error: 'Failed to fetch data', correlationId },
+      { status: 500 }
+    );
+  }
+}
+
+// Frontend: Generate correlation ID for each request
+export async function fetchData() {
+  const correlationId = crypto.randomUUID();
+  
+  try {
+    const response = await fetch('/api/data', {
+      headers: { 'x-correlation-id': correlationId }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new APIError(error.message, error.correlationId);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error(`[${correlationId}] Fetch failed:`, error);
+    throw error;
+  }
+}
+```
+
+---
+
+## Logging Best Practices
+
+**What to log at each layer:**
+
+```typescript
+// Database Layer: Log queries and performance
+console.debug('[DB] Executing query:', { 
+  query: 'courts_within_radius', 
+  params: { lat, lng, radius },
+  duration: endTime - startTime 
+});
+
+// Business Logic Layer: Log business events
+console.info('[Business] Court reservation attempted:', {
+  courtId,
+  userId,
+  timeSlot,
+  status: 'conflict'
+});
+
+// API Layer: Log all errors with full context
+console.error('[API] Request failed:', {
+  endpoint: '/api/courts',
+  method: 'GET',
+  correlationId,
+  error: error.message,
+  stack: error.stack,
+  params: { lat, lng, radius },
+  userId: request.user?.id
+});
+
+// Frontend: Log user-impacting errors only
+console.error('[UI] Failed to load courts:', {
+  component: 'CourtsMap',
+  error: error.message,
+  userMessage: 'No courts found in this area'
+});
+```
+
+**Sentry context enrichment:**
+
+```typescript
+Sentry.captureException(error, {
+  tags: {
+    component: 'CourtsMap',
+    endpoint: '/api/courts',
+    correlationId: correlationId
+  },
+  extra: {
+    lat: lat,
+    lng: lng,
+    radius: radius,
+    userId: user?.id,
+    userAgent: navigator.userAgent
+  },
+  level: error instanceof ValidationException ? 'warning' : 'error'
+});
+```
+
+---
+
+## Common Anti-Patterns to Avoid
+
+### ❌ Silent Failures
+
+```typescript
+// BAD: Error is swallowed
+try {
+  await saveData(data);
+} catch (error) {
+  console.log('Error saving data');
+  // No throw, no user notification
+}
+```
+
+### ❌ Generic Error Messages
+
+```typescript
+// BAD: Not helpful to users
+catch (error) {
+  setError('Error occurred');
+}
+
+// GOOD: Specific and actionable
+catch (error) {
+  if (error instanceof NetworkError) {
+    setError('Unable to connect. Please check your internet connection.');
+  }
+}
+```
+
+### ❌ Catching Without Adding Value
+
+```typescript
+// BAD: Just re-throwing
+try {
+  const data = await fetchData();
+  return data;
+} catch (error) {
+  console.error(error);
+  throw error; // Adds no value
+}
+
+// GOOD: Transform or add context
+try {
+  const data = await fetchData();
+  return data;
+} catch (error) {
+  throw new DataFetchError('Failed to load user data', error);
+}
+```
+
+### ❌ Exposing Internal Errors to Users
+
+```typescript
+// BAD: Shows database error
+setError(error.message); // "relation 'courts' does not exist"
+
+// GOOD: User-friendly message
+setError('Unable to load courts. Please try again.');
+```
+
+### ❌ Inconsistent Error Response Formats
+
+```typescript
+// BAD: Different shapes
+return { error: 'Not found' };           // Shape 1
+return { message: 'Invalid input' };     // Shape 2
+return { err: 'Server error' };          // Shape 3
+
+// GOOD: Consistent shape
+return { 
+  error: string,
+  code: string,
+  details?: object 
+};
+```
+
+---
+
+## Quick Reference Checklist
+
+**Database Layer:**
+- [ ] Throw errors, don't catch
+- [ ] Transform database error codes into readable messages
+- [ ] No try-catch unless transforming errors
+
+**Business Logic Layer:**
+- [ ] Define custom exception classes for domain errors
+- [ ] Use instanceof for exception type checking
+- [ ] Only catch to transform technical → business errors
+
+**Backend API Routes:**
+- [ ] MUST catch all exceptions
+- [ ] Map exceptions to HTTP status codes (400, 404, 409, 500)
+- [ ] Log to Sentry with correlation ID
+- [ ] Return consistent error format
+- [ ] Include error codes for client handling
+
+**Frontend API Layer:**
+- [ ] Check response.ok before parsing JSON
+- [ ] Transform TypeError into NetworkError
+- [ ] Preserve error codes from backend
+- [ ] Include correlation IDs
+
+**Frontend UI Components:**
+- [ ] MUST catch all exceptions
+- [ ] Transform into user-friendly messages
+- [ ] Show loading/error/success states
+- [ ] Log to Sentry with component context
+- [ ] Provide retry/alternative actions
+
+**All Layers:**
+- [ ] Use correlation IDs for distributed tracing
+- [ ] Log with appropriate context
+- [ ] Never expose internal errors to users
+- [ ] Follow single responsibility (each layer adds value)

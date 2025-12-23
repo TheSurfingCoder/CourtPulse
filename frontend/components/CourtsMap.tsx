@@ -3,24 +3,18 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
+import * as Sentry from '@sentry/nextjs';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
-
-
-interface Court {
-  id: number;
-  name: string | null;
-  type: string;
-  lat: number;
-  lng: number;
-  surface: string;
-  is_public: boolean | null;
-  school: boolean;
-  cluster_group_name: string | null;
-  created_at: string;
-  updated_at: string;
-}
+import { 
+  searchCourts, 
+  updateCourt, 
+  NetworkError, 
+  APIError, 
+  RateLimitError,
+  type Court 
+} from '@/lib/api';
 
 interface CourtsMapProps {
   className?: string;
@@ -442,7 +436,6 @@ export default function CourtsMap({
     
     try {
       onLoadingChange(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
       
       // Calculate bounding box from current viewport
       const { bbox } = calculateBoundingBox(viewport);
@@ -467,11 +460,9 @@ export default function CourtsMap({
       if (courtCache.current.size >= MAX_CACHE_SIZE) {
         const oldestKey = cacheKeysOrder.current[0];
         if (oldestKey) {
-          // Remove from cache
           courtCache.current.delete(oldestKey);
           cacheKeysOrder.current.shift();
           
-          // Remove courts from state that belong to this bbox
           const courtsToRemove = courtsByBbox.current[oldestKey] || [];
           const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
           setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
@@ -480,55 +471,50 @@ export default function CourtsMap({
         }
       }
       
-      // Build query parameters - get all courts in area (no filters)
-      const queryParams = new URLSearchParams({
-        zoom: viewport.zoom.toString(),
-        bbox: bbox.join(',')
-      });
-      
       console.log('Fetching courts for bbox:', bbox, 'zoom:', viewport.zoom);
       
-      const response = await fetch(`${apiUrl}/api/courts/search?${queryParams.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        mode: 'cors',
-        credentials: 'omit'
+      // Use API layer instead of direct fetch
+      const courtsData = await searchCourts({
+        bbox: bbox,
+        zoom: viewport.zoom
       });
       
-      if (!response.ok) {
-        // Handle rate limiting specifically
-        if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
-          const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-          onRateLimitExceeded(retryAfterSeconds);
-          return; // Don't throw error, just return early
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Add bbox to cache
+      courtCache.current.add(cacheKey);
+      cacheKeysOrder.current.push(cacheKey);
       
-      const result = await response.json();
+      // Track which courts belong to this bbox (for eviction)
+      courtsByBbox.current[cacheKey] = courtsData;
       
-      if (result.success && Array.isArray(result.data)) {
-        // Add bbox to cache
-        courtCache.current.add(cacheKey);
-        cacheKeysOrder.current.push(cacheKey);
-        
-        // Track which courts belong to this bbox (for eviction)
-        courtsByBbox.current[cacheKey] = result.data;
-        
-        // Add all courts to accumulated state (no filtering - filters applied via filteredCourts)
-        setCourts(prevCourts => mergeCourts(prevCourts, result.data));
-        
-        console.log('Fetched', result.data.length, 'courts');
-        
-        onNeedsNewSearchChange(false);
-      } else {
-        throw new Error(result.message || 'Failed to fetch courts');
-      }
+      // Add all courts to accumulated state
+      setCourts(prevCourts => mergeCourts(prevCourts, courtsData));
+      
+      console.log('Fetched', courtsData.length, 'courts');
+      onNeedsNewSearchChange(false);
+      
     } catch (err) {
-      console.error('Failed to fetch courts:', err);
+      // CATCH at UI boundary - capture to Sentry with context
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap', action: 'fetchCourtsForArea' },
+        extra: {
+          viewport: { lat: viewport.latitude, lng: viewport.longitude, zoom: viewport.zoom }
+        }
+      });
+      
+      // Handle specific error types
+      if (err instanceof RateLimitError) {
+        onRateLimitExceeded(err.retryAfter);
+        return;
+      }
+      
+      if (err instanceof NetworkError) {
+        console.error('Network error fetching courts:', err.message);
+      } else if (err instanceof APIError) {
+        console.error(`API error [${err.code}]:`, err.message);
+      } else {
+        console.error('Unexpected error fetching courts:', err);
+      }
+      
       onNeedsNewSearchChange(false);
     } finally {
       onLoadingChange(false);
@@ -664,10 +650,15 @@ export default function CourtsMap({
   // Handle save from edit modal
   const handleSaveCourt = async (updatedCourt: Court) => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
-      
-      // Map frontend fields to backend fields
-      const updateData: Record<string, any> = {
+      // Build update payload
+      const updateData: {
+        name: string | null;
+        type: string;
+        surface: string;
+        is_public: boolean | null;
+        school: boolean;
+        cluster_fields?: { cluster_group_name?: string | null };
+      } = {
         name: updatedCourt.name,
         type: updatedCourt.type,
         surface: updatedCourt.surface,
@@ -675,79 +666,69 @@ export default function CourtsMap({
         school: updatedCourt.school
       };
 
-      const clusterFields: Record<string, string | null> = {};
-      // Track previous (current stored label) vs next (user-entered) cluster name to decide if we need a cluster-wide rename
+      // Track previous vs next cluster name
       const nextClusterName = updatedCourt.cluster_group_name ?? null;
-      
-      // Get previous cluster name from editingCourt if it matches, otherwise look it up in courts array
       let previousClusterName: string | null = null;
+      
       if (editingCourt && editingCourt.id === updatedCourt.id) {
         previousClusterName = editingCourt.cluster_group_name ?? null;
       } else {
-        // Fallback: look up the current court in the courts array to get its previous cluster name
         const currentCourt = courts.find(c => c.id === updatedCourt.id);
         previousClusterName = currentCourt?.cluster_group_name ?? null;
       }
 
       // Only send cluster_fields if the cluster name actually changed
       if (previousClusterName !== nextClusterName) {
-        clusterFields.cluster_group_name = nextClusterName;
-      }
-
-      // Only send cluster_fields when at least one shared field changes; keeps per-court edits scoped
-      if (Object.keys(clusterFields).length > 0) {
-        updateData.cluster_fields = clusterFields;
+        updateData.cluster_fields = { cluster_group_name: nextClusterName };
       }
       
-      const response = await fetch(`${apiUrl}/api/courts/${updatedCourt.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update court');
-      }
-
-      // Parse server response to get the updated court data
-      const result = await response.json();
-      if (!result.success || !result.data) {
-        throw new Error('Invalid response from server');
-      }
-
-      const serverUpdatedCourt = result.data;
+      // Use API layer
+      const serverUpdatedCourt = await updateCourt(updatedCourt.id, updateData);
       console.log('Court updated:', serverUpdatedCourt.id, serverUpdatedCourt.name);
 
-      // Clear current viewport's cache and re-fetch to get fresh data
-      // This ensures we see updated names (including cluster-wide changes)
+      // Clear current viewport's cache and re-fetch
       const { bbox } = calculateBoundingBox(viewport);
       const cacheKey = createCacheKey(bbox);
       
-      // Remove current viewport's cache entry
       if (courtCache.current.has(cacheKey)) {
         courtCache.current.delete(cacheKey);
-        // Remove from order tracking
         const orderIndex = cacheKeysOrder.current.indexOf(cacheKey);
         if (orderIndex > -1) {
           cacheKeysOrder.current.splice(orderIndex, 1);
         }
-        // Remove courts belonging to this bbox from state
         const courtsToRemove = courtsByBbox.current[cacheKey] || [];
         const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
         setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
         delete courtsByBbox.current[cacheKey];
       }
       
-      // Re-fetch fresh data for the current viewport
-      // Small delay to ensure state updates have propagated
+      // Re-fetch fresh data
       setTimeout(() => {
         fetchCourtsForArea();
       }, 100);
-    } catch (error) {
-      console.error('Failed to update court:', error);
-      alert('Failed to update court. Please try again.');
+      
+    } catch (err) {
+      // CATCH at UI boundary - capture to Sentry with context
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap', action: 'handleSaveCourt' },
+        extra: { courtId: updatedCourt.id }
+      });
+      
+      // User-friendly error messages based on exception type
+      let userMessage = 'Failed to update court. Please try again.';
+      
+      if (err instanceof NetworkError) {
+        userMessage = 'Unable to connect. Please check your internet connection.';
+      } else if (err instanceof APIError) {
+        if (err.code === 'COURT_NOT_FOUND') {
+          userMessage = 'This court no longer exists.';
+        } else if (err.code === 'VALIDATION_ERROR') {
+          userMessage = err.message;
+        }
+      }
+      
+      console.error('Failed to update court:', err);
+      alert(userMessage);
     }
   };
 
