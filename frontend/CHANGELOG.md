@@ -1,5 +1,13 @@
 # @courtpulse/frontend
 
+## [1.14.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.13.0...frontend-v1.14.0) (2025-12-23)
+
+
+### Features
+
+* implement layer-by-layer exception handling with Sentry integra… ([fa3180d](https://github.com/TheSurfingCoder/CourtPulse/commit/fa3180ded6c95e71481dda79543c600b2e831cce))
+* implement layer-by-layer exception handling with Sentry integration ([59694eb](https://github.com/TheSurfingCoder/CourtPulse/commit/59694eb9baf4f4834e47f30cc621f99469072f63))
+
 ## [1.13.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.12.0...frontend-v1.13.0) (2025-12-21)
 
 
