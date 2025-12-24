@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 # Exception Handling Guidelines for Full-Stack TypeScript Applications
 
 ## Core Philosophy: Catch at Boundaries, Throw Everywhere Else
