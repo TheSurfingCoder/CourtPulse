@@ -45,13 +45,16 @@ export const errorHandler = (
       ip: req.ip
     });
     
-    // Set severity based on error type
+    // Skip capturing validation/not-found errors - these are user errors, not bugs
     if (err instanceof ValidationException || err instanceof NotFoundException) {
-      scope.setLevel('warning');
-    } else if (err instanceof DatabaseException || !isOperational) {
+      return; // Don't send to Sentry
+    }
+    
+    // Set severity based on error type
+    if (err instanceof DatabaseException || !isOperational) {
       scope.setLevel('error');
     } else {
-      scope.setLevel('info');
+      scope.setLevel('warning');
     }
     
     Sentry.captureException(err);

@@ -1,6 +1,7 @@
 //courts model
 import express from 'express';
 import { CourtModel } from '../models/Court';
+import { CoverageAreaModel } from '../models/CoverageArea';
 import { searchRateLimit } from '../middleware/rateLimiter';
 import { asyncHandler } from '../middleware/errorHandler';
 import {
@@ -20,10 +21,28 @@ const router = express.Router();
  */
 router.get('/metadata', asyncHandler(async (_req: express.Request, res: express.Response) => {
   const result = await CourtModel.getMetadata();
-  
+
   return res.json({
     success: true,
     data: result
+  });
+}));
+
+/**
+ * GET /api/courts/coverage
+ * Get coverage areas (regions where court data is available)
+ */
+router.get('/coverage', asyncHandler(async (req: express.Request, res: express.Response) => {
+  const { region } = req.query;
+
+  const coverageAreas = region
+    ? await CoverageAreaModel.getByRegion(region as string)
+    : await CoverageAreaModel.getAll();
+
+  return res.json({
+    success: true,
+    count: coverageAreas.length,
+    data: coverageAreas
   });
 }));
 

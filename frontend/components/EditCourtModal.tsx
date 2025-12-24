@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface CourtData {
   id: number;
@@ -54,6 +55,9 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
         }
       } catch (error) {
         console.error('Failed to fetch metadata:', error);
+        toast.error('Unable to load edit options', {
+          description: 'Sport and surface options may be unavailable.'
+        });
       } finally {
         setIsLoadingMetadata(false);
       }
@@ -77,8 +81,44 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
 
   if (!isOpen || !court) return null;
 
+  // Validate form and return array of errors
+  const validateForm = (): string[] => {
+    const errors: string[] = [];
+    
+    if (!formData.cluster_group_name.trim()) {
+      errors.push('Main title is required');
+    } else if (formData.cluster_group_name.trim().length < 2) {
+      errors.push('Main title must be at least 2 characters');
+    } else if (formData.cluster_group_name.trim().length > 100) {
+      errors.push('Main title must be less than 100 characters');
+    }
+    
+    if (!formData.type) {
+      errors.push('Sport type is required');
+    }
+    
+    if (!formData.surface) {
+      errors.push('Surface type is required');
+    }
+    
+    if (formData.name && formData.name.trim().length > 100) {
+      errors.push('Court name must be less than 100 characters');
+    }
+    
+    return errors;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate before submitting
+    const errors = validateForm();
+    if (errors.length > 0) {
+      toast.error('Please fix the following errors', {
+        description: errors.join('. ')
+      });
+      return;
+    }
     
     const updatedCourt: CourtData = {
       ...court,
@@ -86,7 +126,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
       name: formData.name.trim() || null,
       type: formData.type.trim() || court.type,
       surface: formData.surface.trim() || court.surface,
-      is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : null, // Empty string means unknown (null)
+      is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : null,
       school: formData.school === 'true'
     };
 
@@ -118,7 +158,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               onChange={(e) => setFormData({ ...formData, cluster_group_name: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., Rolph Playground"
-              required
             />
             <p className="text-xs text-gray-500 mt-1">This is the main title shown on the map</p>
           </div>
@@ -145,7 +184,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             >
               <option value="">Select sport...</option>
               {sportOptions.map((sport) => (
@@ -164,7 +202,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               value={formData.surface}
               onChange={(e) => setFormData({ ...formData, surface: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             >
               <option value="">Select surface...</option>
               {surfaceOptions.map((surface) => (
@@ -198,7 +235,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               value={formData.school}
               onChange={(e) => setFormData({ ...formData, school: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             >
               <option value="false">No</option>
               <option value="true">Yes</option>

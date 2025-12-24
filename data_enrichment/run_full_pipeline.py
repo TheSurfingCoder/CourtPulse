@@ -12,6 +12,7 @@ import sys
 import os
 import json
 import logging
+import psycopg2
 from query_courts_and_facilities import OverpassQuerier, CourtFacilityMatcher
 from populate_cluster_metadata import ClusterMetadataPopulator
 from add_individual_court_names import IndividualCourtNameManager
@@ -25,6 +26,59 @@ logger = logging.getLogger(__name__)
 
 # San Francisco bounding box
 SF_BBOX = (37.7, -122.52, 37.83, -122.35)
+
+def record_coverage_area(connection_string, bbox, region, name, court_count):
+    """
+    Record or update coverage area in the database
+
+    Args:
+        connection_string: PostgreSQL connection string
+        bbox: Tuple of (min_lat, min_lon, max_lat, max_lon)
+        region: Region identifier (e.g., 'sf_bay')
+        name: Coverage area name (e.g., 'San Francisco')
+        court_count: Number of courts in this area
+    """
+    min_lat, min_lon, max_lat, max_lon = bbox
+
+    # Create GeoJSON polygon from bounding box
+    # Polygon coordinates are [lon, lat] and must close (first point == last point)
+    boundary_geojson = {
+        "type": "Polygon",
+        "coordinates": [[
+            [min_lon, min_lat],  # Bottom-left
+            [max_lon, min_lat],  # Bottom-right
+            [max_lon, max_lat],  # Top-right
+            [min_lon, max_lat],  # Top-left
+            [min_lon, min_lat]   # Close polygon
+        ]]
+    }
+
+    conn = psycopg2.connect(connection_string)
+    cursor = conn.cursor()
+
+    try:
+        # Upsert coverage area
+        cursor.execute("""
+            INSERT INTO coverage_areas (name, region, boundary, court_count, last_updated)
+            VALUES (%s, %s, ST_GeomFromGeoJSON(%s), %s, NOW())
+            ON CONFLICT (region, name)
+                DO UPDATE SET
+                    boundary = ST_GeomFromGeoJSON(%s),
+                    court_count = %s,
+                    last_updated = NOW()
+        """, (name, region, json.dumps(boundary_geojson), court_count,
+              json.dumps(boundary_geojson), court_count))
+
+        conn.commit()
+        logger.info(f"   ✅ Coverage area '{name}' recorded with {court_count} courts")
+
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"   ❌ Failed to record coverage area: {e}")
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
 def main():
     """Run the complete data enrichment pipeline"""
@@ -105,10 +159,22 @@ def main():
         if name_summary.get('clusters_with_names', 0) > 0:
             print(f"   ✅ {name_summary['clusters_with_names']} clusters have named courts")
         print()
-        
+
+        # Step 5: Record coverage area
+        print("📍 STEP 5: Recording coverage area...")
+        print("-" * 60)
+        record_coverage_area(
+            connection_string=connection_string,
+            bbox=SF_BBOX,
+            region='sf_bay',
+            name='San Francisco',
+            court_count=courts_count
+        )
+        print()
+
         # Cleanup
         matcher.close()
-        
+
         # Final summary
         print("="*60)
         print("✅ PIPELINE COMPLETED SUCCESSFULLY!")
@@ -131,9 +197,6 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
-
-
-
 
 
 
