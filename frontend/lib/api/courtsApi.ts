@@ -38,6 +38,19 @@ export interface CourtsMetadata {
   surfaceTypes: string[];
 }
 
+export interface CoverageArea {
+  id: number;
+  name: string;
+  region: string;
+  boundary: {
+    type: 'Polygon';
+    coordinates: number[][][];
+  };
+  court_count: number;
+  last_updated: string;
+  created_at: string;
+}
+
 // API configuration
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
@@ -199,6 +212,46 @@ export async function getMetadata(): Promise<CourtsMetadata> {
       throw new NetworkError('Unable to connect to server.');
     }
     throw new NetworkError('An unexpected error occurred while fetching metadata');
+  }
+}
+
+/**
+ * Get coverage areas (regions where court data is available)
+ */
+export async function getCoverageAreas(region?: string): Promise<CoverageArea[]> {
+  try {
+    const url = region
+      ? `${API_URL}/api/courts/coverage?region=${encodeURIComponent(region)}`
+      : `${API_URL}/api/courts/coverage`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      mode: 'cors',
+      credentials: 'omit'
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw parseAPIError(response.status, data);
+    }
+
+    const result = await response.json();
+
+    if (!result.success || !Array.isArray(result.data)) {
+      throw new APIError(result.error || 'Invalid response format', result.code || 'INVALID_RESPONSE', 500);
+    }
+
+    return result.data;
+
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+    if (error instanceof TypeError) {
+      throw new NetworkError('Unable to connect to server.');
+    }
+    throw new NetworkError('An unexpected error occurred while fetching coverage areas');
   }
 }
 

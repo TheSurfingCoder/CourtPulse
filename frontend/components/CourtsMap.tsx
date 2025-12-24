@@ -1,20 +1,22 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import Map, { Marker, Popup, MapRef } from 'react-map-gl/maplibre';
+import Map, { Marker, Popup, MapRef, Source, Layer } from 'react-map-gl/maplibre';
 import Supercluster from 'supercluster';
 import * as Sentry from '@sentry/nextjs';
 import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
-import { 
-  searchCourts, 
-  updateCourt, 
-  NetworkError, 
-  APIError, 
+import {
+  searchCourts,
+  updateCourt,
+  getCoverageAreas,
+  NetworkError,
+  APIError,
   RateLimitError,
-  type Court 
+  type Court,
+  type CoverageArea
 } from '@/lib/api';
 
 interface CourtsMapProps {
@@ -54,6 +56,7 @@ export default function CourtsMap({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [viewport, setViewport] = useState(externalViewport);
   const [debouncedViewport, setDebouncedViewport] = useState(externalViewport);
+  const [coverageAreas, setCoverageAreas] = useState<CoverageArea[]>([]);
 
   const mapRef = useRef<MapRef | null>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -61,7 +64,22 @@ export default function CourtsMap({
   useEffect(() => {
     onViewportChange(viewport);
   }, [viewport, onViewportChange]);
-  
+
+  // Fetch coverage areas on mount
+  useEffect(() => {
+    const fetchCoverageAreas = async () => {
+      try {
+        const areas = await getCoverageAreas();
+        setCoverageAreas(areas);
+      } catch (error) {
+        // Silently fail - coverage areas are optional visual enhancement
+        console.error('Failed to load coverage areas:', error);
+      }
+    };
+
+    fetchCoverageAreas();
+  }, []);
+
   // Helper function to get sport-specific icon
   const getSportIcon = (sportType: string): string => {
     const icons: Record<string, string> = {
@@ -389,6 +407,47 @@ export default function CourtsMap({
     }
   }, [supercluster, debouncedViewport, mapPoints]);
 
+  // Convert coverage areas to GeoJSON FeatureCollection
+  const coverageGeoJSON = useMemo(() => {
+    if (coverageAreas.length === 0) return null;
+
+    return {
+      type: 'FeatureCollection' as const,
+      features: coverageAreas.map(area => ({
+        type: 'Feature' as const,
+        geometry: area.boundary,
+        properties: {
+          name: area.name,
+          region: area.region,
+          court_count: area.court_count
+        }
+      }))
+    };
+  }, [coverageAreas]);
+
+  // Calculate coverage layer opacity and border width based on zoom level
+  // Inverse scaling: MORE visible when zoomed out (lower zoom = higher opacity)
+  // Zoom 5-6: Maximum visibility (50% opacity, 4px border)
+  // Zoom 7-8: Medium visibility (35% opacity, 3px border)
+  // Zoom 9-10: Fade out (transition zone)
+  // Zoom 11+: Invisible (0)
+  const coverageStyle = useMemo(() => {
+    const zoom = viewport.zoom;
+
+    if (zoom >= 11) return { opacity: 0, borderWidth: 0 }; // Invisible
+
+    if (zoom <= 6) return { opacity: 0.5, borderWidth: 4 }; // Maximum visibility when far out
+
+    if (zoom <= 8) {
+      // Scale from 0.5 to 0.35 between zoom 6 and 8
+      const t = (zoom - 6) / 2;
+      return { opacity: 0.5 - (t * 0.15), borderWidth: 4 - Math.floor(t) };
+    }
+
+    // Fade from 0.35 to 0 between zoom 8 and 11
+    const fadeT = (zoom - 8) / 3;
+    return { opacity: 0.35 * (1 - fadeT), borderWidth: 3 * (1 - fadeT) };
+  }, [viewport.zoom]);
 
   //runs once when CourtsMap first renders. Calls fetchcourts
   // Initial data fetch - search for basketball courts in San Francisco
@@ -818,6 +877,29 @@ export default function CourtsMap({
         attributionControl={false}
         logoPosition="bottom-left"
       >
+        {/* Coverage Areas Layer - shows regions with data */}
+        {mapLoaded && coverageGeoJSON && coverageStyle.opacity > 0 && (
+          <Source id="coverage" type="geojson" data={coverageGeoJSON}>
+            <Layer
+              id="coverage-fill"
+              type="fill"
+              paint={{
+                'fill-color': '#f97316', // Bright orange (orange-500)
+                'fill-opacity': coverageStyle.opacity
+              }}
+            />
+            <Layer
+              id="coverage-outline"
+              type="line"
+              paint={{
+                'line-color': '#ea580c', // Darker orange (orange-600)
+                'line-width': coverageStyle.borderWidth,
+                'line-opacity': Math.min(coverageStyle.opacity * 1.5, 0.8)
+              }}
+            />
+          </Source>
+        )}
+
         {mapLoaded && clusters && clusters.map((cluster, index) => {
           const isCluster = cluster.properties.cluster;
           const pointCount = cluster.properties.point_count || 1;
@@ -920,8 +1002,18 @@ export default function CourtsMap({
         )}
       </Map>
 
+      {/* Coverage Legend - Bottom Left */}
+      {coverageStyle.opacity > 0 && (
+        <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 text-sm z-10">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded" style={{ backgroundColor: '#f97316', opacity: 0.6 }}></div>
+            <span className="font-medium text-gray-700">Coverage Area</span>
+          </div>
+        </div>
+      )}
+
       {/* Map Type Toggle - Bottom Right */}
-      <MapTypeToggle 
+      <MapTypeToggle
         currentMapType={mapType}
         onMapTypeChange={handleMapTypeChange}
       />
