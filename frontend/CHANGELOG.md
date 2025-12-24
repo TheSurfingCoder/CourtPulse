@@ -1,5 +1,14 @@
 # @courtpulse/frontend
 
+## [1.15.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.14.0...frontend-v1.15.0) (2025-12-24)
+
+
+### Features
+
+* add coverage area visualization on map ([9a5b98b](https://github.com/TheSurfingCoder/CourtPulse/commit/9a5b98b478713d1d895ba5165f67ce80970aef94))
+* add Sonner toast notifications for user feedback ([0ded312](https://github.com/TheSurfingCoder/CourtPulse/commit/0ded3126f38714fdb339e4ed7cc1634c7b0054a5))
+* add Sonner toast notifications for user feedback ([9b399e6](https://github.com/TheSurfingCoder/CourtPulse/commit/9b399e66b23bf95ef3e1cd2f2fc60c099e312f78))
+
 ## [1.14.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.13.0...frontend-v1.14.0) (2025-12-23)
 
 
