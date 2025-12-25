@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.2](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.1...backend-v1.10.2) (2025-12-25)
+
+
+### Bug Fixes
+
+* improve metadata endpoint documentation ([c00606e](https://github.com/TheSurfingCoder/CourtPulse/commit/c00606e7c3d020ca6afe2cc740f304a5c0a74392))
+* improve metadata endpoint documentation ([e2bc5ab](https://github.com/TheSurfingCoder/CourtPulse/commit/e2bc5ab4b917c2a4d04f282159594093d8e21d15))
+
 ## [1.10.1](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.0...backend-v1.10.1) (2025-12-25)
 
 
