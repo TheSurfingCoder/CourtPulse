@@ -51,6 +51,7 @@ router.get('/coverage', asyncHandler(async (req: express.Request, res: express.R
 /**
  * GET /api/courts/search
  * Search courts with viewport and filters
+ * Requires zoom level > 11 for performance reasons
  */
 router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request, res: express.Response) => {
   const { bbox, zoom, sport, surface_type, is_public } = req.query;
