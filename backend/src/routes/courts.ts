@@ -18,6 +18,7 @@ const router = express.Router();
 /**
  * GET /api/courts/metadata
  * Get available sports and surface types from database
+ * Returns metadata for filtering courts in the UI
  */
 router.get('/metadata', asyncHandler(async (_req: express.Request, res: express.Response) => {
   const result = await CourtModel.getMetadata();
