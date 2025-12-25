@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.3](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.2...backend-v1.10.3) (2025-12-25)
+
+
+### Bug Fixes
+
+* improve coverage endpoint documentation ([56bbc32](https://github.com/TheSurfingCoder/CourtPulse/commit/56bbc32d0e3681964638f76097c275f5ad23d048))
+* improve coverage endpoint documentation ([8b2d178](https://github.com/TheSurfingCoder/CourtPulse/commit/8b2d178412cb14954c5d9cf5830d0d5cdb3d2644))
+
 ## [1.10.2](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.1...backend-v1.10.2) (2025-12-25)
 
 
