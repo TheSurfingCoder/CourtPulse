@@ -32,6 +32,7 @@ router.get('/metadata', asyncHandler(async (_req: express.Request, res: express.
 /**
  * GET /api/courts/coverage
  * Get coverage areas (regions where court data is available)
+ * Optionally filter by region name
  */
 router.get('/coverage', asyncHandler(async (req: express.Request, res: express.Response) => {
   const { region } = req.query;
