@@ -15,6 +15,7 @@ import {
  * This is the HTTP BOUNDARY - all errors flow here and get:
  * 1. Captured in Sentry with tags (Sentry handles trace linking via sentry-trace header)
  * 2. Transformed into consistent HTTP responses
+ * 3. Logged with appropriate context for debugging
  */
 export const errorHandler = (
   err: Error,
