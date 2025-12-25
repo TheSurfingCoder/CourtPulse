@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.1](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.0...backend-v1.10.1) (2025-12-25)
+
+
+### Bug Fixes
+
+* improve error handler documentation ([ec507f6](https://github.com/TheSurfingCoder/CourtPulse/commit/ec507f611e9083258dd3ebc6ea5063ced71791b4))
+* improve error handler documentation ([b3deb95](https://github.com/TheSurfingCoder/CourtPulse/commit/b3deb9589ada082f558a8b77474449a8aebb0f7e))
+
 ## [1.10.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.9.0...backend-v1.10.0) (2025-12-24)
 
 
