@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.4](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.3...backend-v1.10.4) (2025-12-26)
+
+
+### Bug Fixes
+
+* improve search endpoint documentation with zoom requirement ([#107](https://github.com/TheSurfingCoder/CourtPulse/issues/107)) ([990103f](https://github.com/TheSurfingCoder/CourtPulse/commit/990103fab0a4c14de91bb2d4b8995d26197461d3))
+
 ## [1.10.3](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.2...backend-v1.10.3) (2025-12-25)
 
 
