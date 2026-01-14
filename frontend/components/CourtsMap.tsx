@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
+import NoDataModal from './NoDataModal';
 import {
   searchCourts,
   updateCourt,
@@ -57,6 +58,8 @@ export default function CourtsMap({
   const [viewport, setViewport] = useState(externalViewport);
   const [debouncedViewport, setDebouncedViewport] = useState(externalViewport);
   const [coverageAreas, setCoverageAreas] = useState<CoverageArea[]>([]);
+  const [isNoDataModalOpen, setIsNoDataModalOpen] = useState(false);
+  const [hasRequestedLocation, setHasRequestedLocation] = useState(false);
 
   const mapRef = useRef<MapRef | null>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -106,12 +109,12 @@ export default function CourtsMap({
 
   // Use external needsNewSearch state only - no internal state
 
-  // Use initialViewState centered on San Francisco (where the courts are located)
+  // Use initialViewState centered on United States
   // DEBUGGING: Memoize initialViewState to prevent map re-mounting
   const initialViewState = useMemo(() => ({
-    longitude: -122.4194, // San Francisco longitude
-    latitude: 37.7849,    // Upper half of San Francisco (north of downtown)
-    zoom: 14              // More zoomed in for better testing
+    longitude: -98.5795, // Center of continental United States
+    latitude: 39.8283,   // Center of continental United States
+    zoom: 4              // Zoomed out to show entire US
   }), []); // Empty dependency array - never changes
 
   // Map render complete
@@ -449,20 +452,86 @@ export default function CourtsMap({
     return { opacity: 0.35 * (1 - fadeT), borderWidth: 3 * (1 - fadeT) };
   }, [viewport.zoom]);
 
-  //runs once when CourtsMap first renders. Calls fetchcourts
-  // Initial data fetch - search for basketball courts in San Francisco
+  // Request user's location on mount
   useEffect(() => {
-    // Courts map initialized
+    if (hasRequestedLocation) return;
     
-    // Trigger initial search after a short delay to ensure viewport is set
-    // Note: Filters are already set by parent component
-    const timer = setTimeout(() => {
-      // Initial search triggered
-      fetchCourtsForArea();
-    }, 100);
+    setHasRequestedLocation(true);
     
-    return () => clearTimeout(timer);
-  }, []);
+    // Request geolocation permission
+    if ('geolocation' in navigator) {
+      console.log('Requesting user location...');
+      
+      navigator.geolocation.getCurrentPosition(
+        // Success callback
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log('✓ User location granted:', latitude, longitude);
+          
+          // Fly to user's location
+          if (mapRef.current) {
+            mapRef.current.flyTo({
+              center: [longitude, latitude],
+              zoom: 14,
+              duration: 2000
+            });
+          }
+          
+          // Update viewport state (will trigger search)
+          setViewport({
+            longitude,
+            latitude,
+            zoom: 14
+          });
+          
+          // Trigger search after zoom completes
+          setTimeout(() => {
+            fetchCourtsForArea();
+          }, 2500);
+        },
+        // Error callback
+        (error) => {
+          console.log('✗ Geolocation error:', {
+            message: error.message,
+            code: error.code,
+            // Use error.code to differentiate geolocation errors:
+            // - 1 = PERMISSION_DENIED (user denied location access)
+            // - 2 = POSITION_UNAVAILABLE (couldn't determine position)
+            // - 3 = TIMEOUT (operation timed out)
+            // See: https://developer.mozilla.org/en-US/docs/Web/API/GeolocationPositionError
+          });
+          
+          // Strategic toast strategy:
+          if (error.code === 1) {
+            // PERMISSION_DENIED - User actively blocked or previously denied
+            // Show helpful info toast with instructions
+            toast.info('Location access blocked', {
+              description: 'You can enable location in your browser settings to auto-zoom to your area.',
+              duration: 5000
+            });
+          } else if (error.code === 2) {
+            // POSITION_UNAVAILABLE - Technical issue, not user's fault
+            // Show error toast to acknowledge the problem
+            toast.error('Unable to find your location', {
+              description: 'Your device location is unavailable. Please search manually.',
+              duration: 4000
+            });
+          }
+          // TIMEOUT (code 3) - User hasn't responded yet, don't nag them
+          // No toast shown - they can still decide or search manually
+        },
+        // Options
+        {
+          enableHighAccuracy: false, // Changed to false for faster response
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    } else {
+      console.log('Geolocation not supported by browser');
+      // Don't show toast - just let user explore manually
+    }
+  }, [hasRequestedLocation]);
 
   // Handle filter changes - filters are applied client-side to accumulated courts
   // No API call needed, just filter the existing courts state
@@ -550,6 +619,12 @@ export default function CourtsMap({
       setCourts(prevCourts => mergeCourts(prevCourts, courtsData));
       
       console.log('Fetched', courtsData.length, 'courts');
+      
+      // Show "no data" modal if no courts found (and this is the first search after getting user location)
+      if (courtsData.length === 0 && courtCache.current.size === 1) {
+        setIsNoDataModalOpen(true);
+      }
+      
       onNeedsNewSearchChange(false);
       
     } catch (err) {
@@ -1027,6 +1102,12 @@ export default function CourtsMap({
         }}
         court={editingCourt}
         onSave={handleSaveCourt}
+      />
+
+      {/* No Data Modal */}
+      <NoDataModal
+        isOpen={isNoDataModalOpen}
+        onClose={() => setIsNoDataModalOpen(false)}
       />
     </div>
   );
