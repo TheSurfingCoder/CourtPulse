@@ -1,5 +1,12 @@
 # @courtpulse/frontend
 
+## [1.16.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.15.0...frontend-v1.16.0) (2026-01-16)
+
+
+### Features
+
+* add has_lights field and flexible region support ([#111](https://github.com/TheSurfingCoder/CourtPulse/issues/111)) ([c5e6cd1](https://github.com/TheSurfingCoder/CourtPulse/commit/c5e6cd1e4bbcefd196d306cf35e89939b428d314))
+
 ## [1.15.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.14.0...frontend-v1.15.0) (2025-12-24)
 
 
