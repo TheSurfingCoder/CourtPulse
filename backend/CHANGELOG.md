@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.4...backend-v1.11.0) (2026-01-16)
+
+
+### Features
+
+* add has_lights field and flexible region support ([#111](https://github.com/TheSurfingCoder/CourtPulse/issues/111)) ([c5e6cd1](https://github.com/TheSurfingCoder/CourtPulse/commit/c5e6cd1e4bbcefd196d306cf35e89939b428d314))
+
 ## [1.10.4](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.10.3...backend-v1.10.4) (2025-12-26)
 
 
