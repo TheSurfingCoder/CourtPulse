@@ -10,12 +10,14 @@ interface FilterBarProps {
     surface_type: string[];
     school: boolean | undefined;
     is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
+    has_lights: boolean | null | undefined; // true = has lights, false = no lights, null = unknown, undefined = all
   };
   setFilters: (filters: {
     sport: string[];
     surface_type: string[];
     school: boolean | undefined;
     is_public: boolean | null | undefined;
+    has_lights: boolean | null | undefined;
   }) => void;
 }
 
@@ -30,11 +32,13 @@ export default function FilterBar({
   const [isSurfacesDropdownOpen, setIsSurfacesDropdownOpen] = useState(false);
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isAccessDropdownOpen, setIsAccessDropdownOpen] = useState(false);
+  const [isLightsDropdownOpen, setIsLightsDropdownOpen] = useState(false);
   
   const sportsDropdownRef = useRef<HTMLDivElement>(null);
   const surfacesDropdownRef = useRef<HTMLDivElement>(null);
   const locationDropdownRef = useRef<HTMLDivElement>(null);
   const accessDropdownRef = useRef<HTMLDivElement>(null);
+  const lightsDropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch metadata on mount
   useEffect(() => {
@@ -70,12 +74,14 @@ export default function FilterBar({
         (sportsDropdownRef.current && !sportsDropdownRef.current.contains(event.target as Node)) &&
         (surfacesDropdownRef.current && !surfacesDropdownRef.current.contains(event.target as Node)) &&
         (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target as Node)) &&
-        (accessDropdownRef.current && !accessDropdownRef.current.contains(event.target as Node))
+        (accessDropdownRef.current && !accessDropdownRef.current.contains(event.target as Node)) &&
+        (lightsDropdownRef.current && !lightsDropdownRef.current.contains(event.target as Node))
       ) {
         setIsSportsDropdownOpen(false);
         setIsSurfacesDropdownOpen(false);
         setIsLocationDropdownOpen(false);
         setIsAccessDropdownOpen(false);
+        setIsLightsDropdownOpen(false);
       }
     };
 
@@ -117,16 +123,24 @@ export default function FilterBar({
     });
   };
 
+  const toggleLights = (lightsValue: boolean | null | undefined) => {
+    setFilters({
+      ...filters,
+      has_lights: filters.has_lights === lightsValue ? undefined : lightsValue
+    });
+  };
+
   const clearAllFilters = () => {
     setFilters({
       sport: [],
       surface_type: [],
       school: undefined,
-      is_public: undefined
+      is_public: undefined,
+      has_lights: undefined
     });
   };
 
-  const hasActiveFilters = filters.sport.length > 0 || filters.surface_type.length > 0 || filters.school !== undefined || filters.is_public !== undefined;
+  const hasActiveFilters = filters.sport.length > 0 || filters.surface_type.length > 0 || filters.school !== undefined || filters.is_public !== undefined || filters.has_lights !== undefined;
 
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-3">
@@ -282,6 +296,61 @@ export default function FilterBar({
                   name="access"
                   checked={filters.is_public === null}
                   onChange={() => toggleAccess(null)}
+                  className="mr-2"
+                />
+                <span className="text-sm">Unknown Only</span>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Lights Filter - Radio button style for has lights/no lights/unknown */}
+        <div className="relative" ref={lightsDropdownRef}>
+          <button
+            onClick={() => setIsLightsDropdownOpen(!isLightsDropdownOpen)}
+            className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer flex items-center gap-2"
+          >
+            <span>Lights {filters.has_lights === true ? '(Yes)' : filters.has_lights === false ? '(No)' : filters.has_lights === null ? '(Unknown)' : ''}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-500 pointer-events-none transition-transform ${isLightsDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isLightsDropdownOpen && (
+            <div className="absolute top-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg z-50 min-w-[200px]">
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="lights"
+                  checked={filters.has_lights === undefined}
+                  onChange={() => toggleLights(undefined)}
+                  className="mr-2"
+                />
+                <span className="text-sm">All Courts</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="lights"
+                  checked={filters.has_lights === true}
+                  onChange={() => toggleLights(true)}
+                  className="mr-2"
+                />
+                <span className="text-sm">With Lights</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="lights"
+                  checked={filters.has_lights === false}
+                  onChange={() => toggleLights(false)}
+                  className="mr-2"
+                />
+                <span className="text-sm">No Lights</span>
+              </label>
+              <label className="flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="lights"
+                  checked={filters.has_lights === null}
+                  onChange={() => toggleLights(null)}
                   className="mr-2"
                 />
                 <span className="text-sm">Unknown Only</span>

@@ -12,6 +12,7 @@ interface CourtData {
   lng: number;
   surface: string;
   is_public: boolean | null;
+  has_lights: boolean | null;
   school: boolean;
   cluster_group_name: string | null;
   created_at: string;
@@ -32,6 +33,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     type: '',
     surface: '',
     is_public: '',
+    has_lights: '',
     school: ''
   });
 
@@ -74,6 +76,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
         type: court.type || '',
         surface: court.surface || '',
         is_public: court.is_public ? 'true' : (court.is_public === false ? 'false' : ''),
+        has_lights: court.has_lights ? 'true' : (court.has_lights === false ? 'false' : ''),
         school: court.school ? 'true' : 'false'
       });
     }
@@ -127,6 +130,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
       type: formData.type.trim() || court.type,
       surface: formData.surface.trim() || court.surface,
       is_public: formData.is_public === 'true' ? true : formData.is_public === 'false' ? false : null,
+      has_lights: formData.has_lights === 'true' ? true : formData.has_lights === 'false' ? false : null,
       school: formData.school === 'true'
     };
 
@@ -224,6 +228,21 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               <option value="">Unknown</option>
               <option value="true">Public</option>
               <option value="false">Private</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Has Lights
+            </label>
+            <select
+              value={formData.has_lights}
+              onChange={(e) => setFormData({ ...formData, has_lights: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Unknown</option>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
             </select>
           </div>
 

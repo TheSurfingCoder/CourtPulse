@@ -19,6 +19,7 @@ export interface Court {
   lng: number;
   surface: string;
   is_public: boolean | null;
+  has_lights: boolean | null;
   school: boolean;
   cluster_group_name: string | null;
   created_at: string;
@@ -31,6 +32,7 @@ export interface SearchFilters {
   sport?: string;
   surface_type?: string;
   is_public?: boolean;
+  has_lights?: boolean;
 }
 
 export interface CourtsMetadata {
@@ -68,6 +70,7 @@ export async function searchCourts(filters: SearchFilters): Promise<Court[]> {
     if (filters.sport) queryParams.set('sport', filters.sport);
     if (filters.surface_type) queryParams.set('surface_type', filters.surface_type);
     if (filters.is_public !== undefined) queryParams.set('is_public', String(filters.is_public));
+    if (filters.has_lights !== undefined) queryParams.set('has_lights', String(filters.has_lights));
 
     const response = await fetch(`${API_URL}/api/courts/search?${queryParams.toString()}`, {
       method: 'GET',

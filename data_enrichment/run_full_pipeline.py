@@ -88,8 +88,17 @@ def main():
     
     if not connection_string:
         print("Error: DATABASE_URL environment variable not set, or provide as argument")
-        print("Usage: python3 run_full_pipeline.py 'postgresql://user:pass@host:port/db' [sports]")
-        print("Example: python3 run_full_pipeline.py 'postgresql://postgres@localhost:5432/courtpulse-dev' basketball")
+        print("Usage: python3 run_full_pipeline.py 'postgresql://user:pass@host:port/db' [sports] [bbox] [region] [area_name]")
+        print("\nArguments:")
+        print("  connection_string  - PostgreSQL connection string (or set DATABASE_URL env var)")
+        print("  sports            - Comma-separated sports (optional, default: all)")
+        print("  bbox              - Bounding box as 'min_lat,min_lon,max_lat,max_lon' (optional, default: SF)")
+        print("  region            - Region identifier (optional, default: 'sf_bay')")
+        print("  area_name         - Coverage area name (optional, default: 'San Francisco')")
+        print("\nExamples:")
+        print("  python3 run_full_pipeline.py 'postgresql://postgres@localhost:5432/courtpulse-dev'")
+        print("  python3 run_full_pipeline.py 'postgresql://postgres@localhost:5432/courtpulse-dev' basketball")
+        print("  python3 run_full_pipeline.py 'postgresql://postgres@localhost:5432/courtpulse-dev' basketball '37.86,-122.15,37.94,-122.00' sf_bay 'Walnut Creek'")
         sys.exit(1)
     
     # Get sports filter (optional)
@@ -99,6 +108,31 @@ def main():
         print(f"🎯 Filtering for sports: {sports}")
     else:
         print("🎯 Processing all sports")
+    
+    # Get bounding box (optional, default to SF)
+    bbox = SF_BBOX
+    region = 'sf_bay'
+    area_name = 'San Francisco'
+    
+    if len(sys.argv) > 3:
+        try:
+            bbox_parts = [float(x.strip()) for x in sys.argv[3].split(',')]
+            if len(bbox_parts) != 4:
+                raise ValueError("Bounding box must have exactly 4 values")
+            bbox = tuple(bbox_parts)
+            print(f"📍 Using custom bounding box: {bbox}")
+        except (ValueError, IndexError) as e:
+            print(f"Error: Invalid bounding box format: {e}")
+            print("Expected format: 'min_lat,min_lon,max_lat,max_lon'")
+            sys.exit(1)
+    
+    if len(sys.argv) > 4:
+        region = sys.argv[4]
+        print(f"🗺️  Using region: {region}")
+    
+    if len(sys.argv) > 5:
+        area_name = sys.argv[5]
+        print(f"📌 Using area name: {area_name}")
     
     print("\n" + "="*60)
     print("🏀 COURT PULSE - FULL DATA ENRICHMENT PIPELINE")
@@ -113,12 +147,12 @@ def main():
         matcher = CourtFacilityMatcher(connection_string)
         
         # Query facilities
-        facilities_data = querier.query_facilities(SF_BBOX)
+        facilities_data = querier.query_facilities(bbox)
         facilities_count = matcher.insert_facilities(facilities_data)
         print(f"   ✅ Imported {facilities_count} facilities")
         
         # Query courts (with optional sport filter)
-        courts_data = querier.query_courts(SF_BBOX, sports=sports)
+        courts_data = querier.query_courts(bbox, sports=sports)
         courts_count = matcher.insert_courts(courts_data)
         print(f"   ✅ Imported {courts_count} courts")
         print()
@@ -143,7 +177,7 @@ def main():
         print(f"   ✅ Largest cluster: {cluster_summary['largest_cluster_size']} courts")
         
         # Transfer courts to production table
-        transfer_summary = populator.transfer_courts_to_production()
+        transfer_summary = populator.transfer_courts_to_production(region=region)
         print(f"   ✅ Transferred {transfer_summary['inserted_or_updated_courts']} courts to production table")
         print()
         
@@ -165,9 +199,9 @@ def main():
         print("-" * 60)
         record_coverage_area(
             connection_string=connection_string,
-            bbox=SF_BBOX,
-            region='sf_bay',
-            name='San Francisco',
+            bbox=bbox,
+            region=region,
+            name=area_name,
             court_count=courts_count
         )
         print()

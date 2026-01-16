@@ -54,7 +54,7 @@ router.get('/coverage', asyncHandler(async (req: express.Request, res: express.R
  * Requires zoom level > 11 for performance reasons
  */
 router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request, res: express.Response) => {
-  const { bbox, zoom, sport, surface_type, is_public } = req.query;
+  const { bbox, zoom, sport, surface_type, is_public, has_lights } = req.query;
   
   // Validate zoom level (must be > 11 for search)
   const zoomLevel = parseFloat(zoom as string);
@@ -79,12 +79,14 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
     sport?: string;
     surface_type?: string;
     is_public?: boolean;
+    has_lights?: boolean;
   } = {
     bbox: parsedBbox,
     zoom: zoomLevel,
     sport: sport as string | undefined,
     surface_type: surface_type as string | undefined,
-    is_public: is_public !== undefined ? is_public === 'true' : undefined
+    is_public: is_public !== undefined ? is_public === 'true' : undefined,
+    has_lights: has_lights !== undefined ? has_lights === 'true' : undefined
   };
   
   // Remove undefined values
@@ -145,7 +147,7 @@ router.get('/type/:type', asyncHandler(async (req: express.Request, res: express
  * Create new court
  */
 router.post('/', asyncHandler(async (req: express.Request, res: express.Response) => {
-  const { name, type, location, surface, is_public } = req.body;
+  const { name, type, location, surface, is_public, has_lights } = req.body;
 
   // Validation - throw specific exceptions
   const missingFields: string[] = [];
@@ -164,7 +166,8 @@ router.post('/', asyncHandler(async (req: express.Request, res: express.Response
     lat: location.lat,
     lng: location.lng,
     surface: surface || 'Unknown',
-    is_public: is_public ?? true
+    is_public: is_public ?? true,
+    has_lights: has_lights ?? null
   });
 
   console.log('Court created:', court.id, court.name);

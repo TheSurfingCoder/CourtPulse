@@ -27,6 +27,7 @@ interface CourtsMapProps {
     surface_type: string[];
     school: boolean | undefined;
     is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
+    has_lights: boolean | null | undefined; // true = has lights, false = no lights, null = unknown, undefined = all
   };
   loading: boolean;
   needsNewSearch: boolean;
@@ -110,6 +111,7 @@ export default function CourtsMap({
   // Use external needsNewSearch state only - no internal state
 
   // Use initialViewState centered on United States
+  // Map will quickly fly to user's location once geolocation completes
   // DEBUGGING: Memoize initialViewState to prevent map re-mounting
   const initialViewState = useMemo(() => ({
     longitude: -98.5795, // Center of continental United States
@@ -275,6 +277,18 @@ export default function CourtsMap({
         }
       }
       
+      // Apply has_lights filter if specified (undefined = show all)
+      if (filters.has_lights !== undefined) {
+        // filters.has_lights can be true (has lights), false (no lights), or null (unknown)
+        if (filters.has_lights === null) {
+          // Show only courts with unknown lighting
+          if (court.has_lights !== null) return false;
+        } else {
+          // Show only courts with matching lighting status
+          if (court.has_lights !== filters.has_lights) return false;
+        }
+      }
+      
       return true;
     });
   }, [courts, filters]);
@@ -290,6 +304,7 @@ export default function CourtsMap({
         type: court.type,
         surface: court.surface,
         is_public: court.is_public,
+        has_lights: court.has_lights,
         school: court.school,
         cluster_group_name: court.cluster_group_name
       },
@@ -452,9 +467,16 @@ export default function CourtsMap({
     return { opacity: 0.35 * (1 - fadeT), borderWidth: 3 * (1 - fadeT) };
   }, [viewport.zoom]);
 
-  // Request user's location on mount
+  // Request user's location AFTER map loads
   useEffect(() => {
-    if (hasRequestedLocation) return;
+    // Wait for map to load before requesting geolocation
+    if (!mapLoaded) {
+      return;
+    }
+    
+    if (hasRequestedLocation) {
+      return;
+    }
     
     setHasRequestedLocation(true);
     
@@ -477,17 +499,24 @@ export default function CourtsMap({
             });
           }
           
-          // Update viewport state (will trigger search)
+          // Update viewport state
           setViewport({
             longitude,
             latitude,
             zoom: 14
           });
           
-          // Trigger search after zoom completes
+          // AUTO-SEARCH using geolocation coordinates directly (bypasses viewport state)
+          // Pass explicit coordinates to avoid race condition with viewport state updates
+          const geolocationViewport = {
+            longitude,
+            latitude,
+            zoom: 14
+          };
+          
           setTimeout(() => {
-            fetchCourtsForArea();
-          }, 2500);
+            fetchCourtsForArea(geolocationViewport);
+          }, 2200); // After fly animation completes
         },
         // Error callback
         (error) => {
@@ -531,7 +560,7 @@ export default function CourtsMap({
       console.log('Geolocation not supported by browser');
       // Don't show toast - just let user explore manually
     }
-  }, [hasRequestedLocation]);
+  }, [hasRequestedLocation, mapLoaded]);
 
   // Handle filter changes - filters are applied client-side to accumulated courts
   // No API call needed, just filter the existing courts state
@@ -543,7 +572,7 @@ export default function CourtsMap({
     }
     
     // Filters are applied via filteredCourts useMemo, no action needed here
-  }, [filters.sport, filters.surface_type, filters.school, filters.is_public, courts.length, filteredCourts.length]);
+  }, [filters.sport, filters.surface_type, filters.school, filters.is_public, filters.has_lights, courts.length, filteredCourts.length]);
 
   // Detect when user has moved to a new area requiring search (using debounced viewport to avoid excessive calculations)
   useEffect(() => {
@@ -557,7 +586,7 @@ export default function CourtsMap({
   }, [debouncedViewport.longitude, debouncedViewport.latitude, debouncedViewport.zoom]);
 
 
-  const fetchCourtsForArea = async () => {
+  const fetchCourtsForArea = async (explicitViewport?: { longitude: number; latitude: number; zoom: number }) => {
     // Prevent multiple simultaneous requests
     if (externalLoading) {
       return;
@@ -566,8 +595,11 @@ export default function CourtsMap({
     try {
       onLoadingChange(true);
       
-      // Calculate bounding box from current viewport
-      const { bbox } = calculateBoundingBox(viewport);
+      // Use explicit viewport if provided (e.g., from geolocation), otherwise use current viewport state
+      const viewportToUse = explicitViewport || viewport;
+      
+      // Calculate bounding box from viewport
+      const { bbox } = calculateBoundingBox(viewportToUse);
       const cacheKey = createCacheKey(bbox);
       
       // Check if this area has already been searched
@@ -579,8 +611,8 @@ export default function CourtsMap({
       }
       
       // Check if zoom level allows searching
-      if (viewport.zoom <= 11) {
-        console.log('Zoom too low for search:', viewport.zoom);
+      if (viewportToUse.zoom <= 11) {
+        console.log('Zoom too low for search:', viewportToUse.zoom);
         onLoadingChange(false);
         return;
       }
@@ -600,12 +632,12 @@ export default function CourtsMap({
         }
       }
       
-      console.log('Fetching courts for bbox:', bbox, 'zoom:', viewport.zoom);
+      console.log('Fetching courts for bbox:', bbox, 'zoom:', viewportToUse.zoom);
       
       // Use API layer instead of direct fetch
       const courtsData = await searchCourts({
         bbox: bbox,
-        zoom: viewport.zoom
+        zoom: viewportToUse.zoom
       });
       
       // Add bbox to cache
@@ -795,6 +827,7 @@ export default function CourtsMap({
         type: string;
         surface: string;
         is_public: boolean | null;
+        has_lights: boolean | null;
         school: boolean;
         cluster_fields?: { cluster_group_name?: string | null };
       } = {
@@ -802,6 +835,7 @@ export default function CourtsMap({
         type: updatedCourt.type,
         surface: updatedCourt.surface,
         is_public: updatedCourt.is_public,
+        has_lights: updatedCourt.has_lights,
         school: updatedCourt.school
       };
 
@@ -823,13 +857,21 @@ export default function CourtsMap({
       
       // Use API layer
       const serverUpdatedCourt = await updateCourt(updatedCourt.id, updateData);
+      
       console.log('Court updated:', serverUpdatedCourt.id, serverUpdatedCourt.name);
       
       toast.success('Court updated', {
         description: serverUpdatedCourt.name || 'Changes saved successfully'
       });
 
-      // Clear current viewport's cache and re-fetch
+      // IMMEDIATELY update local state with fresh server data
+      setCourts(prevCourts => 
+        prevCourts.map(court => 
+          court.id === serverUpdatedCourt.id ? serverUpdatedCourt : court
+        )
+      );
+
+      // Clear current viewport's cache and re-fetch for consistency
       const { bbox } = calculateBoundingBox(viewport);
       const cacheKey = createCacheKey(bbox);
       
@@ -839,13 +881,10 @@ export default function CourtsMap({
         if (orderIndex > -1) {
           cacheKeysOrder.current.splice(orderIndex, 1);
         }
-        const courtsToRemove = courtsByBbox.current[cacheKey] || [];
-        const courtIdsToRemove = new Set(courtsToRemove.map((c: Court) => c.id));
-        setCourts(prevCourts => prevCourts.filter(court => !courtIdsToRemove.has(court.id)));
         delete courtsByBbox.current[cacheKey];
       }
       
-      // Re-fetch fresh data
+      // Re-fetch fresh data in background for cache consistency
       setTimeout(() => {
         fetchCourtsForArea();
       }, 100);
@@ -903,7 +942,7 @@ export default function CourtsMap({
       {/* Refresh Button Overlay - Centered */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
         <button
-          onClick={fetchCourtsForArea}
+          onClick={() => fetchCourtsForArea()}
           disabled={viewport.zoom <= 11}
           className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg ${
             viewport.zoom <= 11
@@ -1046,6 +1085,7 @@ export default function CourtsMap({
                 <p><span className="font-medium">Type:</span> {selectedCluster.properties.type}</p>
                 <p><span className="font-medium">Surface:</span> {selectedCluster.properties.surface}</p>
                 <p><span className="font-medium">Public:</span> {selectedCluster.properties.is_public === true ? 'Yes' : selectedCluster.properties.is_public === false ? 'No' : 'Unknown'}</p>
+                <p><span className="font-medium">Lights:</span> {selectedCluster.properties.has_lights === true ? 'Yes' : selectedCluster.properties.has_lights === false ? 'No' : 'Unknown'}</p>
                 <p><span className="font-medium">School:</span> {selectedCluster.properties.school ? 'Yes' : 'No'}</p>
               </div>
               
@@ -1060,6 +1100,7 @@ export default function CourtsMap({
                       lng: selectedCluster.geometry.coordinates[0],
                       surface: selectedCluster.properties.surface || 'Unknown',
                       is_public: selectedCluster.properties.is_public ?? null, // Preserve null for unknown access
+                      has_lights: selectedCluster.properties.has_lights ?? null, // Preserve null for unknown
                       school: selectedCluster.properties.school || false,
                       cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
                       created_at: new Date().toISOString(),

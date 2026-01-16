@@ -14,11 +14,13 @@ export default function Home() {
     surface_type: string[];
     school: boolean | undefined;
     is_public: boolean | null | undefined; // true = public, false = private, null = unknown, undefined = all
+    has_lights: boolean | null | undefined; // true = has lights, false = no lights, null = unknown, undefined = all
   }>({
     sport: [], // Show all sports initially
     surface_type: [],
     school: undefined,
-    is_public: undefined // Show all by default
+    is_public: undefined, // Show all by default
+    has_lights: undefined // Show all by default
   });
 
   const [loading, setLoading] = useState(false);
@@ -48,7 +50,8 @@ export default function Home() {
               sport: result.data.sports || [],
               surface_type: result.data.surfaceTypes || [],
               school: undefined,
-              is_public: undefined // Show all by default
+              is_public: undefined, // Show all by default
+              has_lights: undefined // Show all by default
             });
           }
         }

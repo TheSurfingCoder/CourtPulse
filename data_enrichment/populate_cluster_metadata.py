@@ -143,10 +143,13 @@ class ClusterMetadataPopulator:
             if conn:
                 conn.close()
     
-    def transfer_courts_to_production(self) -> Dict[str, Any]:
+    def transfer_courts_to_production(self, region: str = 'sf_bay') -> Dict[str, Any]:
         """
         Transfer courts from osm_courts_temp to courts table
         Inserts new courts or updates existing ones by osm_id
+        
+        Args:
+            region: Region identifier (default: 'sf_bay')
         """
         conn = None
         try:
@@ -163,7 +166,7 @@ class ClusterMetadataPopulator:
             cursor.execute("""
                 INSERT INTO courts (
                     osm_id, sport, geom, centroid, fallback_name, 
-                    surface_type, cluster_id, facility_name, hoops, region, school, is_public
+                    surface_type, cluster_id, facility_name, hoops, region, school, is_public, has_lights
                 )
                 SELECT 
                     oc.osm_id,
@@ -199,7 +202,7 @@ class ClusterMetadataPopulator:
                         THEN (oc.tags->>'hoops')::integer
                         ELSE NULL
                     END as hoops,
-                    'sf_bay' as region,
+                    %s as region,
                     CASE 
                         WHEN EXISTS (
                             SELECT 1 FROM osm_facilities ofac
@@ -213,7 +216,13 @@ class ClusterMetadataPopulator:
                         WHEN LOWER(oc.tags->>'access') IN ('public', 'yes') THEN true
                         WHEN LOWER(oc.tags->>'access') IN ('private', 'no') THEN false
                         ELSE NULL
-                    END as is_public
+                    END as is_public,
+                    -- Extract lit tag from OSM: yes = true, no = false, else NULL
+                    CASE 
+                        WHEN LOWER(oc.tags->>'lit') = 'yes' THEN true
+                        WHEN LOWER(oc.tags->>'lit') = 'no' THEN false
+                        ELSE NULL
+                    END as has_lights
                 FROM osm_courts_temp oc
                 ON CONFLICT (osm_id) DO UPDATE SET
                     sport = EXCLUDED.sport,
@@ -226,8 +235,9 @@ class ClusterMetadataPopulator:
                     hoops = EXCLUDED.hoops,
                     school = EXCLUDED.school,
                     is_public = EXCLUDED.is_public,
+                    has_lights = EXCLUDED.has_lights,
                     updated_at = NOW();
-            """)
+            """, (region,))
             
             inserted_count = cursor.rowcount
             
