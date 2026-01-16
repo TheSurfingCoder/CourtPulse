@@ -10,6 +10,7 @@ export interface Court {
     lng: number; // From centroid
     surface: string; // Maps to surface_type
     is_public: boolean;
+    has_lights: boolean | null; // Whether court has lighting for night play
     school: boolean; // True when court name was derived from a school
     cluster_id: string | null; // UUID for clustering
     region: string | null; // Region identifier
@@ -25,6 +26,7 @@ export interface CourtInput {
     lng: number;
     surface: string;
     is_public: boolean;
+    has_lights?: boolean | null;
     cluster_group_name?: string | null;
     school?: boolean;
 }
@@ -48,6 +50,7 @@ export class CourtModel {
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
+                has_lights,
                 school,
                 cluster_id,
                 region,
@@ -70,6 +73,7 @@ export class CourtModel {
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
+                has_lights,
                 school,
                 cluster_id,
                 region,
@@ -83,10 +87,10 @@ export class CourtModel {
     }
 
     static async create(courtData: CourtInput): Promise<Court> {
-        const { name, type, lat, lng, surface, is_public } = courtData;
+        const { name, type, lat, lng, surface, is_public, has_lights } = courtData;
         const result = await pool.query(`
-            INSERT INTO courts (fallback_name, sport, centroid, surface_type, is_public, region)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, 'sf_bay')
+            INSERT INTO courts (fallback_name, sport, centroid, surface_type, is_public, has_lights, region)
+            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
             RETURNING 
                 id, 
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
@@ -96,12 +100,13 @@ export class CourtModel {
                 ST_Y(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
+                has_lights,
                 school,
                 cluster_id,
                 region,
                 created_at, 
                 updated_at
-        `, [name, type, lng, lat, surface, is_public]);
+        `, [name, type, lng, lat, surface, is_public, has_lights ?? null]);
         return result.rows[0];
     }
 
@@ -153,6 +158,10 @@ export class CourtModel {
         if (courtData.is_public !== undefined) {
             fields.push(`is_public = $${paramCount++}`);
             values.push(courtData.is_public);
+        }
+        if (courtData.has_lights !== undefined) {
+            fields.push(`has_lights = $${paramCount++}`);
+            values.push(courtData.has_lights);
         }
         if (courtData.school !== undefined) {
             fields.push(`school = $${paramCount++}`);
@@ -369,6 +378,7 @@ export class CourtModel {
         sport?: string;
         surface_type?: string;
         is_public?: boolean;
+        has_lights?: boolean;
         zoom?: number;
     }): Promise<Court[]> {
         // Build dynamic query with filters
@@ -382,6 +392,7 @@ export class CourtModel {
                 ST_X(centroid::geometry) as lng,  
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
+                has_lights,
                 school,
                 cluster_id,
                 region,
@@ -420,6 +431,13 @@ export class CourtModel {
         if (filters.is_public !== undefined) {
             query += ` AND is_public = $${paramIndex}`;
             queryParams.push(filters.is_public);
+            paramIndex++;
+        }
+        
+        // Add has_lights filter
+        if (filters.has_lights !== undefined) {
+            query += ` AND has_lights = $${paramIndex}`;
+            queryParams.push(filters.has_lights);
             paramIndex++;
         }
         
