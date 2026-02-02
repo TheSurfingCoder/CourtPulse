@@ -10,6 +10,7 @@ import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
 import testErrorRoutes from './src/routes/test-error.js';
+import authRoutes from './src/routes/auth.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 
@@ -61,6 +62,7 @@ app.get('/health', (req: express.Request, res: express.Response) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
   });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/courts', courtRoutes);
 app.use('/api/test-error', testErrorRoutes);
 
