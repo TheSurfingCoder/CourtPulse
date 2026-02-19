@@ -1,9 +1,12 @@
 //courts model
 import express from 'express';
+import pool from '../../config/database';
 import { CourtModel } from '../models/Court';
 import { CoverageAreaModel } from '../models/CoverageArea';
 import { searchRateLimit } from '../middleware/rateLimiter';
 import { asyncHandler } from '../middleware/errorHandler';
+import { authenticateUser, requireAuth, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
+import { setAuditContext } from '../utils/auditContext';
 import {
   InvalidIdException,
   InvalidBboxException,
@@ -19,8 +22,9 @@ const router = express.Router();
  * GET /api/courts/metadata
  * Get available sports and surface types from database
  * Returns metadata for filtering courts in the UI
+ * Public (authenticateUser sets req.user when token present; anonymous can read)
  */
-router.get('/metadata', asyncHandler(async (_req: express.Request, res: express.Response) => {
+router.get('/metadata', authenticateUser, asyncHandler(async (_req: express.Request, res: express.Response) => {
   const result = await CourtModel.getMetadata();
 
   return res.json({
@@ -33,8 +37,9 @@ router.get('/metadata', asyncHandler(async (_req: express.Request, res: express.
  * GET /api/courts/coverage
  * Get coverage areas (regions where court data is available)
  * Optionally filter by region name
+ * Public (anonymous can read)
  */
-router.get('/coverage', asyncHandler(async (req: express.Request, res: express.Response) => {
+router.get('/coverage', authenticateUser, asyncHandler(async (req: express.Request, res: express.Response) => {
   const { region } = req.query;
 
   const coverageAreas = region
@@ -52,8 +57,9 @@ router.get('/coverage', asyncHandler(async (req: express.Request, res: express.R
  * GET /api/courts/search
  * Search courts with viewport and filters
  * Requires zoom level > 11 for performance reasons
+ * Public (anonymous can read)
  */
-router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request, res: express.Response) => {
+router.get('/search', authenticateUser, searchRateLimit, asyncHandler(async (req: express.Request, res: express.Response) => {
   const { bbox, zoom, sport, surface_type, is_public, has_lights } = req.query;
   
   // Validate zoom level (must be > 11 for search)
@@ -109,8 +115,9 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
 /**
  * GET /api/courts/:id
  * Get court by ID
+ * Public (anonymous can read)
  */
-router.get('/:id', asyncHandler(async (req: express.Request, res: express.Response) => {
+router.get('/:id', authenticateUser, asyncHandler(async (req: express.Request, res: express.Response) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) {
     throw new InvalidIdException('court');
@@ -130,8 +137,9 @@ router.get('/:id', asyncHandler(async (req: express.Request, res: express.Respon
 /**
  * GET /api/courts/type/:type
  * Get courts by type
+ * Public (anonymous can read)
  */
-router.get('/type/:type', asyncHandler(async (req: express.Request, res: express.Response) => {
+router.get('/type/:type', authenticateUser, asyncHandler(async (req: express.Request, res: express.Response) => {
   const { type } = req.params;
   const courts = await CourtModel.findByType(type);
   
@@ -145,112 +153,161 @@ router.get('/type/:type', asyncHandler(async (req: express.Request, res: express
 /**
  * POST /api/courts
  * Create new court
+ * Requires auth (contributor or admin)
  */
-router.post('/', asyncHandler(async (req: express.Request, res: express.Response) => {
-  const { name, type, location, surface, is_public, has_lights } = req.body;
+router.post(
+  '/',
+  authenticateUser,
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const { name, type, location, surface, is_public, has_lights } = req.body;
 
-  // Validation - throw specific exceptions
-  const missingFields: string[] = [];
-  if (!name) missingFields.push('name');
-  if (!type) missingFields.push('type');
-  if (!location?.lat) missingFields.push('location.lat');
-  if (!location?.lng) missingFields.push('location.lng');
-  
-  if (missingFields.length > 0) {
-    throw new MissingFieldsException(missingFields);
-  }
+    // Validation - throw specific exceptions
+    const missingFields: string[] = [];
+    if (!name) missingFields.push('name');
+    if (!type) missingFields.push('type');
+    if (!location?.lat) missingFields.push('location.lat');
+    if (!location?.lng) missingFields.push('location.lng');
 
-  const court = await CourtModel.create({
-    name,
-    type,
-    lat: location.lat,
-    lng: location.lng,
-    surface: surface || 'Unknown',
-    is_public: is_public ?? true,
-    has_lights: has_lights ?? null
-  });
+    if (missingFields.length > 0) {
+      throw new MissingFieldsException(missingFields);
+    }
 
-  console.log('Court created:', court.id, court.name);
+    await setAuditContext({
+      changed_by_type: 'user',
+      changed_by_id: req.user!.id,
+      changed_by_email: req.user!.email,
+      changed_by_role: req.user!.role,
+      change_source: 'web_ui'
+    });
 
-  return res.status(201).json({
-    success: true,
-    data: court
-  });
-}));
+    const court = await CourtModel.create({
+      name,
+      type,
+      lat: location.lat,
+      lng: location.lng,
+      surface: surface || 'Unknown',
+      is_public: is_public ?? true,
+      has_lights: has_lights ?? null
+    });
+
+    await pool.query(`UPDATE users SET edits_count = edits_count + 1 WHERE id = $1`, [req.user!.id]);
+
+    return res.status(201).json({
+      success: true,
+      data: court
+    });
+  })
+);
 
 /**
  * PUT /api/courts/:id
  * Update court
+ * Requires auth (contributor or admin); sets audit context and increments user edits_count
  */
-router.put('/:id', asyncHandler(async (req: express.Request, res: express.Response) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) {
-    throw new InvalidIdException('court');
-  }
-
-  const body = req.body || {};
-  const { cluster_fields, ...courtPayload } = body;
-  
-  // Validate cluster_fields if provided
-  if (cluster_fields !== undefined) {
-    if (typeof cluster_fields !== 'object' || cluster_fields === null || Array.isArray(cluster_fields)) {
-      throw new ValidationException('cluster_fields must be an object', 'INVALID_CLUSTER_FIELDS');
+router.put(
+  '/:id',
+  authenticateUser,
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new InvalidIdException('court');
     }
-    
-    const allowedClusterFields = ['cluster_group_name'];
-    const invalidKeys = Object.keys(cluster_fields).filter(key => !allowedClusterFields.includes(key));
-    
-    if (invalidKeys.length > 0) {
-      throw new ValidationException(
-        `Invalid cluster_fields keys: ${invalidKeys.join(', ')}. Allowed keys: ${allowedClusterFields.join(', ')}`,
-        'INVALID_CLUSTER_FIELDS'
-      );
-    }
-    
-    if ('cluster_group_name' in cluster_fields && 
-        cluster_fields.cluster_group_name !== null && 
-        typeof cluster_fields.cluster_group_name !== 'string') {
-      throw new ValidationException(
-        'cluster_fields.cluster_group_name must be a string or null',
-        'INVALID_CLUSTER_FIELDS'
-      );
-    }
-  }
-  
-  const clusterFields = cluster_fields && typeof cluster_fields === 'object' && !Array.isArray(cluster_fields)
-    ? cluster_fields
-    : undefined;
 
-  const court = await CourtModel.update(id, courtPayload, clusterFields);
-  if (!court) {
-    throw new CourtNotFoundException(id);
-  }
+    const body = req.body || {};
+    const { cluster_fields, ...courtPayload } = body;
 
-  return res.json({
-    success: true,
-    data: court
-  });
-}));
+    // Validate cluster_fields if provided
+    if (cluster_fields !== undefined) {
+      if (typeof cluster_fields !== 'object' || cluster_fields === null || Array.isArray(cluster_fields)) {
+        throw new ValidationException('cluster_fields must be an object', 'INVALID_CLUSTER_FIELDS');
+      }
+
+      const allowedClusterFields = ['cluster_group_name'];
+      const invalidKeys = Object.keys(cluster_fields).filter(key => !allowedClusterFields.includes(key));
+
+      if (invalidKeys.length > 0) {
+        throw new ValidationException(
+          `Invalid cluster_fields keys: ${invalidKeys.join(', ')}. Allowed keys: ${allowedClusterFields.join(', ')}`,
+          'INVALID_CLUSTER_FIELDS'
+        );
+      }
+
+      if (
+        'cluster_group_name' in cluster_fields &&
+        cluster_fields.cluster_group_name !== null &&
+        typeof cluster_fields.cluster_group_name !== 'string'
+      ) {
+        throw new ValidationException(
+          'cluster_fields.cluster_group_name must be a string or null',
+          'INVALID_CLUSTER_FIELDS'
+        );
+      }
+    }
+
+    const clusterFields =
+      cluster_fields && typeof cluster_fields === 'object' && !Array.isArray(cluster_fields)
+        ? cluster_fields
+        : undefined;
+
+    // Set audit context for audit trigger (when Pillar 4 is in place)
+    await setAuditContext({
+      changed_by_type: 'user',
+      changed_by_id: req.user!.id,
+      changed_by_email: req.user!.email,
+      changed_by_role: req.user!.role,
+      change_source: 'web_ui'
+    });
+
+    const court = await CourtModel.update(id, courtPayload, clusterFields);
+    if (!court) {
+      throw new CourtNotFoundException(id);
+    }
+
+    // Increment user's edit count
+    await pool.query(`UPDATE users SET edits_count = edits_count + 1 WHERE id = $1`, [req.user!.id]);
+
+    return res.json({
+      success: true,
+      data: court
+    });
+  })
+);
 
 /**
  * DELETE /api/courts/:id
  * Delete court
+ * Requires admin
  */
-router.delete('/:id', asyncHandler(async (req: express.Request, res: express.Response) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) {
-    throw new InvalidIdException('court');
-  }
+router.delete(
+  '/:id',
+  authenticateUser,
+  requireAdmin,
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      throw new InvalidIdException('court');
+    }
 
-  const deleted = await CourtModel.delete(id);
-  if (!deleted) {
-    throw new CourtNotFoundException(id);
-  }
+    await setAuditContext({
+      changed_by_type: 'user',
+      changed_by_id: req.user!.id,
+      changed_by_email: req.user!.email,
+      changed_by_role: 'admin',
+      change_source: 'web_ui'
+    });
 
-  return res.json({
-    success: true,
-    message: 'Court deleted successfully'
-  });
-}));
+    const deleted = await CourtModel.delete(id);
+    if (!deleted) {
+      throw new CourtNotFoundException(id);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Court deleted successfully'
+    });
+  })
+);
 
 export default router;

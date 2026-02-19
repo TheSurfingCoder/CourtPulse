@@ -29,6 +29,7 @@
     "morgan": "^1.10.0",
     "node-pg-migrate": "^8.0.3",
     "pg": "^8.11.0",
+    "resend": "^6.9.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },
