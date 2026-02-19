@@ -113,8 +113,17 @@ export const notFound = (req: Request, _res: Response, next: NextFunction) => {
 };
 
 /**
- * Async handler wrapper - catches async errors and passes to errorHandler
- * 
+ * Async handler wrapper - catches async errors and passes them to Express's error pipeline.
+ *
+ * Without this, a thrown error or rejected promise in an async route handler would become
+ * an unhandled rejection (no response sent, possible process crash). This wrapper catches
+ * any rejection and calls next(err), which forwards the error to Express.
+ *
+ * Error flow when next(err) is called (see index.ts for middleware order):
+ *   1. Sentry.setupExpressErrorHandler → captures to Sentry, then next(err)
+ *   2. notFound → skipped (it's regular middleware, not an error handler)
+ *   3. errorHandler → builds HTTP response (e.g. 500, 404) and sends it to the client
+ *
  * Usage:
  *   router.get('/courts', asyncHandler(async (req, res) => {
  *     const courts = await CourtModel.findAll();
