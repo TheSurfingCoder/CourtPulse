@@ -6,7 +6,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
-import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
 import testErrorRoutes from './src/routes/test-error.js';
@@ -65,9 +64,6 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/courts', courtRoutes);
 app.use('/api/test-error', testErrorRoutes);
-
-// Sentry error handler must be registered before any other error-handling middlewares
-Sentry.setupExpressErrorHandler(app);
 
 // Error handling middleware (must be last)
 app.use(notFound);
