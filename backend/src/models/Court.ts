@@ -265,7 +265,7 @@ export class CourtModel {
                     // Matching by facility_name alone is unsafe because multiple unrelated courts
                     // in different locations can share the same name. Fall back to updating
                     // only this specific court to avoid unintended matches.
-                    console.warn('Cluster update fallback: no cluster_id for court', existingCourt.id);
+                    Sentry.logger.warn('Cluster update fallback: no cluster_id, updating only this court', { courtId: existingCourt.id });
                     identifierClause = `id = $${clusterParamIndex}`;
                         clusterValues.push(existingCourt.id);
                         clusterParamIndex++;

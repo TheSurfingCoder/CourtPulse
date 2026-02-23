@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import { ValidationException, NotFoundException } from "./src/exceptions/index.js";
@@ -26,11 +28,6 @@ Sentry.init({
   enableLogs: true,
 
   beforeSend(event, hint) {
-    // Drop all events in development — prevents dev noise from reaching Sentry
-    if (process.env.SENTRY_ENVIRONMENT === 'development' || process.env.NODE_ENV === 'development') {
-      return null;
-    }
-
     // Drop user errors (400/404) — these are not bugs, they are expected client mistakes
     const err = hint.originalException;
     if (err instanceof ValidationException || err instanceof NotFoundException) {
@@ -38,5 +35,14 @@ Sentry.init({
     }
 
     return event;
+  },
+
+  beforeSendLog(log) {
+    // Drop Node.js deprecation warnings from Sentry's own dependencies (e.g. DEP0169 url.parse)
+    if (log.message?.includes('DEP0169') || log.message?.includes('url.parse')) {
+      return null;
+    }
+
+    return log;
   },
 });

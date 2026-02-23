@@ -17,15 +17,6 @@ import {
 const router = express.Router();
 
 /**
- * GET /api/courts/test-error
- * TEMPORARY — for Sentry live testing only. Remove before merging to main.
- * Throws a raw unhandled Error to verify setupExpressErrorHandler captures it exactly once.
- */
-router.get('/test-error', asyncHandler(async (_req: express.Request, _res: express.Response) => {
-  throw new Error('Sentry test: intentional unhandled error from /api/courts/test-error');
-}));
-
-/**
  * GET /api/courts/metadata
  * Get available sports and surface types from database
  * Returns metadata for filtering courts in the UI
@@ -134,6 +125,7 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
   });
 }));
 
+
 /**
  * GET /api/courts/:id
  * Get court by ID
@@ -200,6 +192,11 @@ router.post('/', asyncHandler(async (req: express.Request, res: express.Response
 
   Sentry.metrics.count('court_create.count', 1, {
     attributes: { sport: type, is_public: String(is_public ?? true) }
+  });
+  Sentry.logger.info('Court created', {
+    courtId: court.id,
+    sport: type,
+    is_public: is_public ?? true
   });
 
   return res.status(201).json({
@@ -276,6 +273,8 @@ router.delete('/:id', asyncHandler(async (req: express.Request, res: express.Res
   if (!deleted) {
     throw new CourtNotFoundException(id);
   }
+
+  Sentry.logger.info('Court deleted', { courtId: id });
 
   return res.json({
     success: true,

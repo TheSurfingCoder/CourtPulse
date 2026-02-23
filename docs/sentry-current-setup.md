@@ -266,11 +266,25 @@ Stack trace only exposed in `NODE_ENV=development`.
 
 ---
 
-## Known gaps
-1. **Dev events reaching Sentry** — `beforeSend` filter is commented out.
-2. **Double capture** — deadlock/lock timeout errors captured in model layer AND error handler.
-3. **No user context** — `sendDefaultPii: true` captures IP but `Sentry.setUser()` is never called; user identity not attached to events.
-4. **`consoleLoggingIntegration` noise** — all `console.log` calls (including debug/info) forwarded to Sentry.
-5. **No `ignoreErrors` list** — no explicit suppression of known low-signal errors.
-6. **No dynamic sampling** — `tracesSampler` not configured; all routes sampled equally.
-7. **Hardcoded org/project slug** — `na-795` / `node-express` in `package.json` build script.
+## Changes made (sentry-optimization branch)
+
+### refactor: move filtering to beforeSend, remove captureException from errorHandler (commit 09ad76c)
+
+**`instrument.ts`**
+- Added `beforeSend` — drops all events in `development` environment; drops `ValidationException` and `NotFoundException` (400/404s) before they leave the server.
+- Narrowed `consoleLoggingIntegration` from `["log", "warn", "error"]` to `["warn", "error"]` — removes `console.log` noise from Sentry.
+- `tracesSampleRate` now environment-aware: `0.1` in production, `1.0` in development.
+
+**`errorHandler.ts`**
+- Removed all Sentry imports and logic (`Sentry.withScope`, `Sentry.captureException`, tags, context, severity).
+- Now has single responsibility: transform errors into HTTP responses.
+- `setupExpressErrorHandler` handles Sentry capture; `beforeSend` handles filtering.
+
+---
+
+## Remaining gaps
+1. **Double capture in model layer** — `Sentry.captureException` called directly in `Court.ts` for deadlock/lock timeout errors; these will still be captured twice (once in model, once by `setupExpressErrorHandler`).
+2. **No user context** — `sendDefaultPii: true` captures IP but `Sentry.setUser()` is never called; user identity not attached to events.
+3. **Logging strategy undefined** — no clear rule for when to use `console.error` vs let errors bubble vs `Sentry.captureException` directly. See Beads epic `CourtPulse-wbp`.
+4. **No dynamic sampling** — `tracesSampler` not configured; all routes sampled equally.
+5. **Hardcoded org/project slug** — `na-795` / `node-express` in `package.json` build script.

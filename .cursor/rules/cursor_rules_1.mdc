@@ -171,6 +171,10 @@ export class Court {
 
 ### Layer 3: Backend API Routes (CATCH at HTTP Boundary)
 
+> **CourtPulse Express backend:** Do NOT add try-catch or `Sentry.captureException` to route handlers. Routes throw typed exceptions; `asyncHandler` forwards them to Express via `next(error)`; `Sentry.setupExpressErrorHandler` captures automatically. Manual capture creates duplicates. Use `Sentry.logger.info/warn` for structured operational logs (e.g. court created, court deleted) — not for error capture.
+>
+> The Next.js examples below apply to the **frontend** API layer (`app/api/`) where there is no Express middleware chain.
+
 **Rule:** This is the first layer where you MUST catch all exceptions. Transform them into appropriate HTTP responses.
 
 ```typescript
@@ -954,10 +958,17 @@ return {
 - [ ] Use instanceof for exception type checking
 - [ ] Only catch to transform technical → business errors
 
-**Backend API Routes:**
+**Backend API Routes (Express + asyncHandler):**
+- [ ] Throw typed exceptions — do NOT add try-catch
+- [ ] Do NOT call `Sentry.captureException` — `setupExpressErrorHandler` handles this automatically
+- [ ] Use `Sentry.logger.info/warn` for operational events (created, deleted, fallback triggered)
+- [ ] Return consistent error format via `errorHandler`
+- [ ] Include error codes for client handling
+
+**Backend API Routes (Next.js `app/api/`):**
 - [ ] MUST catch all exceptions
 - [ ] Map exceptions to HTTP status codes (400, 404, 409, 500)
-- [ ] Log to Sentry with correlation ID
+- [ ] Call `Sentry.captureException` with tags and extra context
 - [ ] Return consistent error format
 - [ ] Include error codes for client handling
 
