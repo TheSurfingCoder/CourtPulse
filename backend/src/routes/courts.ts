@@ -1,5 +1,6 @@
 //courts model
 import express from 'express';
+import * as Sentry from '@sentry/node';
 import { CourtModel } from '../models/Court';
 import { CoverageAreaModel } from '../models/CoverageArea';
 import { searchRateLimit } from '../middleware/rateLimiter';
@@ -97,7 +98,25 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
   });
   
   const courts = await CourtModel.searchCourts(filters);
-  
+
+  Sentry.metrics.count('court_search.count', 1, {
+    attributes: { sport: filters.sport ?? 'any', zoom: String(Math.floor(zoomLevel)) }
+  });
+  Sentry.metrics.distribution('court_search.results', courts.length, {
+    attributes: { sport: filters.sport ?? 'any', has_bbox: String(!!parsedBbox) }
+  });
+
+  if (courts.length === 0) {
+    Sentry.logger.warn('Court search returned zero results', {
+      zoom: zoomLevel,
+      sport: filters.sport,
+      surface_type: filters.surface_type,
+      is_public: filters.is_public,
+      has_lights: filters.has_lights,
+      bbox: parsedBbox?.join(',')
+    });
+  }
+
   return res.json({
     success: true,
     count: courts.length,
@@ -168,6 +187,10 @@ router.post('/', asyncHandler(async (req: express.Request, res: express.Response
     surface: surface || 'Unknown',
     is_public: is_public ?? true,
     has_lights: has_lights ?? null
+  });
+
+  Sentry.metrics.count('court_create.count', 1, {
+    attributes: { sport: type, is_public: String(is_public ?? true) }
   });
 
   return res.status(201).json({

@@ -14,9 +14,8 @@ Sentry.init({
   // Explicit release identifier for frontend edge-side
   release: `edge@${process.env.npm_package_version || '1.2.0'}`,
 
-  // Console logging integration - send console.log, console.warn, and console.error to Sentry
   integrations: [
-    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+    Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
   ],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
@@ -31,15 +30,12 @@ Sentry.init({
   // Enable logs to be sent to Sentry
   enableLogs: true,
 
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
 
-  // Disable Sentry in development environment
-  // TODO: Uncomment after testing to disable dev events
-  // beforeSend(event) {
-  //   if (process.env.SENTRY_ENVIRONMENT === "development" || process.env.NODE_ENV === "development") {
-  //     return null; // Drop event in development
-  //   }
-  //   return event;
-  // },
+  beforeSend(event) {
+    if (process.env.SENTRY_ENVIRONMENT === 'development' || process.env.NODE_ENV === 'development') {
+      return null;
+    }
+    return event;
+  },
 });

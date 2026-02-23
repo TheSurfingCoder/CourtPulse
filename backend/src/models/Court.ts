@@ -123,8 +123,28 @@ export class CourtModel {
         // This avoids fragile regex parsing later
         let facilityNameParamIndex: number | null = null;
 
-        // Only process cluster_group_name from courtData if it's NOT in clusterFields
-        // Cluster-level updates take precedence over per-court updates
+        // Only update facility_name (AKA cluster_group_name) at the court level
+        // if it's NOT also being updated through clusterFields input.
+        //
+        // ClusterFields is used when the user intends to change shared cluster properties for multiple courts
+        // (think: "update the name for all courts in Golden Gate Park"), whereas courtData is for individual court changes.
+        // If both are provided, clusterFields always takes precedence for shared fields like cluster_group_name.
+        //
+        // User Example Flow:
+        // 1. User edits a SINGLE court, setting "Cluster/Facility Name" to "Lincoln Park" (courtData.cluster_group_name = "Lincoln Park").
+        //    - clusterFields = {} (empty or no cluster_group_name)
+        //    - Result: This court's facility_name becomes "Lincoln Park".
+        //
+        // 2. User selects MULTIPLE courts, then changes "Cluster/Facility Name" in the bulk edit panel to "Golden Gate Courts".
+        //    - clusterFields = { cluster_group_name: "Golden Gate Courts" }
+        //    - courtData might also have cluster_group_name for each court, but these are ignored for this field.
+        //    - Result: All selected courts get facility_name = "Golden Gate Courts", regardless of their individual courtData.
+        //
+        // 3. User bulk edits, but DOES NOT touch the cluster_group_name field (leaves clusterFields.cluster_group_name undefined).
+        //    - Individual courtData values (courtData.cluster_group_name) are respected (if set).
+        //    - Only those courts where the user directly changed the field get an update.
+        //
+        // In summary: Only apply per-court cluster_group_name if NOT also present in clusterFields (i.e. no bulk override).
         if (courtData.cluster_group_name !== undefined && sanitizedClusterFields.cluster_group_name === undefined) {
             const trimmedClusterName = courtData.cluster_group_name && courtData.cluster_group_name.trim() !== '' ? courtData.cluster_group_name.trim() : null;
             facilityNameParamIndex = paramCount;
@@ -298,9 +318,15 @@ export class CourtModel {
                 
                 if ((isDeadlock || isLockTimeout) && attempt < MAX_RETRIES - 1) {
                     const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-                    console.warn(`Court update retry ${attempt + 1}/${MAX_RETRIES}:`, isDeadlock ? 'deadlock' : 'lock_timeout');
-                    
-                    // Wait before retrying with exponential backoff
+                    Sentry.logger.warn('Court update retrying after database contention', {
+                        courtId: id,
+                        attempt: attempt + 1,
+                        maxRetries: MAX_RETRIES,
+                        errorType: isDeadlock ? 'deadlock' : 'lock_timeout',
+                        errorCode: error.code,
+                        retryDelayMs: delay
+                    });
+
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
@@ -329,6 +355,12 @@ export class CourtModel {
                     scope.setTag('retry_exhausted', 'true');
                     scope.setTag('error_type', isDeadlock ? 'database_deadlock' : 'database_lock_timeout');
                     scope.setLevel(isDeadlock ? 'error' : 'warning');
+                    Sentry.metrics.distribution('db.deadlock.retries', attempt + 1, {
+                        attributes: {
+                            error_type: isDeadlock ? 'deadlock' : 'lock_timeout',
+                            exhausted: String(attempt >= MAX_RETRIES - 1)
+                        }
+                    });
                 }
 
                 throw error;
