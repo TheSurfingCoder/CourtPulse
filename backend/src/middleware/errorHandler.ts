@@ -1,21 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
-import * as Sentry from '@sentry/node';
 import { 
-  AppException, 
-  ValidationException, 
-  NotFoundException, 
-  DatabaseException,
+  AppException,
   TransientException,
   RateLimitException 
 } from '../exceptions';
 
 /**
  * Central error handler for all exceptions.
- * 
- * This is the HTTP BOUNDARY - all errors flow here and get:
- * 1. Captured in Sentry with tags (Sentry handles trace linking via sentry-trace header)
- * 2. Transformed into consistent HTTP responses
- * 3. Logged with appropriate context for debugging
+ *
+ * Responsible for transforming errors into consistent HTTP responses.
+ * Sentry capture is handled upstream by Sentry.setupExpressErrorHandler,
+ * with filtering (drop dev events, drop 400/404s) handled in instrument.ts beforeSend.
  */
 export const errorHandler = (
   err: Error,
@@ -23,44 +18,6 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
-  // Determine if this is an operational error (expected) vs programming error (bug)
-  const isOperational = err instanceof AppException && err.isOperational;
-
-  // Capture in Sentry with rich context
-  // Sentry automatically links traces via sentry-trace/baggage headers
-  Sentry.withScope((scope: Sentry.Scope) => {
-    scope.setTag('errorType', err.name);
-    scope.setTag('isOperational', String(isOperational));
-    
-    if (err instanceof AppException) {
-      scope.setTag('errorCode', err.code);
-      scope.setTag('statusCode', String(err.statusCode));
-    }
-    
-    scope.setContext('request', {
-      method: req.method,
-      url: req.url,
-      path: req.path,
-      query: req.query,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
-    
-    // Skip capturing validation/not-found errors - these are user errors, not bugs
-    if (err instanceof ValidationException || err instanceof NotFoundException) {
-      return; // Don't send to Sentry
-    }
-    
-    // Set severity based on error type
-    if (err instanceof DatabaseException || !isOperational) {
-      scope.setLevel('error');
-    } else {
-      scope.setLevel('warning');
-    }
-    
-    Sentry.captureException(err);
-  });
-
   // Build response based on exception type
   if (err instanceof AppException) {
     const response: Record<string, unknown> = {

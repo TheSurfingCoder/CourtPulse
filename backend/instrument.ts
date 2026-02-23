@@ -1,51 +1,42 @@
 import * as Sentry from "@sentry/node";
-// profiling
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
+import { ValidationException, NotFoundException } from "./src/exceptions/index.js";
 
 // Ensure to call this before importing any other modules!
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  
-  // Environment-based configuration
+
   environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
-  
-  // Explicit release identifier for backend
+
   release: `backend@${process.env.npm_package_version || '1.1.0'}`,
-  
-  // Adds request headers and IP for users, for more info visit:
-  // https://docs.sentry.io/platforms/javascript/guides/node/configuration/options/#sendDefaultPii
+
+  // Adds request headers and IP for users
   sendDefaultPii: true,
-  
-  // profiling and logging integrations
+
   integrations: [
-    // Add our Profiling integration
     nodeProfilingIntegration(),
-    // Console logging integration - send console.log, console.warn, and console.error to Sentry
-    Sentry.consoleLoggingIntegration({ levels: ["log", "warn", "error"] }),
+    // Only forward warnings and errors to Sentry, not general console.log noise
+    Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
   ],
-  
-  // performance
-  // Set tracesSampleRate to 1.0 to capture 100%
-  // of transactions for tracing.
-  // We recommend adjusting this value in production
+
   tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-  
-  // profiling
-  // Set profilesSampleRate to 1.0 to profile 100%
-  // of sampled transactions.
-  // This is relative to tracesSampleRate
+
   profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-  
-  // logs
-  // Enable logs to be sent to Sentry
+
   enableLogs: true,
-  
-  // Disable Sentry in development environment
-  // TODO: Uncomment after testing to disable dev events
-  // beforeSend(event) {
-  //   if (process.env.SENTRY_ENVIRONMENT === "development" || process.env.NODE_ENV === "development") {
-  //     return null; // Drop event in development
-  //   }
-  //   return event;
-  // },
+
+  beforeSend(event, hint) {
+    // Drop all events in development — prevents dev noise from reaching Sentry
+    if (process.env.SENTRY_ENVIRONMENT === 'development' || process.env.NODE_ENV === 'development') {
+      return null;
+    }
+
+    // Drop user errors (400/404) — these are not bugs, they are expected client mistakes
+    const err = hint.originalException;
+    if (err instanceof ValidationException || err instanceof NotFoundException) {
+      return null;
+    }
+
+    return event;
+  },
 });
