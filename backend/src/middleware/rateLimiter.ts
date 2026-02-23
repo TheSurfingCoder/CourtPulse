@@ -12,7 +12,6 @@ export const searchRateLimit = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   handler: (req, res) => {
-    console.warn('Rate limit exceeded:', req.ip, req.path);
     res.status(429).json({
       success: false,
       message: 'Too many requests. Please try again later.',

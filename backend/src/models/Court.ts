@@ -305,58 +305,32 @@ export class CourtModel {
                     continue;
                 }
                 
-                // If not a retryable error or max retries reached, log and capture in Sentry
-                console.error('Court update failed:', { courtId: id, errorCode: error.code, attempt: attempt + 1 });
+                // Attach rich context to the active Sentry scope before rethrowing.
+                // setupExpressErrorHandler will capture the exception with this context attached.
+                const scope = Sentry.getCurrentScope();
+                scope.setTag('operation', 'court_update');
+                scope.setTag('court_id', id.toString());
+                scope.setContext('database_error', {
+                    error_code: error.code,
+                    error_message: error.message,
+                    is_deadlock: isDeadlock,
+                    is_lock_timeout: isLockTimeout,
+                    retry_attempts: attempt + 1,
+                    max_retries: MAX_RETRIES,
+                    court_id: id
+                });
+                scope.setContext('operation_details', {
+                    has_per_court_updates: fields.length > 0,
+                    has_cluster_updates: hasClusterFieldUpdates,
+                    operation: 'update_court'
+                });
 
-                // Capture in Sentry with rich context for lock timeout/deadlock errors
                 if (isDeadlock || isLockTimeout) {
-                    Sentry.withScope((scope) => {
-                        // Set tags for filtering in Sentry
-                        scope.setTag('error_type', isDeadlock ? 'database_deadlock' : 'database_lock_timeout');
-                        scope.setTag('operation', 'court_update');
-                        scope.setTag('court_id', id.toString());
-                        scope.setTag('retry_exhausted', 'true');
-                        
-                        // Set context for structured data
-                        scope.setContext('database_error', {
-                            error_code: error.code,
-                            error_message: error.message,
-                            is_deadlock: isDeadlock,
-                            is_lock_timeout: isLockTimeout,
-                            lock_timeout_ms: LOCK_TIMEOUT_MS,
-                            retry_attempts: attempt + 1,
-                            max_retries: MAX_RETRIES,
-                            court_id: id
-                        });
-                        
-                        // Set additional context about the operation
-                        scope.setContext('operation_details', {
-                            has_per_court_updates: fields.length > 0,
-                            has_cluster_updates: hasClusterFieldUpdates,
-                            operation: 'update_court'
-                        });
-                        
-                        // Set level to warning for lock timeouts (expected under load)
-                        // but error for deadlocks (indicates potential issue)
-                        scope.setLevel(isDeadlock ? 'error' : 'warning');
-                        
-                        // Capture the exception
-                        Sentry.captureException(error);
-                    });
-                } else {
-                    // For other errors, still capture but with less specific context
-                    Sentry.withScope((scope) => {
-                        scope.setTag('operation', 'court_update');
-                        scope.setTag('court_id', id.toString());
-                        scope.setContext('database_error', {
-                            error_code: error.code,
-                            error_message: error.message,
-                            court_id: id
-                        });
-                        Sentry.captureException(error);
-                    });
+                    scope.setTag('retry_exhausted', 'true');
+                    scope.setTag('error_type', isDeadlock ? 'database_deadlock' : 'database_lock_timeout');
+                    scope.setLevel(isDeadlock ? 'error' : 'warning');
                 }
-                
+
                 throw error;
             }
         }

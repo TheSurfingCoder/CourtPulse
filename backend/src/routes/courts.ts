@@ -170,8 +170,6 @@ router.post('/', asyncHandler(async (req: express.Request, res: express.Response
     has_lights: has_lights ?? null
   });
 
-  console.log('Court created:', court.id, court.name);
-
   return res.status(201).json({
     success: true,
     data: court
