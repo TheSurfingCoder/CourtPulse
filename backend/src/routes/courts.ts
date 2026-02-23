@@ -17,6 +17,15 @@ import {
 const router = express.Router();
 
 /**
+ * GET /api/courts/test-error
+ * TEMPORARY — for Sentry live testing only. Remove before merging to main.
+ * Throws a raw unhandled Error to verify setupExpressErrorHandler captures it exactly once.
+ */
+router.get('/test-error', asyncHandler(async (_req: express.Request, _res: express.Response) => {
+  throw new Error('Sentry test: intentional unhandled error from /api/courts/test-error');
+}));
+
+/**
  * GET /api/courts/metadata
  * Get available sports and surface types from database
  * Returns metadata for filtering courts in the UI
