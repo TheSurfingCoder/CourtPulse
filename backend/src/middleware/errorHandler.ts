@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import { 
+import {
   AppException,
   TransientException,
-  RateLimitException 
+  RateLimitException,
+  RouteNotFoundException
 } from '../exceptions';
 
 /**
@@ -65,7 +66,6 @@ export const errorHandler = (
  * 404 handler for unknown routes
  */
 export const notFound = (req: Request, _res: Response, next: NextFunction) => {
-  const { RouteNotFoundException } = require('../exceptions');
   next(new RouteNotFoundException(req.originalUrl));
 };
 

@@ -97,12 +97,20 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
     }
   });
   
+  const searchStart = Date.now();
   const courts = await CourtModel.searchCourts(filters);
+  const searchDurationMs = Date.now() - searchStart;
 
   Sentry.metrics.count('court_search.count', 1, {
     attributes: { sport: filters.sport ?? 'any', zoom: String(Math.floor(zoomLevel)) }
   });
   Sentry.metrics.distribution('court_search.results', courts.length, {
+    attributes: { sport: filters.sport ?? 'any', has_bbox: String(!!parsedBbox) }
+  });
+  // Duration metric: track p50/p95 query latency over time in the Metrics explorer.
+  // Complements the per-request span (which shows one trace) with a trend view.
+  Sentry.metrics.distribution('court_search.duration_ms', searchDurationMs, {
+    unit: 'millisecond',
     attributes: { sport: filters.sport ?? 'any', has_bbox: String(!!parsedBbox) }
   });
 
@@ -252,6 +260,14 @@ router.put('/:id', asyncHandler(async (req: express.Request, res: express.Respon
   if (!court) {
     throw new CourtNotFoundException(id);
   }
+
+  // Completes the CRUD metric picture alongside court_create.count and court_search.count.
+  // has_cluster_fields tells you how often users are bulk-editing cluster names vs. individual courts.
+  Sentry.metrics.count('court_update.count', 1, {
+    attributes: {
+      has_cluster_fields: String(!!clusterFields),
+    }
+  });
 
   return res.json({
     success: true,

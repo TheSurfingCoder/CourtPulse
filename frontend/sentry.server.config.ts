@@ -30,11 +30,4 @@ Sentry.init({
   enableLogs: true,
 
   debug: false,
-
-  beforeSend(event) {
-    if (process.env.SENTRY_ENVIRONMENT === 'development' || process.env.NODE_ENV === 'development') {
-      return null;
-    }
-    return event;
-  },
 });

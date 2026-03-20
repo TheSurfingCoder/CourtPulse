@@ -1,5 +1,11 @@
 import pool from '../../config/database';
+import { DatabaseError } from 'pg';
 import * as Sentry from '@sentry/node';
+import { DatabaseException, DeadlockException, LockTimeoutException } from '../exceptions';
+
+function isPgError(error: unknown): error is DatabaseError {
+    return error instanceof DatabaseError;
+}
 
 export interface Court {
     id: number;
@@ -294,7 +300,7 @@ export class CourtModel {
 
                 await client.query('COMMIT');
                 return await this.findById(id);
-            } catch (error: any) {
+            } catch (error: unknown) {
                 await client.query('ROLLBACK');
                 throw error;
             } finally {
@@ -303,19 +309,24 @@ export class CourtModel {
         };
 
         // Retry logic with exponential backoff for deadlocks
-        let lastError: Error | null = null;
+        let lastError: unknown = null;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return await executeTransaction();
-            } catch (error: any) {
+            } catch (error: unknown) {
                 lastError = error;
-                
+
+                // Non-pg errors (programming errors, etc.) propagate immediately
+                if (!isPgError(error)) {
+                    throw error;
+                }
+
                 // Check if it's a deadlock (PostgreSQL error code 40P01) or lock timeout
                 const isDeadlock = error.code === '40P01';
-                const isLockTimeout = error.message?.includes('lock timeout') || 
-                                     error.message?.includes('timeout') ||
+                const isLockTimeout = error.message.includes('lock timeout') ||
+                                     error.message.includes('timeout') ||
                                      error.code === '55P03';
-                
+
                 if ((isDeadlock || isLockTimeout) && attempt < MAX_RETRIES - 1) {
                     const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
                     Sentry.logger.warn('Court update retrying after database contention', {
@@ -330,7 +341,7 @@ export class CourtModel {
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
-                
+
                 // Attach rich context to the active Sentry scope before rethrowing.
                 // setupExpressErrorHandler will capture the exception with this context attached.
                 const scope = Sentry.getCurrentScope();
@@ -361,9 +372,12 @@ export class CourtModel {
                             exhausted: String(attempt >= MAX_RETRIES - 1)
                         }
                     });
+                    throw isDeadlock
+                        ? new DeadlockException('court_update', attempt + 1, error)
+                        : new LockTimeoutException('court_update', LOCK_TIMEOUT_MS, error);
                 }
 
-                throw error;
+                throw new DatabaseException('Court update failed', error);
             }
         }
 
@@ -455,7 +469,22 @@ export class CourtModel {
             query += ` LIMIT 1000`;
         }
         
-        const result = await pool.query(query, queryParams);
+        // Custom span: names the DB operation in the trace waterfall and captures
+        // the filters as attributes so you can filter slow traces by sport/zoom in
+        // Sentry Performance without having to read raw SQL.
+        const result = await Sentry.startSpan(
+            {
+                name: 'db.courts.search',
+                op: 'db.query',
+                attributes: {
+                    'db.system': 'postgresql',
+                    sport: filters.sport ?? 'any',
+                    has_bbox: String(!!filters.bbox),
+                    zoom: filters.zoom ? String(Math.floor(filters.zoom)) : 'none',
+                },
+            },
+            () => pool.query(query, queryParams)
+        );
         return result.rows;
     }
 

@@ -8,6 +8,7 @@
  * UI components catch these exceptions and display user-friendly messages.
  */
 
+import * as Sentry from '@sentry/nextjs';
 import { NetworkError, APIError, RateLimitError, parseAPIError } from './exceptions';
 
 // Types
@@ -61,55 +62,72 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
  * Sentry handles distributed tracing via sentry-trace/baggage headers automatically
  */
 export async function searchCourts(filters: SearchFilters): Promise<Court[]> {
-  try {
-    const queryParams = new URLSearchParams({
-      zoom: filters.zoom.toString(),
-      bbox: filters.bbox.join(',')
-    });
-
-    if (filters.sport) queryParams.set('sport', filters.sport);
-    if (filters.surface_type) queryParams.set('surface_type', filters.surface_type);
-    if (filters.is_public !== undefined) queryParams.set('is_public', String(filters.is_public));
-    if (filters.has_lights !== undefined) queryParams.set('has_lights', String(filters.has_lights));
-
-    const response = await fetch(`${API_URL}/api/courts/search?${queryParams.toString()}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
+  // Custom span: the auto-instrumented fetch span only knows the HTTP URL.
+  // This span wraps the full operation (URL build → fetch → parse) with business
+  // context, and sets result_count after the response so you can filter traces
+  // like "show me searches with 0 results" in Sentry Performance.
+  return Sentry.startSpan(
+    {
+      name: 'courts.search',
+      op: 'function',
+      attributes: {
+        sport: filters.sport ?? 'any',
+        zoom: String(Math.floor(filters.zoom)),
       },
-      mode: 'cors',
-      credentials: 'omit'
-    });
+    },
+    async (span) => {
+      try {
+        const queryParams = new URLSearchParams({
+          zoom: filters.zoom.toString(),
+          bbox: filters.bbox.join(',')
+        });
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      const retryAfter = response.headers.get('Retry-After') || undefined;
-      throw parseAPIError(response.status, data, retryAfter);
+        if (filters.sport) queryParams.set('sport', filters.sport);
+        if (filters.surface_type) queryParams.set('surface_type', filters.surface_type);
+        if (filters.is_public !== undefined) queryParams.set('is_public', String(filters.is_public));
+        if (filters.has_lights !== undefined) queryParams.set('has_lights', String(filters.has_lights));
+
+        const response = await fetch(`${API_URL}/api/courts/search?${queryParams.toString()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          mode: 'cors',
+          credentials: 'omit'
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          const retryAfter = response.headers.get('Retry-After') || undefined;
+          throw parseAPIError(response.status, data, retryAfter);
+        }
+
+        const result = await response.json();
+
+        if (!result.success || !Array.isArray(result.data)) {
+          throw new APIError(result.error || 'Invalid response format', result.code || 'INVALID_RESPONSE', 500);
+        }
+
+        span.setAttribute('result_count', result.data.length);
+        return result.data as Court[];
+
+      } catch (error) {
+        // Re-throw API errors as-is
+        if (error instanceof APIError) {
+          throw error;
+        }
+
+        // Transform network errors (offline, timeout, DNS failure)
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          throw new NetworkError('Unable to connect to server. Please check your internet connection.');
+        }
+
+        // Unknown errors
+        console.error('Unexpected error in searchCourts:', error);
+        throw new NetworkError('An unexpected error occurred while searching courts');
+      }
     }
-
-    const result = await response.json();
-    
-    if (!result.success || !Array.isArray(result.data)) {
-      throw new APIError(result.error || 'Invalid response format', result.code || 'INVALID_RESPONSE', 500);
-    }
-
-    return result.data;
-    
-  } catch (error) {
-    // Re-throw API errors as-is
-    if (error instanceof APIError) {
-      throw error;
-    }
-
-    // Transform network errors (offline, timeout, DNS failure)
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      throw new NetworkError('Unable to connect to server. Please check your internet connection.');
-    }
-
-    // Unknown errors
-    console.error('Unexpected error in searchCourts:', error);
-    throw new NetworkError('An unexpected error occurred while searching courts');
-  }
+  );
 }
 
 /**
@@ -259,5 +277,6 @@ export async function getCoverageAreas(region?: string): Promise<CoverageArea[]>
 }
 
 // Re-export exceptions for UI components
-export { NetworkError, APIError, RateLimitError } from './exceptions';
+export { NetworkError, APIError, RateLimitError, getErrorMessage, assertNever } from './exceptions';
+export type { FrontendError } from './exceptions';
 

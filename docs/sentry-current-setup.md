@@ -22,7 +22,7 @@
 - `nodeProfilingIntegration()` — CPU profiling
 - `consoleLoggingIntegration({ levels: ["log", "warn", "error"] })` — all console output forwarded to Sentry
 
-**Note:** `beforeSend` filter to drop dev events is currently commented out. Dev events are reaching Sentry.
+**Note:** Dev events intentionally reach Sentry for local testing. The `beforeSend` filter that would drop them is not active. Dev events are tagged `environment: development` and can be filtered in the dashboard.
 
 ---
 
@@ -236,9 +236,11 @@ Stack trace only exposed in `NODE_ENV=development`.
 
 ## Model layer (`src/models/Court.ts`)
 
-- `Sentry.captureException` called directly for deadlock and lock timeout errors before rethrowing as `DatabaseException`.
-- Uses `Sentry.withScope()` with DB-specific tags for filtering.
-- **Side effect:** these errors are captured twice — once here, once in `errorHandler`.
+- Simple queries (`findById`, `findByType`, `searchCourts`, etc.) have no explicit error handling — raw PostgreSQL errors bubble up through `asyncHandler` to `errorHandler` and return a generic 500.
+- `update()` has retry logic for deadlocks and lock timeouts (up to 3 attempts, exponential backoff).
+- On retry exhaustion, rich context is attached to the Sentry scope (operation, court ID, error code, retry count) before rethrowing — `setupExpressErrorHandler` then captures it with that context attached.
+- Errors are rethrown as typed exceptions: `DeadlockException` or `LockTimeoutException` (both extend `DatabaseException`), preserving the original pg error as `originalError`.
+- A `isPgError()` type guard narrows `unknown` catch variables to `pg.DatabaseError` before accessing `.code` or `.message`.
 
 ---
 
@@ -282,9 +284,34 @@ Stack trace only exposed in `NODE_ENV=development`.
 
 ---
 
+## How errors are handled: three scenarios
+
+### 1. Typed (declared) exceptions
+Routes throw typed exceptions from `src/exceptions/index.ts` directly — no try/catch in routes:
+```
+throw new CourtNotFoundException(id)
+throw new InvalidBboxException()
+throw new MissingFieldsException([...])
+```
+These bubble through `asyncHandler → setupExpressErrorHandler → errorHandler`. The `errorHandler` maps them to the correct HTTP status using `instanceof AppException`. `ValidationException` and `NotFoundException` are dropped in `beforeSend` and never reach Sentry. Everything else does.
+
+### 2. Unknown / undeclared exceptions
+Errors from third-party libraries (e.g. raw PostgreSQL errors from simple queries) have no explicit handling. They propagate as raw errors through `asyncHandler → errorHandler`. Since they don't match `instanceof AppException`, `errorHandler` returns a generic 500 and hides internal details from the client. These reach Sentry via `setupExpressErrorHandler` with whatever context is available.
+
+The one exception is `Court.update()` — pg errors there are caught explicitly, inspected with `isPgError()`, and rethrown as `DeadlockException` or `LockTimeoutException` (typed) with rich Sentry context attached before the rethrow.
+
+### 3. Unhandled exceptions
+Errors that escape all catch boundaries entirely:
+- **`unhandledRejection`** — a Promise that rejects with no `.catch()`. The Sentry Node SDK hooks into this automatically and captures the event before the process exits. Whether the process then crashes depends on the Node.js version (15+ crashes by default) and the SDK's `onUnhandledRejectionIntegration` mode setting — this has not been explicitly verified for this app.
+- **`uncaughtException`** — a synchronous throw with no try/catch (e.g. inside a `setTimeout`). Sentry captures it. Depending on SDK config, the process may exit after capture.
+- **Pool idle-client errors** — `pool.on('error', ...)` in `database.ts` logs and calls `process.exit(-1)`. These are not sent to Sentry.
+
+None of these require manual `captureException` calls — the SDK handles them automatically.
+
+---
+
 ## Remaining gaps
-1. **Double capture in model layer** — `Sentry.captureException` called directly in `Court.ts` for deadlock/lock timeout errors; these will still be captured twice (once in model, once by `setupExpressErrorHandler`).
-2. **No user context** — `sendDefaultPii: true` captures IP but `Sentry.setUser()` is never called; user identity not attached to events.
-3. **Logging strategy undefined** — no clear rule for when to use `console.error` vs let errors bubble vs `Sentry.captureException` directly. See Beads epic `CourtPulse-wbp`.
-4. **No dynamic sampling** — `tracesSampler` not configured; all routes sampled equally.
-5. **Hardcoded org/project slug** — `na-795` / `node-express` in `package.json` build script.
+1. **No user context** — `sendDefaultPii: true` captures IP but `Sentry.setUser()` is never called; user identity not attached to events.
+2. **No dynamic sampling** — `tracesSampler` not configured; all routes sampled equally.
+3. **Hardcoded org/project slug** — `na-795` / `node-express` in `package.json` build script.
+4. **Simple query errors not wrapped** — `findById`, `searchCourts` etc. propagate raw pg errors as generic 500s with no typed context in Sentry.

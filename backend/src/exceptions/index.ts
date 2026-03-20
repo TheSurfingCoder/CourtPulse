@@ -120,14 +120,14 @@ export class DatabaseException extends AppException {
 }
 
 export class DeadlockException extends DatabaseException {
-  constructor(operation: string, retryCount: number) {
-    super(`Database deadlock during ${operation} after ${retryCount} retries`);
+  constructor(operation: string, retryCount: number, originalError?: Error) {
+    super(`Database deadlock during ${operation} after ${retryCount} retries`, originalError);
   }
 }
 
 export class LockTimeoutException extends DatabaseException {
-  constructor(operation: string, timeoutMs: number) {
-    super(`Lock timeout during ${operation} after ${timeoutMs}ms`);
+  constructor(operation: string, timeoutMs: number, originalError?: Error) {
+    super(`Lock timeout during ${operation} after ${timeoutMs}ms`, originalError);
   }
 }
 

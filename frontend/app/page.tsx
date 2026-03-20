@@ -7,6 +7,7 @@ import FilterBar from '../components/FilterBar';
 import RateLimitModal from '../components/RateLimitModal';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import * as Sentry from '@sentry/nextjs';
 
 export default function Home() {
   const [filters, setFilters] = useState<{
@@ -56,7 +57,9 @@ export default function Home() {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch metadata:', error);
+        Sentry.captureException(error, {
+          tags: { component: 'Home', action: 'fetchMetadata' },
+        });
         toast.error('Unable to load filter options', {
           description: 'Some filters may be unavailable.'
         });
