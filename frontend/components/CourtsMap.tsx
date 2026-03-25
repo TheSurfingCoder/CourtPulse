@@ -36,6 +36,8 @@ interface CourtsMapProps {
   onNeedsNewSearchChange: (needsNewSearch: boolean) => void;
   onViewportChange: (viewport: { longitude: number; latitude: number; zoom: number }) => void;
   onRateLimitExceeded: (retryAfter: number) => void;
+  availableSports: string[];
+  availableSurfaces: string[];
 }
 
 export default function CourtsMap({ 
@@ -47,7 +49,9 @@ export default function CourtsMap({
   onLoadingChange,
   onNeedsNewSearchChange,
   onViewportChange,
-  onRateLimitExceeded
+  onRateLimitExceeded,
+  availableSports,
+  availableSurfaces
 }: CourtsMapProps) {
 
   const [courts, setCourts] = useState<Court[]>([]);
@@ -1154,6 +1158,8 @@ export default function CourtsMap({
         }}
         court={editingCourt}
         onSave={handleSaveCourt}
+        availableSports={availableSports}
+        availableSurfaces={availableSurfaces}
       />
 
       {/* No Data Modal */}

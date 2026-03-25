@@ -36,6 +36,8 @@ export default function Home() {
     retryAfter: 60
   });
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  const [availableSports, setAvailableSports] = useState<string[]>([]);
+  const [availableSurfaces, setAvailableSurfaces] = useState<string[]>([]);
 
   // Fetch metadata and select all options initially
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function Home() {
         if (response.ok) {
           const result = await response.json();
           if (result.success && result.data) {
+            setAvailableSports(result.data.sports || []);
+            setAvailableSurfaces(result.data.surfaceTypes || []);
             // Select all sports and all surfaces by default
             setFilters({
               sport: result.data.sports || [],
@@ -122,12 +126,14 @@ export default function Home() {
   return (
     <div className="flex flex-col w-full h-screen">
       <Header />
-      <FilterBar 
+      <FilterBar
         filters={filters}
         setFilters={setFilters}
+        availableSports={availableSports}
+        availableSurfaces={availableSurfaces}
       />
       <main className="flex-1 flex flex-col w-full overflow-hidden">
-        <CourtsMap 
+        <CourtsMap
           filters={filters}
           loading={loading}
           needsNewSearch={needsNewSearch}
@@ -136,6 +142,8 @@ export default function Home() {
           onNeedsNewSearchChange={handleNeedsNewSearchChange}
           onViewportChange={handleViewportChange}
           onRateLimitExceeded={handleRateLimitExceeded}
+          availableSports={availableSports}
+          availableSurfaces={availableSurfaces}
         />
       </main>
       

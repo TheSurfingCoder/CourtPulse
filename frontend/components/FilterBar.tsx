@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, SlidersIcon } from 'lucide-react';
-import { toast } from 'sonner';
 
 interface FilterBarProps {
   filters: {
@@ -19,15 +18,16 @@ interface FilterBarProps {
     is_public: boolean | null | undefined;
     has_lights: boolean | null | undefined;
   }) => void;
+  availableSports: string[];
+  availableSurfaces: string[];
 }
 
-export default function FilterBar({ 
-  filters, 
-  setFilters
+export default function FilterBar({
+  filters,
+  setFilters,
+  availableSports,
+  availableSurfaces
 }: FilterBarProps) {
-  const [availableSports, setAvailableSports] = useState<string[]>([]);
-  const [availableSurfaces, setAvailableSurfaces] = useState<string[]>([]);
-  const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
   const [isSportsDropdownOpen, setIsSportsDropdownOpen] = useState(false);
   const [isSurfacesDropdownOpen, setIsSurfacesDropdownOpen] = useState(false);
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
@@ -39,33 +39,6 @@ export default function FilterBar({
   const locationDropdownRef = useRef<HTMLDivElement>(null);
   const accessDropdownRef = useRef<HTMLDivElement>(null);
   const lightsDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch metadata on mount
-  useEffect(() => {
-    const fetchMetadata = async () => {
-      try {
-        setIsLoadingMetadata(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
-        const response = await fetch(`${apiUrl}/api/courts/metadata`);
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data) {
-            setAvailableSports(result.data.sports || []);
-            setAvailableSurfaces(result.data.surfaceTypes || []);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch metadata:', error);
-        toast.error('Unable to load filter options', {
-          description: 'Some filters may be unavailable.'
-        });
-      } finally {
-        setIsLoadingMetadata(false);
-      }
-    };
-
-    fetchMetadata();
-  }, []);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
