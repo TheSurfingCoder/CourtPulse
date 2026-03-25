@@ -36,6 +36,8 @@ interface CourtsMapProps {
   onNeedsNewSearchChange: (needsNewSearch: boolean) => void;
   onViewportChange: (viewport: { longitude: number; latitude: number; zoom: number }) => void;
   onRateLimitExceeded: (retryAfter: number) => void;
+  availableSports: string[];
+  availableSurfaces: string[];
 }
 
 export default function CourtsMap({ 
@@ -47,7 +49,9 @@ export default function CourtsMap({
   onLoadingChange,
   onNeedsNewSearchChange,
   onViewportChange,
-  onRateLimitExceeded
+  onRateLimitExceeded,
+  availableSports,
+  availableSurfaces
 }: CourtsMapProps) {
 
   const [courts, setCourts] = useState<Court[]>([]);
@@ -346,12 +350,10 @@ export default function CourtsMap({
         
         setSupercluster(cluster);
       } catch (error) {
-        console.error(JSON.stringify({
-          event: 'supercluster_initialization_error',
-          timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Unknown error',
-          mapPointsLength: mapPoints.length
-        }));
+        Sentry.captureException(error, {
+          tags: { component: 'CourtsMap', action: 'supercluster_init' },
+          extra: { mapPointsLength: mapPoints.length },
+        });
         setSupercluster(null);
       }
     } else {
@@ -413,13 +415,11 @@ export default function CourtsMap({
       
       return result;
     } catch (error) {
-      console.error(JSON.stringify({
-        event: 'cluster_calculation_error',
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : 'Unknown error',
-        viewport: debouncedViewport
-      }));
-      
+      Sentry.captureException(error, {
+        tags: { component: 'CourtsMap', action: 'cluster_calculation' },
+        extra: { viewport: debouncedViewport },
+      });
+
       // Fallback: return individual points
       return createFallbackPoints();
     }
@@ -496,6 +496,14 @@ export default function CourtsMap({
               center: [longitude, latitude],
               zoom: 14,
               duration: 2000
+            });
+            Sentry.logger.info('Geolocation granted and map zoomed', { latitude, longitude });
+          } else {
+            // Map ref not ready — user granted location but zoom didn't happen
+            Sentry.captureMessage('Geolocation granted but map ref not available', {
+              level: 'warning',
+              tags: { component: 'CourtsMap', action: 'geolocation_success' },
+              extra: { mapLoaded, latitude, longitude },
             });
           }
           
@@ -664,7 +672,14 @@ export default function CourtsMap({
       Sentry.captureException(err, {
         tags: { component: 'CourtsMap', action: 'fetchCourtsForArea' },
         extra: {
-          viewport: { lat: viewport.latitude, lng: viewport.longitude, zoom: viewport.zoom }
+          viewport: { lat: viewport.latitude, lng: viewport.longitude, zoom: viewport.zoom },
+          filters: {
+            sport: filters.sport,
+            surface_type: filters.surface_type,
+            is_public: filters.is_public,
+            has_lights: filters.has_lights,
+            school: filters.school,
+          },
         }
       });
       
@@ -1143,6 +1158,8 @@ export default function CourtsMap({
         }}
         court={editingCourt}
         onSave={handleSaveCourt}
+        availableSports={availableSports}
+        availableSurfaces={availableSurfaces}
       />
 
       {/* No Data Modal */}

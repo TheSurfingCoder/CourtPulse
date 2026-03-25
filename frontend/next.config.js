@@ -27,7 +27,7 @@ module.exports = withSentryConfig(
     // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
     org: "na-795",
-    project: "javascript-nextjs",
+    project: "courtpulse-map-nextjs",
 
     // Only print logs for uploading source maps in CI
     silent: !process.env.CI,

@@ -1,5 +1,11 @@
 import pool from '../../config/database';
+import { DatabaseError } from 'pg';
 import * as Sentry from '@sentry/node';
+import { DatabaseException, DeadlockException, LockTimeoutException } from '../exceptions';
+
+function isPgError(error: unknown): error is DatabaseError {
+    return error instanceof DatabaseError;
+}
 
 export interface Court {
     id: number;
@@ -123,8 +129,28 @@ export class CourtModel {
         // This avoids fragile regex parsing later
         let facilityNameParamIndex: number | null = null;
 
-        // Only process cluster_group_name from courtData if it's NOT in clusterFields
-        // Cluster-level updates take precedence over per-court updates
+        // Only update facility_name (AKA cluster_group_name) at the court level
+        // if it's NOT also being updated through clusterFields input.
+        //
+        // ClusterFields is used when the user intends to change shared cluster properties for multiple courts
+        // (think: "update the name for all courts in Golden Gate Park"), whereas courtData is for individual court changes.
+        // If both are provided, clusterFields always takes precedence for shared fields like cluster_group_name.
+        //
+        // User Example Flow:
+        // 1. User edits a SINGLE court, setting "Cluster/Facility Name" to "Lincoln Park" (courtData.cluster_group_name = "Lincoln Park").
+        //    - clusterFields = {} (empty or no cluster_group_name)
+        //    - Result: This court's facility_name becomes "Lincoln Park".
+        //
+        // 2. User selects MULTIPLE courts, then changes "Cluster/Facility Name" in the bulk edit panel to "Golden Gate Courts".
+        //    - clusterFields = { cluster_group_name: "Golden Gate Courts" }
+        //    - courtData might also have cluster_group_name for each court, but these are ignored for this field.
+        //    - Result: All selected courts get facility_name = "Golden Gate Courts", regardless of their individual courtData.
+        //
+        // 3. User bulk edits, but DOES NOT touch the cluster_group_name field (leaves clusterFields.cluster_group_name undefined).
+        //    - Individual courtData values (courtData.cluster_group_name) are respected (if set).
+        //    - Only those courts where the user directly changed the field get an update.
+        //
+        // In summary: Only apply per-court cluster_group_name if NOT also present in clusterFields (i.e. no bulk override).
         if (courtData.cluster_group_name !== undefined && sanitizedClusterFields.cluster_group_name === undefined) {
             const trimmedClusterName = courtData.cluster_group_name && courtData.cluster_group_name.trim() !== '' ? courtData.cluster_group_name.trim() : null;
             facilityNameParamIndex = paramCount;
@@ -245,7 +271,7 @@ export class CourtModel {
                     // Matching by facility_name alone is unsafe because multiple unrelated courts
                     // in different locations can share the same name. Fall back to updating
                     // only this specific court to avoid unintended matches.
-                    console.warn('Cluster update fallback: no cluster_id for court', existingCourt.id);
+                    Sentry.logger.warn('Cluster update fallback: no cluster_id, updating only this court', { courtId: existingCourt.id });
                     identifierClause = `id = $${clusterParamIndex}`;
                         clusterValues.push(existingCourt.id);
                         clusterParamIndex++;
@@ -274,7 +300,7 @@ export class CourtModel {
 
                 await client.query('COMMIT');
                 return await this.findById(id);
-            } catch (error: any) {
+            } catch (error: unknown) {
                 await client.query('ROLLBACK');
                 throw error;
             } finally {
@@ -283,81 +309,75 @@ export class CourtModel {
         };
 
         // Retry logic with exponential backoff for deadlocks
-        let lastError: Error | null = null;
+        let lastError: unknown = null;
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 return await executeTransaction();
-            } catch (error: any) {
+            } catch (error: unknown) {
                 lastError = error;
-                
+
+                // Non-pg errors (programming errors, etc.) propagate immediately
+                if (!isPgError(error)) {
+                    throw error;
+                }
+
                 // Check if it's a deadlock (PostgreSQL error code 40P01) or lock timeout
                 const isDeadlock = error.code === '40P01';
-                const isLockTimeout = error.message?.includes('lock timeout') || 
-                                     error.message?.includes('timeout') ||
+                const isLockTimeout = error.message.includes('lock timeout') ||
+                                     error.message.includes('timeout') ||
                                      error.code === '55P03';
-                
+
                 if ((isDeadlock || isLockTimeout) && attempt < MAX_RETRIES - 1) {
                     const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-                    console.warn(`Court update retry ${attempt + 1}/${MAX_RETRIES}:`, isDeadlock ? 'deadlock' : 'lock_timeout');
-                    
-                    // Wait before retrying with exponential backoff
+                    Sentry.logger.warn('Court update retrying after database contention', {
+                        courtId: id,
+                        attempt: attempt + 1,
+                        maxRetries: MAX_RETRIES,
+                        errorType: isDeadlock ? 'deadlock' : 'lock_timeout',
+                        errorCode: error.code,
+                        retryDelayMs: delay
+                    });
+
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
-                
-                // If not a retryable error or max retries reached, log and capture in Sentry
-                console.error('Court update failed:', { courtId: id, errorCode: error.code, attempt: attempt + 1 });
 
-                // Capture in Sentry with rich context for lock timeout/deadlock errors
+                // Attach rich context to the active Sentry scope before rethrowing.
+                // setupExpressErrorHandler will capture the exception with this context attached.
+                const scope = Sentry.getCurrentScope();
+                scope.setTag('operation', 'court_update');
+                scope.setTag('court_id', id.toString());
+                scope.setContext('database_error', {
+                    error_code: error.code,
+                    error_message: error.message,
+                    is_deadlock: isDeadlock,
+                    is_lock_timeout: isLockTimeout,
+                    retry_attempts: attempt + 1,
+                    max_retries: MAX_RETRIES,
+                    court_id: id
+                });
+                scope.setContext('operation_details', {
+                    has_per_court_updates: fields.length > 0,
+                    has_cluster_updates: hasClusterFieldUpdates,
+                    operation: 'update_court'
+                });
+
                 if (isDeadlock || isLockTimeout) {
-                    Sentry.withScope((scope) => {
-                        // Set tags for filtering in Sentry
-                        scope.setTag('error_type', isDeadlock ? 'database_deadlock' : 'database_lock_timeout');
-                        scope.setTag('operation', 'court_update');
-                        scope.setTag('court_id', id.toString());
-                        scope.setTag('retry_exhausted', 'true');
-                        
-                        // Set context for structured data
-                        scope.setContext('database_error', {
-                            error_code: error.code,
-                            error_message: error.message,
-                            is_deadlock: isDeadlock,
-                            is_lock_timeout: isLockTimeout,
-                            lock_timeout_ms: LOCK_TIMEOUT_MS,
-                            retry_attempts: attempt + 1,
-                            max_retries: MAX_RETRIES,
-                            court_id: id
-                        });
-                        
-                        // Set additional context about the operation
-                        scope.setContext('operation_details', {
-                            has_per_court_updates: fields.length > 0,
-                            has_cluster_updates: hasClusterFieldUpdates,
-                            operation: 'update_court'
-                        });
-                        
-                        // Set level to warning for lock timeouts (expected under load)
-                        // but error for deadlocks (indicates potential issue)
-                        scope.setLevel(isDeadlock ? 'error' : 'warning');
-                        
-                        // Capture the exception
-                        Sentry.captureException(error);
+                    scope.setTag('retry_exhausted', 'true');
+                    scope.setTag('error_type', isDeadlock ? 'database_deadlock' : 'database_lock_timeout');
+                    scope.setLevel(isDeadlock ? 'error' : 'warning');
+                    Sentry.metrics.distribution('db.deadlock.retries', attempt + 1, {
+                        attributes: {
+                            error_type: isDeadlock ? 'deadlock' : 'lock_timeout',
+                            exhausted: String(attempt >= MAX_RETRIES - 1)
+                        }
                     });
-                } else {
-                    // For other errors, still capture but with less specific context
-                    Sentry.withScope((scope) => {
-                        scope.setTag('operation', 'court_update');
-                        scope.setTag('court_id', id.toString());
-                        scope.setContext('database_error', {
-                            error_code: error.code,
-                            error_message: error.message,
-                            court_id: id
-                        });
-                        Sentry.captureException(error);
-                    });
+                    throw isDeadlock
+                        ? new DeadlockException('court_update', attempt + 1, error)
+                        : new LockTimeoutException('court_update', LOCK_TIMEOUT_MS, error);
                 }
-                
-                throw error;
+
+                throw new DatabaseException('Court update failed', error);
             }
         }
 
@@ -449,7 +469,22 @@ export class CourtModel {
             query += ` LIMIT 1000`;
         }
         
-        const result = await pool.query(query, queryParams);
+        // Custom span: names the DB operation in the trace waterfall and captures
+        // the filters as attributes so you can filter slow traces by sport/zoom in
+        // Sentry Performance without having to read raw SQL.
+        const result = await Sentry.startSpan(
+            {
+                name: 'db.courts.search',
+                op: 'db.query',
+                attributes: {
+                    'db.system': 'postgresql',
+                    sport: filters.sport ?? 'any',
+                    has_bbox: String(!!filters.bbox),
+                    zoom: filters.zoom ? String(Math.floor(filters.zoom)) : 'none',
+                },
+            },
+            () => pool.query(query, queryParams)
+        );
         return result.rows;
     }
 

@@ -1,5 +1,6 @@
 //courts model
 import express from 'express';
+import * as Sentry from '@sentry/node';
 import { CourtModel } from '../models/Court';
 import { CoverageAreaModel } from '../models/CoverageArea';
 import { searchRateLimit } from '../middleware/rateLimiter';
@@ -96,8 +97,34 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
     }
   });
   
+  const searchStart = Date.now();
   const courts = await CourtModel.searchCourts(filters);
-  
+  const searchDurationMs = Date.now() - searchStart;
+
+  Sentry.metrics.count('court_search.count', 1, {
+    attributes: { sport: filters.sport ?? 'any', zoom: String(Math.floor(zoomLevel)) }
+  });
+  Sentry.metrics.distribution('court_search.results', courts.length, {
+    attributes: { sport: filters.sport ?? 'any', has_bbox: String(!!parsedBbox) }
+  });
+  // Duration metric: track p50/p95 query latency over time in the Metrics explorer.
+  // Complements the per-request span (which shows one trace) with a trend view.
+  Sentry.metrics.distribution('court_search.duration_ms', searchDurationMs, {
+    unit: 'millisecond',
+    attributes: { sport: filters.sport ?? 'any', has_bbox: String(!!parsedBbox) }
+  });
+
+  if (courts.length === 0) {
+    Sentry.logger.warn('Court search returned zero results', {
+      zoom: zoomLevel,
+      sport: filters.sport,
+      surface_type: filters.surface_type,
+      is_public: filters.is_public,
+      has_lights: filters.has_lights,
+      bbox: parsedBbox?.join(',')
+    });
+  }
+
   return res.json({
     success: true,
     count: courts.length,
@@ -105,6 +132,7 @@ router.get('/search', searchRateLimit, asyncHandler(async (req: express.Request,
     filters: filters
   });
 }));
+
 
 /**
  * GET /api/courts/:id
@@ -170,7 +198,14 @@ router.post('/', asyncHandler(async (req: express.Request, res: express.Response
     has_lights: has_lights ?? null
   });
 
-  console.log('Court created:', court.id, court.name);
+  Sentry.metrics.count('court_create.count', 1, {
+    attributes: { sport: type, is_public: String(is_public ?? true) }
+  });
+  Sentry.logger.info('Court created', {
+    courtId: court.id,
+    sport: type,
+    is_public: is_public ?? true
+  });
 
   return res.status(201).json({
     success: true,
@@ -226,6 +261,14 @@ router.put('/:id', asyncHandler(async (req: express.Request, res: express.Respon
     throw new CourtNotFoundException(id);
   }
 
+  // Completes the CRUD metric picture alongside court_create.count and court_search.count.
+  // has_cluster_fields tells you how often users are bulk-editing cluster names vs. individual courts.
+  Sentry.metrics.count('court_update.count', 1, {
+    attributes: {
+      has_cluster_fields: String(!!clusterFields),
+    }
+  });
+
   return res.json({
     success: true,
     data: court
@@ -246,6 +289,8 @@ router.delete('/:id', asyncHandler(async (req: express.Request, res: express.Res
   if (!deleted) {
     throw new CourtNotFoundException(id);
   }
+
+  Sentry.logger.info('Court deleted', { courtId: id });
 
   return res.json({
     success: true,

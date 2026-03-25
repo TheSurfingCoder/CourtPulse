@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
+
 interface CourtData {
   id: number;
   name: string | null;
@@ -24,9 +25,11 @@ interface EditCourtModalProps {
   onClose: () => void;
   court: CourtData | null;
   onSave: (updatedCourt: CourtData) => void;
+  availableSports: string[];
+  availableSurfaces: string[];
 }
 
-export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditCourtModalProps) {
+export default function EditCourtModal({ isOpen, onClose, court, onSave, availableSports, availableSurfaces }: EditCourtModalProps) {
   const [formData, setFormData] = useState({
     cluster_group_name: '',
     name: '',
@@ -36,37 +39,6 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
     has_lights: '',
     school: ''
   });
-
-  const [sportOptions, setSportOptions] = useState<string[]>([]);
-  const [surfaceOptions, setSurfaceOptions] = useState<string[]>([]);
-  const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
-
-  // Fetch metadata on mount
-  useEffect(() => {
-    const fetchMetadata = async () => {
-      try {
-        setIsLoadingMetadata(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
-        const response = await fetch(`${apiUrl}/api/courts/metadata`);
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success && result.data) {
-            setSportOptions(result.data.sports || []);
-            setSurfaceOptions(result.data.surfaceTypes || []);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch metadata:', error);
-        toast.error('Unable to load edit options', {
-          description: 'Sport and surface options may be unavailable.'
-        });
-      } finally {
-        setIsLoadingMetadata(false);
-      }
-    };
-
-    fetchMetadata();
-  }, []);
 
   useEffect(() => {
     if (court) {
@@ -190,7 +162,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select sport...</option>
-              {sportOptions.map((sport) => (
+              {availableSports.map((sport) => (
                 <option key={sport} value={sport}>
                   {sport.charAt(0).toUpperCase() + sport.slice(1)}
                 </option>
@@ -208,7 +180,7 @@ export default function EditCourtModal({ isOpen, onClose, court, onSave }: EditC
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select surface...</option>
-              {surfaceOptions.map((surface) => (
+              {availableSurfaces.map((surface) => (
                 <option key={surface} value={surface}>
                   {surface.charAt(0).toUpperCase() + surface.slice(1)}
                 </option>

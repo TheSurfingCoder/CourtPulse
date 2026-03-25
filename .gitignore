@@ -85,3 +85,6 @@ __pycache__/
 # Backend build artifacts
 backend/dist/
 backend/coverage/
+
+# bv (beads viewer) local config and caches
+.bv/
