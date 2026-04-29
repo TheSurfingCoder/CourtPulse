@@ -9,6 +9,7 @@ import swaggerUi from 'swagger-ui-express';
 import * as Sentry from '@sentry/node';
 
 import courtRoutes from './src/routes/courts.js';
+import testErrorRoutes from './src/routes/test-error.js';
 import { specs } from './src/config/swagger.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 
@@ -61,6 +62,7 @@ app.get('/health', (req: express.Request, res: express.Response) => {
   });
 
 app.use('/api/courts', courtRoutes);
+app.use('/api/test-error', testErrorRoutes);
 
 // Sentry error handler must be registered before any other error-handling middlewares
 Sentry.setupExpressErrorHandler(app);
