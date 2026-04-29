@@ -10,6 +10,7 @@
 
 import * as Sentry from '@sentry/nextjs';
 import { NetworkError, APIError, RateLimitError, parseAPIError } from './exceptions';
+import { getStoredToken } from '../auth/storage';
 
 // Types
 export interface Court {
@@ -172,10 +173,12 @@ export async function updateCourt(
   data: Partial<Court> & { cluster_fields?: { cluster_group_name?: string | null } }
 ): Promise<Court> {
   try {
+    const token = getStoredToken();
     const response = await fetch(`${API_URL}/api/courts/${id}`, {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(data)
     });
