@@ -5,10 +5,13 @@ import Map, { Marker, Popup, MapRef, Source, Layer } from 'react-map-gl/maplibre
 import Supercluster from 'supercluster';
 import * as Sentry from '@sentry/nextjs';
 import { toast } from 'sonner';
+import { Lock } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
 import NoDataModal from './NoDataModal';
+import AuthRequiredModal from './AuthRequiredModal';
+import { useAuth } from '../lib/auth/AuthContext';
 import {
   searchCourts,
   updateCourt,
@@ -50,12 +53,15 @@ export default function CourtsMap({
   onRateLimitExceeded
 }: CourtsMapProps) {
 
+  const { user } = useAuth();
+
   const [courts, setCourts] = useState<Court[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<any>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
   const [editingCourt, setEditingCourt] = useState<Court | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [viewport, setViewport] = useState(externalViewport);
   const [debouncedViewport, setDebouncedViewport] = useState(externalViewport);
   const [coverageAreas, setCoverageAreas] = useState<CoverageArea[]>([]);
@@ -813,6 +819,10 @@ export default function CourtsMap({
 
   // Handle edit button click
   const handleEditClick = (court: Court) => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
     setEditingCourt(court);
     setIsEditModalOpen(true);
     setSelectedCluster(null); // Close popup when opening edit modal
@@ -1108,8 +1118,9 @@ export default function CourtsMap({
                     };
                     handleEditClick(courtDetail);
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors max-w-[calc(100%-1.5rem)]"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors max-w-[calc(100%-1.5rem)]"
                 >
+                  {!user && <Lock className="h-3.5 w-3.5" />}
                   Edit Court
                 </button>
               </div>
@@ -1149,6 +1160,12 @@ export default function CourtsMap({
       <NoDataModal
         isOpen={isNoDataModalOpen}
         onClose={() => setIsNoDataModalOpen(false)}
+      />
+
+      {/* Auth Required Modal */}
+      <AuthRequiredModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
       />
     </div>
   );

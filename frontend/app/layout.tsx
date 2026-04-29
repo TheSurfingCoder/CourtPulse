@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/nextjs';
 import React from 'react'
 import type { Metadata } from 'next'
 import { Toaster } from 'sonner'
+import ClientProviders from '../components/ClientProviders'
 import '../styles/globals.css'
 
 export function generateMetadata(): Metadata {
@@ -24,14 +25,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Toaster 
-          position="bottom-left"
-          richColors
-          closeButton
-        />
-        <div>
-          {children}
-        </div>
+        <ClientProviders>
+          <Toaster
+            position="bottom-left"
+            richColors
+            closeButton
+          />
+          <div>
+            {children}
+          </div>
+        </ClientProviders>
       </body>
     </html>
   )

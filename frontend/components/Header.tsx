@@ -1,6 +1,13 @@
-import React from 'react'
-import { Activity } from 'lucide-react'
+'use client';
+
+import React from 'react';
+import Link from 'next/link';
+import { Activity } from 'lucide-react';
+import { useAuth } from '../lib/auth/AuthContext';
+
 export default function Header() {
+  const { user, isLoading, logout } = useAuth();
+
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 px-4 py-3">
       <div className="flex items-center">
@@ -13,7 +20,29 @@ export default function Header() {
         <p className="ml-4 text-sm text-gray-500 hidden sm:block">
           Discover and explore sports courts near you
         </p>
+        <div className="ml-auto flex items-center gap-3">
+          {!isLoading && (
+            user ? (
+              <>
+                <span className="text-sm text-gray-600 hidden sm:block">{user.email}</span>
+                <button
+                  onClick={() => logout()}
+                  className="text-sm text-gray-500 hover:text-gray-800 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50"
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/auth/login"
+                className="text-sm font-medium bg-gradient-to-r from-orange-500 to-red-500 text-white px-3 py-1.5 rounded-lg hover:opacity-90"
+              >
+                Sign in
+              </Link>
+            )
+          )}
+        </div>
       </div>
     </header>
-  )
+  );
 }
