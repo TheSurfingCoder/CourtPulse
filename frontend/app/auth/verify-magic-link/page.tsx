@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Activity } from 'lucide-react';
@@ -10,7 +10,10 @@ import { APIError } from '../../../lib/api/exceptions';
 
 type State = 'verifying' | 'error';
 
-export default function VerifyMagicLinkPage() {
+// useSearchParams() forces this subtree to render client-side at request time.
+// Next.js requires it to be inside a <Suspense> boundary so prerender doesn't
+// fail for the rest of the page shell.
+function VerifyMagicLinkInner() {
   const { login } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,6 +43,30 @@ export default function VerifyMagicLinkPage() {
       });
   }, [searchParams, login, router]);
 
+  if (state === 'verifying') {
+    return (
+      <>
+        <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-gray-500">Signing you in…</p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h1 className="text-lg font-semibold text-gray-800 mb-2">Link invalid</h1>
+      <p className="text-sm text-gray-500 mb-4">{errorMessage}</p>
+      <Link
+        href="/auth/login"
+        className="inline-block px-4 py-2 text-sm font-medium bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg hover:opacity-90"
+      >
+        Request a new link
+      </Link>
+    </>
+  );
+}
+
+function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm text-center">
@@ -49,27 +76,25 @@ export default function VerifyMagicLinkPage() {
           </div>
           <span className="text-xl font-bold text-gray-800">CourtPulse</span>
         </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-        {state === 'verifying' && (
+export default function VerifyMagicLinkPage() {
+  return (
+    <PageShell>
+      <Suspense
+        fallback={
           <>
             <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <p className="text-sm text-gray-500">Signing you in…</p>
           </>
-        )}
-
-        {state === 'error' && (
-          <>
-            <h1 className="text-lg font-semibold text-gray-800 mb-2">Link invalid</h1>
-            <p className="text-sm text-gray-500 mb-4">{errorMessage}</p>
-            <Link
-              href="/auth/login"
-              className="inline-block px-4 py-2 text-sm font-medium bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg hover:opacity-90"
-            >
-              Request a new link
-            </Link>
-          </>
-        )}
-      </div>
-    </div>
+        }
+      >
+        <VerifyMagicLinkInner />
+      </Suspense>
+    </PageShell>
   );
 }
