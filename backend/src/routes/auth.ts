@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import pool from '../../config/database';
 import { authenticateUser, requireAuth, AuthenticatedRequest } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
+import { magicLinkRateLimit } from '../middleware/rateLimiter';
 import { sendMagicLinkEmail } from '../services/email';
 
 const router = express.Router();
@@ -49,6 +50,7 @@ async function createSession(userId: string, req: Request): Promise<{ token: str
  */
 router.post(
   '/magic-link',
+  magicLinkRateLimit,
   asyncHandler(async (req: Request, res: Response) => {
     // Validate email from body
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
