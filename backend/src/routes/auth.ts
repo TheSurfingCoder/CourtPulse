@@ -132,9 +132,12 @@ router.get(
         [userId]
       );
     } else {
-      // New user: create contributor account
+      // New user: create contributor account.
+      // last_login_at is set on creation so a brand-new user's first session
+      // is reflected immediately, not only on their second sign-in.
       const insertResult = await pool.query(
-        `INSERT INTO users (email, role, email_verified) VALUES ($1, 'contributor', true) RETURNING id`,
+        `INSERT INTO users (email, role, email_verified, last_login_at)
+         VALUES ($1, 'contributor', true, NOW()) RETURNING id`,
         [email]
       );
       userId = insertResult.rows[0].id;
