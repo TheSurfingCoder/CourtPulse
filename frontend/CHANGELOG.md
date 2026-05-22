@@ -1,5 +1,12 @@
 # @courtpulse/frontend
 
+## [1.17.1](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.17.0...frontend-v1.17.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **auth:** wrap useSearchParams in Suspense for prerender ([#117](https://github.com/TheSurfingCoder/CourtPulse/issues/117)) ([515d178](https://github.com/TheSurfingCoder/CourtPulse/commit/515d178c3a04530c117f18f79f1f03159cc5cda6))
+
 ## [1.17.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.16.0...frontend-v1.17.0) (2026-05-22)
 
 
