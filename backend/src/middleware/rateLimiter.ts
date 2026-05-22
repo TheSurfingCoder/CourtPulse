@@ -1,4 +1,4 @@
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import * as Sentry from '@sentry/node';
 
 // Rate limiter for search endpoints
@@ -39,12 +39,15 @@ export const magicLinkRateLimit = rateLimit({
   max: 1,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
+  // Skip the limiter entirely if there's no email in the body. The route handler
+  // returns 400 for that case immediately — no need to consume a rate-limit slot
+  // or fall back to IP keying (we don't want to read req.ip at all).
+  skip: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    // Fall back to IP if email is missing — the route handler will 400 anyway.
-    // ipKeyGenerator normalizes IPv6 to a /64 subnet so a single IPv6 address can't bypass limits.
-    return email || ipKeyGenerator(req.ip || '');
+    return !email;
   },
+  // Safe to assume email exists here because of the skip above.
+  keyGenerator: (req) => req.body.email.trim().toLowerCase(),
   // Silent rate-limit: respond with the SAME generic success message rather than 429.
   // This prevents leaking "this email recently requested a link" (which would also
   // partially leak account existence to anyone watching the response). Legit users
