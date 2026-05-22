@@ -52,6 +52,14 @@ export class NotFoundError extends APIError {
   }
 }
 
+// 401 — session expired or invalid token. UI should logout + redirect to /auth/login.
+export class AuthExpiredError extends APIError {
+  constructor(message: string, code: string) {
+    super(message, code, 401);
+    this.name = 'AuthExpiredError';
+  }
+}
+
 export class RateLimitError extends APIError {
   public retryAfter: number;
 
@@ -124,6 +132,10 @@ export function parseAPIError(
 
   if (statusCode === 404) {
     return new NotFoundError(message, code);
+  }
+
+  if (statusCode === 401) {
+    return new AuthExpiredError(message, code);
   }
 
   if (statusCode >= 400 && statusCode < 500) {

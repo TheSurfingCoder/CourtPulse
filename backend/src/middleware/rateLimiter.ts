@@ -28,3 +28,35 @@ export const searchRateLimit = rateLimit({
     });
   }
 });
+
+// Rate limiter for magic link requests.
+// Keyed by normalized email rather than IP — one shared office IP shouldn't
+// block legitimate users, but one email address being bombarded should.
+// 1 request per email per minute is enough to stop email bombing while staying
+// invisible to a user who fat-fingers the submit button.
+export const magicLinkRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip the limiter entirely if there's no email in the body. The route handler
+  // returns 400 for that case immediately — no need to consume a rate-limit slot
+  // or fall back to IP keying (we don't want to read req.ip at all).
+  skip: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return !email;
+  },
+  // Safe to assume email exists here because of the skip above.
+  keyGenerator: (req) => req.body.email.trim().toLowerCase(),
+  // Silent rate-limit: respond with the SAME generic success message rather than 429.
+  // This prevents leaking "this email recently requested a link" (which would also
+  // partially leak account existence to anyone watching the response). Legit users
+  // who hit submit twice quickly just see "if an account exists…" and check their
+  // first email; attackers learn nothing.
+  handler: (_req, res) => {
+    res.status(200).json({
+      success: true,
+      message: 'If an account exists for this email, we sent you a sign-in link.'
+    });
+  }
+});
