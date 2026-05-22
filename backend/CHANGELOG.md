@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.12.0...backend-v1.12.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **auth:** capture magic-link email send failures to Sentry ([#119](https://github.com/TheSurfingCoder/CourtPulse/issues/119)) ([f9dd5bd](https://github.com/TheSurfingCoder/CourtPulse/commit/f9dd5bdb091c66d1720615125ba879478f1b9469))
+
 ## [1.12.0](https://github.com/TheSurfingCoder/CourtPulse/compare/backend-v1.11.0...backend-v1.12.0) (2026-05-22)
 
 
