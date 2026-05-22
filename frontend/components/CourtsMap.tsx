@@ -6,12 +6,14 @@ import Supercluster from 'supercluster';
 import * as Sentry from '@sentry/nextjs';
 import { toast } from 'sonner';
 import { Lock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
 import NoDataModal from './NoDataModal';
 import AuthRequiredModal from './AuthRequiredModal';
 import { useAuth } from '../lib/auth/AuthContext';
+import { AuthExpiredError } from '@/lib/api';
 import {
   searchCourts,
   updateCourt,
@@ -57,7 +59,8 @@ export default function CourtsMap({
   availableSurfaces
 }: CourtsMapProps) {
 
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
 
   const [courts, setCourts] = useState<Court[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<any>(null);
@@ -920,7 +923,20 @@ export default function CourtsMap({
         tags: { component: 'CourtsMap', action: 'handleSaveCourt' },
         extra: { courtId: updatedCourt.id }
       });
-      
+
+      // Session expired: clear auth, close modal, send user to login.
+      // Checked before the generic APIError branch since AuthExpiredError extends APIError.
+      if (err instanceof AuthExpiredError) {
+        toast.error('Session expired', {
+          description: 'Please sign in again to continue editing.'
+        });
+        setIsEditModalOpen(false);
+        setEditingCourt(null);
+        await logout();
+        router.push('/auth/login');
+        return;
+      }
+
       // User-friendly error messages based on exception type
       if (err instanceof NetworkError) {
         toast.error('Unable to connect', {
