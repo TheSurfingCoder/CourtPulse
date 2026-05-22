@@ -11,14 +11,6 @@ const router = express.Router();
 const SESSION_EXPIRY_DAYS = 7;
 const MAGIC_LINK_EXPIRY_MINUTES = 15;
 
-function getClientIp(req: Request): string | null {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0]?.trim() || null;
-  }
-  return req.ip || null;
-}
-
 function getClientUserAgent(req: Request): string | null {
   const ua = req.headers['user-agent'];
   return typeof ua === 'string' ? ua : null;
@@ -32,13 +24,12 @@ async function createSession(userId: string, req: Request): Promise<{ token: str
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-  const ip = getClientIp(req);
   const userAgent = getClientUserAgent(req);
 
   await pool.query(
-    `INSERT INTO sessions (user_id, token_hash, expires_at, ip_address, user_agent)
-     VALUES ($1, $2, $3, $4::inet, $5)`,
-    [userId, tokenHash, expiresAt.toISOString(), ip, userAgent]
+    `INSERT INTO sessions (user_id, token_hash, expires_at, user_agent)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, tokenHash, expiresAt.toISOString(), userAgent]
   );
 
   return { token, expiresAt };
