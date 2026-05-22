@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import crypto from 'crypto';
+import * as Sentry from '@sentry/node';
 import pool from '../../config/database';
 import { authenticateUser, requireAuth, AuthenticatedRequest } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -68,8 +69,22 @@ router.post(
     const baseUrl = process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || 'http://localhost:3000';
     const verifyUrl = `${baseUrl}/auth/verify-magic-link?token=${token}`;
     const sent = await sendMagicLinkEmail(email, verifyUrl);
-    if (!sent.ok && process.env.NODE_ENV !== 'production') {
-      console.log('[Auth] Magic link (dev, email not sent):', verifyUrl);
+
+    if (!sent.ok) {
+      // Email send failed — user just saw "check your email" but nothing was sent.
+      // Capture as a Sentry Issue so we get alerted; tagged so we can filter the
+      // "RESEND_API_KEY missing" case (config bug) from real Resend failures.
+      Sentry.captureException(
+        new Error(`Magic link email failed to send: ${sent.error}`),
+        {
+          tags: { feature: 'auth', action: 'send_magic_link' },
+          extra: { email, reason: sent.error, env: process.env.NODE_ENV }
+        }
+      );
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Auth] Magic link (dev, email not sent):', verifyUrl);
+      }
     }
 
     // Same message whether or not user exists (don't leak account existence)
