@@ -188,21 +188,16 @@ router.get(
 
 /**
  * POST /api/auth/logout
- * Invalidate current session (delete from sessions).
+ * Sign out everywhere: delete every session for this user, not just the current one.
+ * Simpler mental model than per-device sign-out, more secure by default (no orphan
+ * sessions on forgotten devices), and removes the need for a sessions-list UI.
  */
 router.post(
   '/logout',
   authenticateUser,
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(204).end();
-      return;
-    }
-    const sessionToken = authHeader.substring(7);
-    const tokenHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
-    await pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
+    await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [req.user!.id]);
     res.status(204).end();
   })
 );
