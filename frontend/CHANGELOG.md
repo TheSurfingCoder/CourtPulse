@@ -1,5 +1,12 @@
 # @courtpulse/frontend
 
+## [1.17.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.16.0...frontend-v1.17.0) (2026-05-22)
+
+
+### Features
+
+* **auth:** magic link authentication, audit log, and security hardening ([#113](https://github.com/TheSurfingCoder/CourtPulse/issues/113)) ([d5a30e4](https://github.com/TheSurfingCoder/CourtPulse/commit/d5a30e4908ba9e9d48c11913393fc6f20c0ce2b2))
+
 ## [1.16.0](https://github.com/TheSurfingCoder/CourtPulse/compare/frontend-v1.15.0...frontend-v1.16.0) (2026-01-16)
 
 
