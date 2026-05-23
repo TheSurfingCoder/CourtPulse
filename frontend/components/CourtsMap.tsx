@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import MapTypeToggle from './MapTypeToggle';
 import EditCourtModal from './EditCourtModal';
+import CreateCourtModal from './CreateCourtModal';
 import NoDataModal from './NoDataModal';
 import AuthRequiredModal from './AuthRequiredModal';
 import { useAuth } from '../lib/auth/AuthContext';
@@ -17,6 +18,9 @@ import { AuthExpiredError } from '@/lib/api';
 import {
   searchCourts,
   updateCourt,
+  createCourt,
+  deleteCourt,
+  requestCourtDeletion,
   getCoverageAreas,
   NetworkError,
   APIError,
@@ -69,6 +73,9 @@ export default function CourtsMap({
   const [editingCourt, setEditingCourt] = useState<Court | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isPlacementMode, setIsPlacementMode] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [pendingCourtLocation, setPendingCourtLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [viewport, setViewport] = useState(externalViewport);
   const [debouncedViewport, setDebouncedViewport] = useState(externalViewport);
   const [coverageAreas, setCoverageAreas] = useState<CoverageArea[]>([]);
@@ -835,6 +842,95 @@ export default function CourtsMap({
     setMapType(newMapType);
   };
 
+  // Handle "Add Court" FAB click
+  const handleAddCourtClick = () => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsPlacementMode(true);
+    setSelectedCluster(null);
+  };
+
+  // Handle map click during placement mode
+  const handleMapClick = (evt: { lngLat: { lat: number; lng: number } }) => {
+    if (!isPlacementMode) return;
+    setPendingCourtLocation({ lat: evt.lngLat.lat, lng: evt.lngLat.lng });
+    setIsPlacementMode(false);
+    setIsCreateModalOpen(true);
+  };
+
+  // Handle court creation submission
+  const handleCreateCourt = async (data: {
+    cluster_group_name: string;
+    name: string | null;
+    type: string;
+    lat: number;
+    lng: number;
+    surface: string;
+    is_public: boolean;
+    has_lights: boolean | null;
+  }) => {
+    try {
+      const created = await createCourt({
+        name: data.cluster_group_name,
+        type: data.type,
+        location: { lat: data.lat, lng: data.lng },
+        surface: data.surface,
+        is_public: data.is_public,
+        has_lights: data.has_lights,
+      });
+
+      setCourts(prev => [...prev, { ...created, cluster_group_name: data.cluster_group_name, name: data.name }]);
+      toast.success('Court added', { description: data.cluster_group_name });
+      setIsCreateModalOpen(false);
+      setPendingCourtLocation(null);
+
+      // Fly to the new court so the user sees it appear
+      if (mapRef.current) {
+        mapRef.current.flyTo({
+          center: [data.lng, data.lat],
+          zoom: Math.max(viewport.zoom, 15),
+          duration: 800,
+        });
+      }
+
+      // Invalidate cache for current viewport and refetch so the court persists
+      const { bbox } = calculateBoundingBox(viewport);
+      const cacheKey = createCacheKey(bbox);
+      if (courtCache.current.has(cacheKey)) {
+        courtCache.current.delete(cacheKey);
+        const orderIndex = cacheKeysOrder.current.indexOf(cacheKey);
+        if (orderIndex > -1) cacheKeysOrder.current.splice(orderIndex, 1);
+        delete courtsByBbox.current[cacheKey];
+      }
+      setTimeout(() => fetchCourtsForArea(), 500);
+
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap', action: 'handleCreateCourt' },
+        extra: { lat: data.lat, lng: data.lng },
+      });
+
+      if (err instanceof AuthExpiredError) {
+        toast.error('Session expired', { description: 'Please sign in again to continue.' });
+        setIsCreateModalOpen(false);
+        setPendingCourtLocation(null);
+        await logout();
+        router.push('/auth/login');
+        return;
+      }
+
+      if (err instanceof NetworkError) {
+        toast.error('Unable to connect', { description: 'The server may be temporarily unavailable.' });
+      } else if (err instanceof APIError) {
+        toast.error('Failed to add court', { description: err.message });
+      } else {
+        toast.error('Failed to add court', { description: 'Please try again.' });
+      }
+    }
+  };
+
   // Handle edit button click
   const handleEditClick = (court: Court) => {
     if (!user) {
@@ -844,6 +940,63 @@ export default function CourtsMap({
     setEditingCourt(court);
     setIsEditModalOpen(true);
     setSelectedCluster(null); // Close popup when opening edit modal
+  };
+
+  // Handle admin delete
+  const handleDeleteCourt = async (court: Court) => {
+    try {
+      await deleteCourt(court.id);
+      setCourts(prev => prev.filter(c => c.id !== court.id));
+      setSelectedCluster(null);
+      toast.success('Court deleted');
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap', action: 'handleDeleteCourt' },
+        extra: { courtId: court.id },
+      });
+      if (err instanceof AuthExpiredError) {
+        toast.error('Session expired', { description: 'Please sign in again.' });
+        await logout();
+        router.push('/auth/login');
+        return;
+      }
+      if (err instanceof NetworkError) {
+        toast.error('Unable to connect', { description: 'Please try again.' });
+      } else if (err instanceof APIError) {
+        toast.error('Delete failed', { description: err.message });
+      } else {
+        toast.error('Delete failed', { description: 'Please try again.' });
+      }
+    }
+  };
+
+  // Handle contributor deletion request
+  const handleRequestDeletion = async (court: Court) => {
+    try {
+      await requestCourtDeletion(court.id);
+      setSelectedCluster(null);
+      toast.success('Deletion request submitted', {
+        description: 'An admin will review your request.',
+      });
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { component: 'CourtsMap', action: 'handleRequestDeletion' },
+        extra: { courtId: court.id },
+      });
+      if (err instanceof AuthExpiredError) {
+        toast.error('Session expired', { description: 'Please sign in again.' });
+        await logout();
+        router.push('/auth/login');
+        return;
+      }
+      if (err instanceof NetworkError) {
+        toast.error('Unable to connect', { description: 'Please try again.' });
+      } else if (err instanceof APIError) {
+        toast.error('Request failed', { description: err.message });
+      } else {
+        toast.error('Request failed', { description: 'Please try again.' });
+      }
+    }
   };
 
   // Handle save from edit modal
@@ -980,6 +1133,33 @@ export default function CourtsMap({
         </div>
       )}
 
+      {/* Placement Mode Banner */}
+      {isPlacementMode && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 flex items-center gap-3 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+          <span className="text-sm font-medium">Click the map to place your court</span>
+          <button
+            onClick={() => setIsPlacementMode(false)}
+            className="text-blue-200 hover:text-white text-sm underline"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Add Court FAB - Bottom Right above map type toggle */}
+      {!isPlacementMode && (
+        <button
+          onClick={handleAddCourtClick}
+          className="absolute bottom-20 right-4 z-10 flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-full shadow-lg transition-colors"
+          title={user ? 'Add a new court' : 'Sign in to add a court'}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add Court
+        </button>
+      )}
+
       {/* Refresh Button Overlay - Centered */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
         <button
@@ -1027,7 +1207,8 @@ export default function CourtsMap({
         onError={(error) => {
           // Map error occurred
         }}
-        style={{ width: '100%', height: '100%' }}
+        onClick={handleMapClick}
+        style={{ width: '100%', height: '100%', cursor: isPlacementMode ? 'crosshair' : 'grab' }}
         mapStyle={mapStyle}
         attributionControl={false}
         logoPosition="bottom-left"
@@ -1130,31 +1311,51 @@ export default function CourtsMap({
                 <p><span className="font-medium">School:</span> {selectedCluster.properties.school ? 'Yes' : 'No'}</p>
               </div>
               
-              <div className="flex justify-center">
-                <button
-                  onClick={() => {
-                    const courtDetail = {
-                      id: selectedCluster.properties.id || selectedCluster.id,
-                      name: selectedCluster.properties.name || 'Unknown Court',
-                      type: selectedCluster.properties.type || 'unknown',
-                      lat: selectedCluster.geometry.coordinates[1],
-                      lng: selectedCluster.geometry.coordinates[0],
-                      surface: selectedCluster.properties.surface || 'Unknown',
-                      is_public: selectedCluster.properties.is_public ?? null, // Preserve null for unknown access
-                      has_lights: selectedCluster.properties.has_lights ?? null, // Preserve null for unknown
-                      school: selectedCluster.properties.school || false,
-                      cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString()
-                    };
-                    handleEditClick(courtDetail);
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors max-w-[calc(100%-1.5rem)]"
-                >
-                  {!user && <Lock className="h-3.5 w-3.5" />}
-                  Edit Court
-                </button>
-              </div>
+              {(() => {
+                const courtDetail: Court = {
+                  id: selectedCluster.properties.id || selectedCluster.id,
+                  name: selectedCluster.properties.name || 'Unknown Court',
+                  type: selectedCluster.properties.type || 'unknown',
+                  lat: selectedCluster.geometry.coordinates[1],
+                  lng: selectedCluster.geometry.coordinates[0],
+                  surface: selectedCluster.properties.surface || 'Unknown',
+                  is_public: selectedCluster.properties.is_public ?? null,
+                  has_lights: selectedCluster.properties.has_lights ?? null,
+                  school: selectedCluster.properties.school || false,
+                  cluster_group_name: selectedCluster.properties.cluster_group_name || 'Unknown Group',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                };
+                return (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditClick(courtDetail)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      {!user && <Lock className="h-3.5 w-3.5" />}
+                      Edit Court
+                    </button>
+                    {user && user.role === 'admin' && (
+                      <button
+                        onClick={() => handleDeleteCourt(courtDetail)}
+                        className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+                        title="Delete court"
+                      >
+                        Delete
+                      </button>
+                    )}
+                    {user && user.role !== 'admin' && (
+                      <button
+                        onClick={() => handleRequestDeletion(courtDetail)}
+                        className="px-3 py-2 border border-red-300 hover:bg-red-50 text-red-600 text-sm font-medium rounded-lg transition-colors"
+                        title="Request deletion"
+                      >
+                        Request Delete
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </Popup>
         )}
@@ -1185,6 +1386,20 @@ export default function CourtsMap({
         }}
         court={editingCourt}
         onSave={handleSaveCourt}
+        availableSports={availableSports}
+        availableSurfaces={availableSurfaces}
+      />
+
+      {/* Create Court Modal */}
+      <CreateCourtModal
+        isOpen={isCreateModalOpen}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setPendingCourtLocation(null);
+        }}
+        lat={pendingCourtLocation?.lat ?? null}
+        lng={pendingCourtLocation?.lng ?? null}
+        onCreated={handleCreateCourt}
         availableSports={availableSports}
         availableSurfaces={availableSurfaces}
       />

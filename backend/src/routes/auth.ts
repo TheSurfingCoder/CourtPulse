@@ -70,6 +70,12 @@ router.post(
     const verifyUrl = `${baseUrl}/auth/verify-magic-link?token=${token}`;
     const sent = await sendMagicLinkEmail(email, verifyUrl);
 
+    // In dev, always log the link so you can sign in without relying on email
+    // delivery (corporate filters block localhost links).
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[Auth] Magic link:', verifyUrl);
+    }
+
     if (!sent.ok) {
       // Email send failed — user just saw "check your email" but nothing was sent.
       // Capture as a Sentry Issue so we get alerted; tagged so we can filter the

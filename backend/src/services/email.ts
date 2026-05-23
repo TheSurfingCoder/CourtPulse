@@ -30,3 +30,33 @@ export async function sendMagicLinkEmail(to: string, verifyUrl: string): Promise
   }
   return { ok: true };
 }
+
+const ADMIN_EMAIL = 'matthewmctighe1@gmail.com';
+
+export async function sendDeletionRequestEmail(params: {
+  courtId: number;
+  courtName: string;
+  requesterEmail: string;
+  reason: string | null;
+}): Promise<void> {
+  const { courtId, courtName, requesterEmail, reason } = params;
+
+  if (!resend) {
+    throw new Error('Email service not configured — cannot send deletion request');
+  }
+
+  await resend.emails.send({
+    from: fromEmail,
+    to: [ADMIN_EMAIL],
+    subject: `Court deletion request: ${courtName}`,
+    html: `
+      <p><strong>${requesterEmail}</strong> has requested that the following court be deleted:</p>
+      <ul>
+        <li><strong>Court:</strong> ${courtName} (ID: ${courtId})</li>
+        <li><strong>Reason:</strong> ${reason || 'No reason provided'}</li>
+        <li><strong>Requested by:</strong> ${requesterEmail}</li>
+      </ul>
+      <p>Log in to CourtPulse as admin to delete this court.</p>
+    `,
+  });
+}
