@@ -1253,7 +1253,14 @@ export default function CourtsMap({
               key={uniqueKey}
               longitude={cluster.geometry.coordinates[0]}
               latitude={cluster.geometry.coordinates[1]}
-              onClick={() => handleClusterClick(cluster)}
+              onClick={(e) => {
+                // Stop the click from bubbling to the map's onClick. Otherwise in
+                // placement mode, clicking an existing marker would also drop a new
+                // court at that location (maplibre attaches map click to the canvas
+                // container, which contains marker DOM elements).
+                e.originalEvent.stopPropagation();
+                handleClusterClick(cluster);
+              }}
             >
               <div
                 className="cursor-pointer transform hover:scale-110 transition-transform"

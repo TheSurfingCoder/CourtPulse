@@ -94,9 +94,13 @@ export class CourtModel {
 
     static async create(courtData: CourtInput): Promise<Court> {
         const { name, type, lat, lng, surface, is_public, has_lights } = courtData;
+        // Store the user-entered name in both facility_name (used by reads via
+        // COALESCE(facility_name, 'Unknown') as cluster_group_name) and fallback_name
+        // (legacy fallback for the per-court name). Without setting facility_name,
+        // a refetch immediately after create would return cluster_group_name='Unknown'.
         const result = await pool.query(`
-            INSERT INTO courts (fallback_name, sport, centroid, surface_type, is_public, has_lights, region)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
+            INSERT INTO courts (facility_name, fallback_name, sport, centroid, surface_type, is_public, has_lights, region)
+            VALUES ($1::text, $1::varchar, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
             RETURNING 
                 id, 
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
