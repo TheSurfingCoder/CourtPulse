@@ -270,6 +270,7 @@ export async function createCourt(data: {
   surface?: string;
   is_public?: boolean;
   has_lights?: boolean | null;
+  court_name?: string | null;
 }): Promise<Court> {
   try {
     const token = getStoredToken();

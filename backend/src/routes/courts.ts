@@ -189,7 +189,7 @@ router.post(
   authenticateUser,
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
-    const { name, type, location, surface, is_public, has_lights } = req.body;
+    const { name, type, location, surface, is_public, has_lights, court_name } = req.body;
 
     // Validation - throw specific exceptions
     const missingFields: string[] = [];
@@ -217,7 +217,8 @@ router.post(
       lng: location.lng,
       surface: surface || 'other',
       is_public: is_public ?? true,
-      has_lights: has_lights ?? null
+      has_lights: has_lights ?? null,
+      court_name: court_name ?? null
     });
 
     await pool.query(`UPDATE users SET edits_count = edits_count + 1 WHERE id = $1`, [req.user!.id]);

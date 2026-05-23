@@ -879,9 +879,10 @@ export default function CourtsMap({
         surface: data.surface,
         is_public: data.is_public,
         has_lights: data.has_lights,
+        court_name: data.name,
       });
 
-      setCourts(prev => [...prev, { ...created, cluster_group_name: data.cluster_group_name, name: data.name }]);
+      setCourts(prev => [...prev, { ...created, cluster_group_name: data.cluster_group_name, name: data.name ?? created.name }]);
       toast.success('Court added', { description: data.cluster_group_name });
       setIsCreateModalOpen(false);
       setPendingCourtLocation(null);
