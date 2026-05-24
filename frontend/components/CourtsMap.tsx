@@ -929,6 +929,10 @@ export default function CourtsMap({
       } else {
         toast.error('Failed to add court', { description: 'Please try again.' });
       }
+
+      // Re-throw so the modal's submit handler doesn't clear the form on failure.
+      // The user-facing error has already been toasted above.
+      throw err;
     }
   };
 

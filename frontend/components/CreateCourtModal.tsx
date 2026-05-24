@@ -79,7 +79,12 @@ export default function CreateCourtModal({
         is_public: formData.is_public === 'true',
         has_lights: formData.has_lights === 'true' ? true : formData.has_lights === 'false' ? false : null,
       });
+      // Only reset the form on success. On failure the parent re-throws after
+      // showing an error toast, so the user can fix and retry without re-typing.
       setFormData({ cluster_group_name: '', name: '', type: '', surface: '', is_public: 'true', has_lights: '' });
+    } catch {
+      // User-facing error already toasted by the parent; swallow here so React
+      // doesn't log an unhandled rejection.
     } finally {
       setIsSubmitting(false);
     }
