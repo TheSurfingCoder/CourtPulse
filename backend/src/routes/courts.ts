@@ -8,6 +8,7 @@ import { searchRateLimit } from '../middleware/rateLimiter';
 import { asyncHandler } from '../middleware/errorHandler';
 import { authenticateUser, requireAuth, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
 import { setAuditContext } from '../utils/auditContext';
+import { sendDeletionRequestEmail } from '../services/email';
 import {
   InvalidIdException,
   InvalidBboxException,
@@ -188,7 +189,7 @@ router.post(
   authenticateUser,
   requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
-    const { name, type, location, surface, is_public, has_lights } = req.body;
+    const { name, type, location, surface, is_public, has_lights, court_name } = req.body;
 
     // Validation - throw specific exceptions
     const missingFields: string[] = [];
@@ -214,9 +215,10 @@ router.post(
       type,
       lat: location.lat,
       lng: location.lng,
-      surface: surface || 'Unknown',
+      surface: surface || 'other',
       is_public: is_public ?? true,
-      has_lights: has_lights ?? null
+      has_lights: has_lights ?? null,
+      court_name: court_name ?? null
     });
 
     await pool.query(`UPDATE users SET edits_count = edits_count + 1 WHERE id = $1`, [req.user!.id]);
@@ -315,6 +317,40 @@ router.put(
       success: true,
       data: court
     });
+  })
+);
+
+/**
+ * POST /api/courts/:id/deletion-request
+ * Request deletion of a court (contributor flow — emails admin for review)
+ */
+router.post(
+  '/:id/deletion-request',
+  authenticateUser,
+  requireAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) throw new InvalidIdException('court');
+
+    const court = await CourtModel.findById(id);
+    if (!court) throw new CourtNotFoundException(id);
+
+    const { reason } = req.body;
+    const requester = req.user!;
+
+    await sendDeletionRequestEmail({
+      courtId: id,
+      courtName: court.cluster_group_name || court.name || `Court #${id}`,
+      requesterEmail: requester.email,
+      reason: reason || null,
+    });
+
+    Sentry.logger.info('Court deletion requested', {
+      courtId: id,
+      requestedBy: requester.email,
+    });
+
+    return res.json({ success: true, message: 'Deletion request submitted' });
   })
 );
 

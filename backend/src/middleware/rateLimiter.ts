@@ -32,11 +32,12 @@ export const searchRateLimit = rateLimit({
 // Rate limiter for magic link requests.
 // Keyed by normalized email rather than IP — one shared office IP shouldn't
 // block legitimate users, but one email address being bombarded should.
-// 1 request per email per minute is enough to stop email bombing while staying
-// invisible to a user who fat-fingers the submit button.
+// 3 requests per email per minute — tolerates a user retrying a couple times
+// (e.g. fat-fingered submit, or the first link landed in spam) while still
+// blocking email bombing.
 export const magicLinkRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 1,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   // Skip the limiter entirely if there's no email in the body. The route handler

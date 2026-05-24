@@ -34,6 +34,7 @@ export interface CourtInput {
     is_public: boolean;
     has_lights?: boolean | null;
     cluster_group_name?: string | null;
+    court_name?: string | null;
     school?: boolean;
 }
 
@@ -52,8 +53,8 @@ export class CourtModel {
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
@@ -75,8 +76,8 @@ export class CourtModel {
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
@@ -93,17 +94,23 @@ export class CourtModel {
     }
 
     static async create(courtData: CourtInput): Promise<Court> {
-        const { name, type, lat, lng, surface, is_public, has_lights } = courtData;
+        const { name, type, lat, lng, surface, is_public, has_lights, court_name } = courtData;
+        // Store the user-entered name in both facility_name (used by reads via
+        // COALESCE(facility_name, 'Unknown') as cluster_group_name) and fallback_name
+        // (legacy fallback for the per-court name). Without setting facility_name,
+        // a refetch immediately after create would return cluster_group_name='Unknown'.
+        // The optional court_name goes into individual_court_name; reads COALESCE it
+        // over fallback_name so when present it takes precedence as the per-court label.
         const result = await pool.query(`
-            INSERT INTO courts (fallback_name, sport, centroid, surface_type, is_public, has_lights, region)
-            VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
-            RETURNING 
-                id, 
+            INSERT INTO courts (facility_name, fallback_name, individual_court_name, sport, centroid, surface_type, is_public, has_lights, region)
+            VALUES ($1::text, $1::varchar, $8::varchar, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
+            RETURNING
+                id,
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
-                sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                sport as type,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
@@ -112,7 +119,7 @@ export class CourtModel {
                 region,
                 created_at, 
                 updated_at
-        `, [name, type, lng, lat, surface, is_public, has_lights ?? null]);
+        `, [name, type, lng, lat, surface, is_public, has_lights ?? null, court_name ?? null]);
         return result.rows[0];
     }
 

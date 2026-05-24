@@ -206,6 +206,106 @@ export async function updateCourt(
 }
 
 /**
+ * Delete a court (admin only)
+ */
+export async function deleteCourt(id: number): Promise<void> {
+  try {
+    const token = getStoredToken();
+    const response = await fetch(`${API_URL}/api/courts/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw parseAPIError(response.status, errorData);
+    }
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new NetworkError('Unable to connect to server.');
+    }
+    throw new NetworkError('An unexpected error occurred while deleting the court');
+  }
+}
+
+/**
+ * Request deletion of a court (contributor flow — emails admin)
+ */
+export async function requestCourtDeletion(id: number, reason?: string): Promise<void> {
+  try {
+    const token = getStoredToken();
+    const response = await fetch(`${API_URL}/api/courts/${id}/deletion-request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ reason: reason || null }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw parseAPIError(response.status, errorData);
+    }
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new NetworkError('Unable to connect to server.');
+    }
+    throw new NetworkError('An unexpected error occurred while submitting the deletion request');
+  }
+}
+
+/**
+ * Create a new court (requires auth token)
+ */
+export async function createCourt(data: {
+  name: string;
+  type: string;
+  location: { lat: number; lng: number };
+  surface?: string;
+  is_public?: boolean;
+  has_lights?: boolean | null;
+  court_name?: string | null;
+}): Promise<Court> {
+  try {
+    const token = getStoredToken();
+    const response = await fetch(`${API_URL}/api/courts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw parseAPIError(response.status, errorData);
+    }
+
+    const result = await response.json();
+
+    if (!result.success || !result.data) {
+      throw new APIError(result.error || 'Invalid response format', result.code || 'INVALID_RESPONSE', 500);
+    }
+
+    return result.data as Court;
+
+  } catch (error) {
+    if (error instanceof APIError) throw error;
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new NetworkError('Unable to connect to server. Please check your internet connection.');
+    }
+    throw new NetworkError('An unexpected error occurred while creating the court');
+  }
+}
+
+/**
  * Get courts metadata (available sports and surface types)
  */
 export async function getMetadata(): Promise<CourtsMetadata> {
