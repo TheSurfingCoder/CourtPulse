@@ -53,8 +53,8 @@ export class CourtModel {
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
@@ -76,8 +76,8 @@ export class CourtModel {
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
                 sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
@@ -104,13 +104,13 @@ export class CourtModel {
         const result = await pool.query(`
             INSERT INTO courts (facility_name, fallback_name, individual_court_name, sport, centroid, surface_type, is_public, has_lights, region)
             VALUES ($1::text, $1::varchar, $8::varchar, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, $6, $7, 'sf_bay')
-            RETURNING 
-                id, 
+            RETURNING
+                id,
                 COALESCE(individual_court_name, fallback_name, 'Unknown Court') as name,
                 COALESCE(facility_name, 'Unknown') as cluster_group_name,
-                sport as type, 
-                ST_X(centroid::geometry) as lat, 
-                ST_Y(centroid::geometry) as lng,
+                sport as type,
+                ST_Y(centroid::geometry) as lat,
+                ST_X(centroid::geometry) as lng,
                 COALESCE(surface_type::text, 'Unknown') as surface, 
                 is_public,
                 has_lights,
